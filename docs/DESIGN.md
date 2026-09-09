@@ -1,0 +1,94 @@
+# Tower 設計メモ
+
+## 背景
+
+AIが進化するにつれ、開発者はコードを見ずに、複数プロジェクトで複数のエージェントに指示を出し、結果を見て判断する働き方になる。
+VS Code は「1ウィンドウ＝1プロジェクト」「ファイルが中心単位」なので、この働き方には合わない。
+Tower は **「エージェントのセッション」を中心単位** にした管制塔。
+
+## 痛み → 機能
+
+| 痛み | 機能 |
+|---|---|
+| 許可待ちに気づかない | 判断インボックス（全セッション横断の待ち行列）+ デスクトップ通知 + タブタイトルの件数 |
+| 進捗が分からない | カードに「今やってること」1行を常時表示（ツール呼び出しを日本語化） |
+| 結果確認が面倒 / 文章が読みづらい | 報告カード（依頼 / 結果 / やったこと / 変更ファイル / 判断が必要 / 次の一手）を毎ターン自動生成 |
+| 起動が面倒 | プロジェクト選択 + 指示だけで起動。`n` キー、Ctrl+Enter |
+| たまにコードも見たい | 年表の詳細（コマンド・入力）を展開。diff/Monaco はフェーズ2 |
+
+## 技術判断
+
+- **TypeScript 一本（React + Node）**: Claude Agent SDK / Codex SDK が TS 本家。AI が一番書き慣れている。型を共有できる
+- **Agent SDK を直接使う**（`claude -p` の生パースはしない）: 許可要求・質問・結果が構造化イベントで来る。`canUseTool` で許可と AskUserQuestion の両方が取れる（2026-09-09 に実験で確認: Max の OAuth ログインのまま `apiKeySource: none` で動作）
+- **報告書式はシステムプロンプト追記で強制**: `【報告】` マーカー + 固定ラベルを `report.ts` で解析。崩れた時は原文先頭を載せる保険（将来: Haiku で整形し直す）
+- **危険度は正規表現ヒューリスティック**（`humanize.ts`）: `rm -rf` / `git push --force` / `reset --hard` などを高、`git push` / `npm install` などを中
+- **ブラウザアプリ + ローカルサーバー**: Electron 化は後回し。`host: 0.0.0.0` にすればスマホからも見える
+- **SQLite は Node 組み込み `node:sqlite`**: ネイティブビルド不要
+- **VS Code 拡張にしない**: マルチプロジェクトの思想と合わないため
+
+## データモデル（packages/shared）
+
+- `Session`: id / project / title / status / activity / pending / report / turns / costUsd / changedFiles …
+- `PendingRequest`: `permission`（headline, detail, risk, canAlwaysAllow）| `question`（questions[]）
+- `Report`: request / outcome / summary[] / changedFiles[] / needsDecision / nextStep / raw
+- `TimelineItem`: user / assistant_text / tool_use / tool_result / permission / system / error
+- WS `ServerEvent`: snapshot / session / session_removed / timeline
+
+## 状態遷移
+
+```
+starting → running ⇄ waiting_permission
+                   ⇄ waiting_question
+        → idle（報告あり・指示待ち）→ running（追加指示）
+        → done / error / stopped
+```
+
+## ロードマップ
+
+### フェーズ1（完了: 2026-09-09）
+- Claude セッション起動 / 許可 / 質問 / 追加指示 / 停止 / 削除
+- フリート画面・判断インボックス・報告カード・年表
+- ブラウザ通知、`?s=<id>` ディープリンク
+
+### フェーズ2（進行中: 2026-09-10）
+できたもの:
+- **再開（resume）**: 止まったセッションに指示を送ると `agentSessionId` で続きから
+- **許可の方針**: 編集は自動 / 毎回確認 / おまかせ（SDK の permissionMode）
+- **並列の許可要求**: 1メッセージで複数ツールが同時に許可を求めても待ち行列で1件ずつ捌く（ラウンド1で発見した永久停止バグの修正）
+- **差分表示**: git があれば作業ツリーの diff、無ければ触ったファイルの現在の中身
+- **裏取り（自動チェック）**: 報告のたびに `npm test` 等を Tower が走らせ、報告と食い違えば警告。「エージェントの『テスト通った』を信じられない」への答え
+- **利用者役AIによるドッグフーディング**: `npm run dogfood`。7シナリオを並列で投げて採点と改善提案を出す
+
+- **VS Code / ターミナル連携（bridge）**: Claude Code の hooks（SessionStart / UserPromptSubmit / PreToolUse / Notification / Stop / SessionEnd）を `~/.claude/settings.json` に書き、`apps/server/hooks/tower-hook.mjs` が Tower に転送。`PermissionRequest` hook は Tower の回答を待ち（既定 90 秒）、許可/拒否を返す。時間切れなら `{}` を返して元の画面へ。Tower 自身のセッションは env `TOWER_MANAGED=1` で除外。外部セッションへの指示送信は resume による引き継ぎ
+
+- **Codex 対応**: `agents/codex.ts`（`@openai/codex-sdk`、バイナリ同梱）。`AgentRunner` インターフェース（`agents/types.ts`）で Claude と差し替え可能。codex exec は非対話なので許可確認の代わりに砂場（workspace-write・ネットワーク無し）で安全側に倒す。報告書式は最初の指示の前置きとして渡す。**未ログインのため実走は未検証**（`npx codex login` 後に要確認）
+
+残り:
+- **worktree 分離**: 同一プロジェクトに複数走らせる
+- **報告の再整形**: 書式が崩れた時に Haiku で整形
+- **Monaco**: たまに直したい時の編集
+- 外部セッションの自動掃除（終了して1日経ったものを隠す等）
+
+### ドッグフーディングで分かったこと（ラウンド1, 2026-09-09）
+- 並列ツール呼び出しで2件目の許可要求が消えるバグ → 修正
+- 「テスト通った」と報告して実際は落ちている（半分はテンプレの不備、半分はエージェントの確認不足）→ 裏取り機能
+- 「README を直した」と言われても中身が見えない → 差分表示
+- 進捗・許可の見出しが英語（Bash の description）→ 日本語で書くよう指示
+- 報告に `this.items[index + 1]` のようなコード片 → 平易な言葉で書くよう指示
+- 利用者役AIの「分かりやすさ」平均 3.3/5（7本）。ラウンド2で再計測
+
+### ラウンド2（2026-09-10、上の修正後）
+- 分かりやすさ 3.3 → **4.3/5**、達成 yes 3→4本・no 3→**0本**、並列許可バグ再発なし、質問フロー完走
+- 新たな指摘 → 反映済み: 「完了」なのに「次の一手: 確認して」の矛盾（→ 目視が要るなら「一部完了」）、質問で決めた内容を報告に書く、依頼外の変更に印、専門用語に括弧で説明、許可画面で編集の変更前後を見せる、報告の変更ファイル名クリックで差分
+- 保留（フェーズ3候補）: 画面の見た目確認をスクリーンショットで自動化して報告に添付、「修正前: 失敗 N 件 → 修正後: 全部成功」のような対比表示
+
+### フェーズ3
+- Electron 化（トレイ常駐・ネイティブ通知）
+- スマホ最適化レイアウト（インボックス専用画面）
+- 履歴検索、コストダッシュボード
+- 1つの依頼を複数エージェント/モデルに投げて比較
+
+## 既知の制約
+- サーバー再起動で動作中セッションは `stopped` になる
+- 認証無し。LAN公開時は自宅内限定で
+- Windows で開発。macOS/Linux でも動くはずだが未確認

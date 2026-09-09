@@ -1,0 +1,19 @@
+{
+  "name": "tower",
+  "private": true,
+  "version": "0.1.0",
+  "description": "AIエージェント管制塔 — 複数プロジェクト×複数エージェントを一画面で指揮する",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "concurrently -n server,web -c blue,green \"npm run dev -w apps/server\" \"npm run dev -w apps/web\"",
+    "typecheck": "npm run typecheck -w apps/server && npm run typecheck -w apps/web && npm run typecheck -w apps/user-agent",
+    "dogfood": "npm run start -w apps/user-agent --"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2",
+    "typescript": "^5.7.3"
+  }
+}

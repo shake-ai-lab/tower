@@ -1,0 +1,145 @@
+import { useEffect, useMemo, useRef, useState } from 'react';
+import type { Session, SessionStatus } from '@tower/shared';
+import { BridgeMenu } from './components/BridgeMenu';
+import { Inbox } from './components/Inbox';
+import { NewSessionDialog } from './components/NewSessionDialog';
+import { SessionCard } from './components/SessionCard';
+import { SessionDetail } from './components/SessionDetail';
+import { btn, useTick } from './lib';
+import { useStore } from './store';
+
+// 並び順: 人を待っているもの → 作業中 → 報告あり → その他。同順位は新しい順
+const ORDER: Record<SessionStatus, number> = {
+  waiting_permission: 0,
+  waiting_question: 0,
+  running: 1,
+  starting: 1,
+  idle: 2,
+  error: 3,
+  done: 4,
+  stopped: 4,
+};
+
+function notify(s: Session) {
+  if (!('Notification' in window) || Notification.permission !== 'granted' || !s.pending) return;
+  const p = s.pending;
+  const title = `${s.project.name}: ${p.kind === 'permission' ? '許可待ち' : '質問があります'}`;
+  const body = p.kind === 'permission' ? p.headline : (p.questions[0]?.question ?? '');
+  try {
+    new Notification(title, { body, tag: p.id });
+  } catch {
+    /* ブラウザによっては投げる */
+  }
+}
+
+export default function App() {
+  const sessions = useStore((s) => s.sessions);
+  const selectedId = useStore((s) => s.selectedId);
+  const select = useStore((s) => s.select);
+  const connected = useStore((s) => s.connected);
+  const [dialog, setDialog] = useState(false);
+  const [notifPerm, setNotifPerm] = useState<NotificationPermission>(
+    'Notification' in window ? Notification.permission : 'denied',
+  );
+  useTick(15000);
+
+  const list = useMemo(
+    () => Object.values(sessions).sort((a, b) => ORDER[a.status] - ORDER[b.status] || b.updatedAt - a.updatedAt),
+    [sessions],
+  );
+  const waiting = list.filter((s) => s.pending).length;
+  const working = list.filter((s) => s.status === 'running' || s.status === 'starting').length;
+
+  useEffect(() => {
+    document.title = waiting ? `(${waiting}) Tower` : 'Tower';
+  }, [waiting]);
+
+  // ?new=1 で「新しいタスク」を開いた状態にする（ショートカットや共有リンク用）
+  useEffect(() => {
+    if (new URLSearchParams(location.search).has('new')) setDialog(true);
+  }, []);
+
+  // URL の ?s=<id> で開いた時はそのセッションを選択（通知や共有リンク用）
+  useEffect(() => {
+    const id = new URLSearchParams(location.search).get('s');
+    if (id && sessions[id] && selectedId !== id) select(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [Object.keys(sessions).length]);
+
+  // 新しく判断待ちになったものだけ通知する
+  const seen = useRef(new Set<string>());
+  useEffect(() => {
+    for (const s of list) {
+      if (s.pending && !seen.current.has(s.pending.id)) {
+        seen.current.add(s.pending.id);
+        notify(s);
+      }
+    }
+  }, [list]);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement | null)?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+      if (e.key === 'n' && !dialog) setDialog(true);
+      if (e.key === 'Escape') select(null);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [dialog, select]);
+
+  return (
+    <div className="h-full flex flex-col">
+      <header className="h-12 shrink-0 border-b border-zinc-800 flex items-center gap-4 px-4 bg-[#0c0e12]">
+        <div className="font-bold tracking-wide">Tower</div>
+        <div className="text-xs text-zinc-500 flex items-center gap-1.5">
+          <span className={`inline-block w-2 h-2 rounded-full ${connected ? 'bg-emerald-400' : 'bg-red-500'}`} />
+          {connected ? '接続中' : '再接続中…'}
+        </div>
+        <div className="text-xs text-zinc-400">
+          作業中 <b className="text-zinc-200">{working}</b> · 判断待ち{' '}
+          <b className={waiting ? 'text-amber-300' : 'text-zinc-200'}>{waiting}</b> · 全 {list.length}
+        </div>
+        <div className="ml-auto flex items-center gap-2">
+          <BridgeMenu />
+          {notifPerm === 'default' && (
+            <button
+              onClick={() => Notification.requestPermission().then(setNotifPerm)}
+              className={`${btn.base} ${btn.ghost} !text-xs`}
+            >
+              通知を有効にする
+            </button>
+          )}
+          <button onClick={() => setDialog(true)} className={`${btn.base} ${btn.primary}`}>
+            ＋ 新しいタスク <span className="opacity-60 text-xs ml-1">n</span>
+          </button>
+        </div>
+      </header>
+
+      <div className="flex-1 flex overflow-hidden">
+        <Inbox />
+
+        <main className="flex-1 overflow-y-auto p-4">
+          {list.length === 0 ? (
+            <div className="h-full flex flex-col items-center justify-center text-zinc-500 gap-3">
+              <div className="text-lg">まだセッションがありません</div>
+              <button onClick={() => setDialog(true)} className={`${btn.base} ${btn.primary}`}>
+                最初のタスクを任せる
+              </button>
+            </div>
+          ) : (
+            <div className="grid gap-3 grid-cols-[repeat(auto-fill,minmax(300px,1fr))]">
+              {list.map((s) => (
+                <SessionCard key={s.id} s={s} selected={s.id === selectedId} onClick={() => select(s.id)} />
+              ))}
+            </div>
+          )}
+        </main>
+
+        {selectedId && sessions[selectedId] && <SessionDetail id={selectedId} />}
+      </div>
+
+      <NewSessionDialog open={dialog} onClose={() => setDialog(false)} />
+    </div>
+  );
+}
