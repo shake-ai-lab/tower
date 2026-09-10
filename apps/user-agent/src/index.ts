@@ -208,7 +208,12 @@ async function judge(tr: Track): Promise<Judge> {
     `## 質問された内容\n${tr.questions.map((q) => JSON.stringify(q.q.questions.map((x) => x.question))).join('\n') || '(なし)'}`,
     `## 報告カード（アプリが整形したもの）\n${tr.reports.map((r) => JSON.stringify({ ...r.r, raw: undefined }, null, 1)).join('\n') || '(報告なし)'}`,
     `## 報告の原文\n${tr.reports.map((r) => r.r.raw).join('\n---\n') || '(なし)'}`,
-    tr.verify ? `## 機械的な検証（${tr.sc.verify}）: ${tr.verify.ok ? '成功' : '失敗'}\n${tr.verify.output.slice(0, 600)}` : '',
+    tr.merge
+      ? `## 別の作業場所からの取り込み（あなたが報告後に「元のプロジェクトに取り込む」ボタンを押した結果。エージェントはこの操作を知らない）: ${tr.merge.ok ? '成功' : '失敗'}\n${tr.merge.message}`
+      : '',
+    tr.verify
+      ? `## 機械的な検証（${tr.sc.verify}${tr.merge ? '、取り込み後に元のプロジェクトで実行' : ''}）: ${tr.verify.ok ? '成功' : '失敗'}\n${tr.verify.output.slice(0, 600)}`
+      : '',
     s.verification
       ? `## アプリが画面に出した自動チェック（${s.verification.command}）: ${s.verification.ok === null ? '実行中' : s.verification.ok ? '裏取りOK' : '裏取りNG'}`
       : '## アプリの自動チェック: 表示なし',
