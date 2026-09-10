@@ -10,7 +10,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { PendingPermission, PendingQuestion, Report, Session, TimelineItem } from '@tower/shared';
+import type { MergeResult, PendingPermission, PendingQuestion, Report, Session, TimelineItem } from '@tower/shared';
 import { llmJson } from './llm.ts';
 import { SCENARIOS, type Scenario } from './scenarios.ts';
 
@@ -51,6 +51,8 @@ interface Track {
   allowedCount: Record<string, number>;
   denyOnceUsed: boolean;
   verify?: { ok: boolean; output: string };
+  /** isolate シナリオの「取り込む」結果 */
+  merge?: MergeResult;
   judge?: Judge;
   timeline: TimelineItem[];
   session?: Session;
@@ -258,6 +260,7 @@ function writeReport(runId: string, tracks: Track[]) {
       if (r.r.needsDecision) lines.push(`  - 判断が必要: ${r.r.needsDecision}`);
       if (r.r.nextStep) lines.push(`  - 次の一手: ${r.r.nextStep}`);
     }
+    if (t.merge) lines.push('', `### 取り込み（別の作業場所 → 元のプロジェクト）: ${t.merge.ok ? '成功' : '失敗'} — ${t.merge.message}`);
     if (t.verify) lines.push('', `### 検証 \`${t.sc.verify}\`: ${t.verify.ok ? '成功' : '失敗'}`, '```', t.verify.output.slice(-600), '```');
     if (t.judge) {
       lines.push('', '### 利用者役AIの評価');
@@ -297,7 +300,13 @@ async function main() {
     }
     const s = await api<Session>('/sessions', {
       method: 'POST',
-      body: JSON.stringify({ projectPath: dir, prompt: sc.prompt, model: modelOverride ?? sc.model ?? 'haiku', permissionMode: sc.permissionMode }),
+      body: JSON.stringify({
+        projectPath: dir,
+        prompt: sc.prompt,
+        model: modelOverride ?? sc.model ?? 'haiku',
+        permissionMode: sc.permissionMode,
+        isolate: sc.isolate === true,
+      }),
     });
     tracks.push({
       sc, dir, sessionId: s.id, startedAt: now(), finishedAt: null, finishReason: '', activities: [], permissions: [], questions: [],
@@ -342,6 +351,15 @@ async function main() {
   }
   for (const t of tracks) {
     t.timeline = await api<TimelineItem[]>(`/sessions/${t.sessionId}/timeline`);
+    if (t.sc.isolate) {
+      // 分離した作業場所の成果は「取り込む」までプロジェクトに入らない。利用者がボタンを押すのと同じ操作をする
+      try {
+        t.merge = await api<MergeResult>(`/sessions/${t.sessionId}/merge`, { method: 'POST' });
+      } catch (e) {
+        t.merge = { ok: false, message: (e as Error).message, files: 0 };
+      }
+      console.log(`  [${t.sc.key}] 取り込み: ${t.merge.ok ? '成功' : '失敗'} ${t.merge.message.split('\n')[0]}`);
+    }
     runVerify(t);
     try {
       t.judge = await judge(t);

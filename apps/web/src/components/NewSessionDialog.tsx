@@ -10,11 +10,12 @@ import {
   type ProjectInfo,
 } from '@tower/shared';
 import { api } from '../api';
-import { btn } from '../lib';
+import { btn, isAlive } from '../lib';
 import { useStore } from '../store';
 
 export function NewSessionDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const select = useStore((s) => s.select);
+  const sessions = useStore((s) => s.sessions);
   const [projects, setProjects] = useState<ProjectInfo[]>([]);
   const [agents, setAgents] = useState<Record<AgentKind, AgentAvailability> | null>(null);
   const [projectPath, setProjectPath] = useState('');
@@ -22,8 +23,19 @@ export function NewSessionDialog({ open, onClose }: { open: boolean; onClose: ()
   const [agent, setAgent] = useState<AgentKind>('claude');
   const [model, setModel] = useState<string>('');
   const [perm, setPerm] = useState<PermissionChoice>('acceptEdits');
+  const [isolate, setIsolate] = useState(false);
+  /** 利用者が自分でチェックを触ったら、自動の切り替えをやめる */
+  const [isolateTouched, setIsolateTouched] = useState(false);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+
+  // 同じプロジェクトで別のタスクが動いているなら、ぶつからないように既定で「別の作業場所」にする
+  const busyInProject = Object.values(sessions).some(
+    (s) => s.project.path === projectPath && s.origin !== 'external' && isAlive(s.status) && !s.workspace,
+  );
+  useEffect(() => {
+    if (!isolateTouched) setIsolate(busyInProject);
+  }, [busyInProject, isolateTouched, projectPath]);
 
   useEffect(() => {
     if (!open) return;
@@ -50,9 +62,10 @@ export function NewSessionDialog({ open, onClose }: { open: boolean; onClose: ()
     setBusy(true);
     setErr(null);
     try {
-      const s = await api.create({ projectPath, prompt, agent, model: model || null, permissionMode: perm });
+      const s = await api.create({ projectPath, prompt, agent, model: model || null, permissionMode: perm, isolate });
       select(s.id);
       setPrompt('');
+      setIsolateTouched(false);
       onClose();
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
@@ -65,6 +78,8 @@ export function NewSessionDialog({ open, onClose }: { open: boolean; onClose: ()
   const agentUnavailable = agents?.[agent]?.available === false ? agents[agent].reason : null;
   const permHint = PERMISSION_CHOICES.find((p) => p.value === perm)?.hint ?? '';
   const modelChoices = agent === 'codex' ? CODEX_MODEL_CHOICES : MODEL_CHOICES;
+  // 一覧に無いパス（直接入力）は git かどうか分からないので、チェックは出してサーバー側で確かめる
+  const hasGit = projects.find((p) => p.path === projectPath)?.hasGit ?? true;
 
   return (
     <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4" onClick={onClose}>
@@ -176,6 +191,27 @@ export function NewSessionDialog({ open, onClose }: { open: boolean; onClose: ()
             )}
             {agent === 'claude' && <span className="text-xs text-zinc-600">{permHint}</span>}
           </div>
+          {hasGit && (
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+              <label className="text-xs text-zinc-300 flex items-center gap-1.5 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={isolate}
+                  onChange={(e) => {
+                    setIsolate(e.target.checked);
+                    setIsolateTouched(true);
+                  }}
+                  className="accent-fuchsia-500"
+                />
+                別の作業場所で動かす
+              </label>
+              <span className="text-xs text-zinc-600">
+                {busyInProject
+                  ? 'このプロジェクトでは他のタスクが動いているので、ぶつからないようにコピーで作業するのがおすすめです。終わったら「取り込む」で反映します'
+                  : '元のフォルダを触らず、コピー（git worktree）で作業します。終わったら「取り込む」で元のプロジェクトに反映します'}
+              </span>
+            </div>
+          )}
           <div className="flex items-center gap-3">
             <span className="text-xs text-zinc-600">Ctrl+Enter で起動</span>
             <button

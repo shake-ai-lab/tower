@@ -29,6 +29,7 @@ npm run dogfood -- --only todo-fix     # 一部だけ
 - `apps/server/src/agents/codex.ts` — Codex SDK（codex exec）の同等品。許可確認は無く砂場で動く
 - `apps/server/src/bridge.ts` + `apps/server/hooks/tower-hook.mjs` — VS Code / ターミナルの Claude Code を hooks で観測・許可の橋渡し
 - `apps/server/src/verify.ts` — 報告の裏取り（テスト実行）。`apps/server/src/diff.ts` — 差分
+- `apps/server/src/worktree.ts` — 別の作業場所（git worktree）の作成・取り込み（merge）・後片付け。cwd は必ず `workDir(session)` で取る
 - `apps/server/src/humanize.ts` — ツール呼び出し → 日本語の「今やってること」「許可の見出し」「危険度」
 - `apps/server/src/report.ts` — 【報告】書式（システムプロンプト追記）と、その解析
 - `apps/server/src/hub.ts` — 全セッションのメモリ上の状態 + WebSocket 配信 + SQLite 保存

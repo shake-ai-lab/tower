@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import type { Report, TimelineItem, Verification } from '@tower/shared';
+import type { Report, Session, TimelineItem, Verification } from '@tower/shared';
 import { api } from '../api';
 import { OUTCOME, STATUS, btn, fmtTime, isAlive } from '../lib';
 import { useStore } from '../store';
@@ -67,6 +67,56 @@ function VerificationStrip({ v, reportOutcome }: { v: Verification; reportOutcom
           {v.output || '(出力なし)'}
         </pre>
       )}
+    </div>
+  );
+}
+
+/** 分離した作業場所の説明と「取り込む」ボタン */
+function WorkspaceStrip({ s }: { s: Session }) {
+  const ws = s.workspace;
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  if (!ws) return null;
+  const working = ['starting', 'running', 'waiting_permission', 'waiting_question'].includes(s.status);
+
+  const merge = async () => {
+    if (!confirm('この作業場所の変更を、元のプロジェクトに取り込みますか？')) return;
+    setBusy(true);
+    setErr(null);
+    try {
+      await api.merge(s.id);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="text-xs bg-fuchsia-400/5 border border-fuchsia-400/30 rounded-md p-2 leading-relaxed space-y-1.5">
+      <div className="text-fuchsia-200/90">
+        別の作業場所（コピー）で作業しています。変更は「取り込む」を押すまで元のプロジェクトには反映されません。
+      </div>
+      <div className="flex items-center gap-2 flex-wrap">
+        <button
+          disabled={busy || working}
+          onClick={merge}
+          title={working ? '作業中は取り込めません。報告が来てから押してください' : undefined}
+          className={`${btn.base} ${btn.success} !py-1 !text-xs`}
+        >
+          {busy ? '取り込み中…' : '元のプロジェクトに取り込む'}
+        </button>
+        <span className="mono text-zinc-500">{ws.branch}</span>
+        {working && <span className="text-zinc-500">作業中は取り込めません</span>}
+      </div>
+      {ws.lastMerge && (
+        <div className={`whitespace-pre-wrap ${ws.lastMerge.ok ? 'text-emerald-200' : 'text-red-200'}`}>
+          {ws.lastMerge.ok ? '✔ ' : '✖ '}
+          {ws.lastMerge.message}
+          <span className="text-zinc-500 ml-2">{fmtTime(ws.lastMerge.at)}</span>
+        </div>
+      )}
+      {err && <div className="text-red-300">{err}</div>}
     </div>
   );
 }
@@ -214,7 +264,10 @@ export function SessionDetail({ id }: { id: string }) {
     await api.stop(id).catch(() => {});
   };
   const remove = async () => {
-    if (!confirm('このセッションを一覧から削除しますか？（履歴も消えます）')) return;
+    const msg = s.workspace
+      ? 'このセッションを一覧から削除しますか？（履歴も消えます）\n別の作業場所（コピー）も消えます。まだ取り込んでいない変更は失われます。'
+      : 'このセッションを一覧から削除しますか？（履歴も消えます）';
+    if (!confirm(msg)) return;
     await api.remove(id).catch(() => {});
   };
 
@@ -225,6 +278,11 @@ export function SessionDetail({ id }: { id: string }) {
           <span className="font-semibold">{s.project.name}</span>
           {external && (
             <span className="text-[10px] px-1.5 py-0.5 rounded bg-indigo-900/70 text-indigo-200">{s.externalHint ?? '外部'}</span>
+          )}
+          {s.workspace && (
+            <span title={`ブランチ ${s.workspace.branch}`} className="text-[10px] px-1.5 py-0.5 rounded bg-fuchsia-900/70 text-fuchsia-200">
+              分離
+            </span>
           )}
           <span className={`text-xs px-2 py-0.5 rounded-full ${st.badge}`}>{st.label}</span>
           {s.model && <span className="text-xs text-zinc-500">{s.model}</span>}
@@ -260,6 +318,7 @@ export function SessionDetail({ id }: { id: string }) {
         )}
         {s.pending && <PendingCard session={s} />}
         {s.report && <ReportCard r={s.report} onFileClick={() => setShowChanges(true)} />}
+        {s.workspace && <WorkspaceStrip s={s} />}
         {s.verification && <VerificationStrip v={s.verification} reportOutcome={s.report?.outcome ?? null} />}
         {s.lastError && (
           <div className="rounded-md border border-red-500/50 bg-red-500/10 p-2 text-xs text-red-200 whitespace-pre-wrap">

@@ -59,6 +59,9 @@ export function ChangesPanel({ sessionId, refreshKey }: { sessionId: string; ref
           このフォルダは git 管理されていないので「変更前」が分かりません。触ったファイルの今の中身を表示しています。
         </div>
       )}
+      {data.against && (
+        <div className="text-[11px] text-zinc-500">{data.against}との差分です。すでに取り込んだ分は含みません。</div>
+      )}
       {data.files.map((f) => {
         const st = STATUS_LABEL[f.status] ?? STATUS_LABEL['?'];
         const isOpen = open[f.path] ?? data.files.length <= 3;

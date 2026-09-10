@@ -98,6 +98,28 @@ export interface Verification {
 /** セッションの出どころ。external = VS Code 拡張やターミナルで動いているものを hooks で観測 */
 export type SessionOrigin = 'tower' | 'external';
 
+/**
+ * 分離した作業場所（git worktree）。同じプロジェクトに複数のセッションを同時に走らせても、
+ * 互いのファイルを壊さないように、セッション専用のコピーとブランチで作業する。
+ */
+export interface Workspace {
+  /** このセッションが実際に作業するフォルダ（cwd） */
+  path: string;
+  /** git worktree のルート。プロジェクトがリポジトリの一部フォルダの時は path と異なる */
+  root: string;
+  /** 作業用に切ったブランチ（tower/xxxxxxxx） */
+  branch: string;
+  /** 分離した時に元のプロジェクトで開いていたブランチ。取り込み先 */
+  baseBranch: string;
+  /** 分離した時点のコミット。差分の起点 */
+  baseCommit: string;
+  /** 最後に「元のプロジェクトに取り込む」を押した結果 */
+  lastMerge: { at: number; ok: boolean; message: string } | null;
+}
+
+/** セッションが実際に作業しているフォルダ */
+export const workDir = (s: Pick<Session, 'project' | 'workspace'>): string => s.workspace?.path ?? s.project.path;
+
 export interface Session {
   id: string;
   agent: AgentKind;
@@ -108,6 +130,8 @@ export interface Session {
   /** Claude 側の session_id（resume 用） */
   agentSessionId: string | null;
   project: ProjectRef;
+  /** 分離した作業場所。null/省略 = プロジェクトのフォルダで直接作業 */
+  workspace?: Workspace | null;
   /** 一覧に出す短い題名（最初の指示の先頭） */
   title: string;
   prompt: string;
@@ -168,6 +192,17 @@ export interface CreateSessionBody {
   agent?: AgentKind;
   model?: string | null;
   permissionMode?: PermissionChoice;
+  /** true = 別の作業場所（git worktree）で動かす。git 管理のプロジェクトのみ */
+  isolate?: boolean;
+}
+
+/** 「元のプロジェクトに取り込む」の結果 */
+export interface MergeResult {
+  ok: boolean;
+  /** 利用者向けの日本語 */
+  message: string;
+  /** 取り込んだファイル数 */
+  files: number;
 }
 
 export interface PermissionDecisionBody {
@@ -209,6 +244,8 @@ export interface ChangedFile {
 export interface ChangesResponse {
   isGit: boolean;
   files: ChangedFile[];
+  /** 分離した作業場所の時: 差分の比較先の説明（例: 「元のブランチ main」） */
+  against?: string;
 }
 
 export interface ProjectInfo extends ProjectRef {

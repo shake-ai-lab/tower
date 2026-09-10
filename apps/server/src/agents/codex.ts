@@ -8,15 +8,21 @@
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { Codex, type Thread, type ThreadEvent, type ThreadItem } from '@openai/codex-sdk';
-import type { Session, TimelineKind } from '@tower/shared';
+import { workDir, type Session, type TimelineKind } from '@tower/shared';
 import type { Hub } from '../hub.ts';
 import { firstLine } from '../humanize.ts';
 import { REPORT_INSTRUCTIONS, fallbackReport, parseReport } from '../report.ts';
 import { detectVerifyCommand, runVerify } from '../verify.ts';
+import { workspaceNote } from '../worktree.ts';
 import type { AgentRunner } from './types.ts';
 
-const PREAMBLE = `${REPORT_INSTRUCTIONS}\n\n---\n以下が依頼です。\n\n`;
 const REMINDER = '\n\n（前と同じ【報告】書式で報告してください）';
+
+/** 最初の指示の前置き。分離した作業場所ならその注意書きも付ける */
+function preamble(s: Session): string {
+  const note = s.workspace ? `\n\n${workspaceNote(s.workspace, s.project.path)}` : '';
+  return `${REPORT_INSTRUCTIONS}${note}\n\n---\n以下が依頼です。\n\n`;
+}
 
 /** Codex の失敗メッセージを、利用者が次に何をすればいいか分かる文にする */
 function friendlyError(msg: string): string {
@@ -52,7 +58,7 @@ export class CodexRunner implements AgentRunner {
     const s = this.session;
     const codex = new Codex();
     const opts = {
-      workingDirectory: s.project.path,
+      workingDirectory: workDir(s),
       skipGitRepoCheck: true,
       sandboxMode: 'workspace-write' as const,
       approvalPolicy: 'never' as const,
@@ -99,7 +105,7 @@ export class CodexRunner implements AgentRunner {
     if (!this.thread) return;
     this.busy = true;
     this.hub.update(this.id, { status: 'running', activity: '準備完了。作業を始めます', pending: null, pendingCount: 0 });
-    const input = this.first ? PREAMBLE + text : text + REMINDER;
+    const input = this.first ? preamble(this.session) + text : text + REMINDER;
     this.first = false;
     let lastText = '';
     let failed: string | null = null;
@@ -193,7 +199,7 @@ export class CodexRunner implements AgentRunner {
       }
       case 'file_change': {
         if (phase !== 'item.completed') return {};
-        const files = item.changes.map((c) => (path.isAbsolute(c.path) ? c.path : path.join(cur.project.path, c.path)));
+        const files = item.changes.map((c) => (path.isAbsolute(c.path) ? c.path : path.join(workDir(cur), c.path)));
         const names = item.changes.map((c) => `${c.kind === 'add' ? '追加' : c.kind === 'delete' ? '削除' : '変更'}: ${path.basename(c.path)}`);
         this.timeline(item.status === 'completed' ? 'tool_use' : 'error', `ファイルを${item.status === 'completed' ? '変更しました' : '変更できませんでした'} (${names.join(', ')})`, files.join('\n'), 'Edit');
         this.hub.update(this.id, {
@@ -222,13 +228,14 @@ export class CodexRunner implements AgentRunner {
   }
 
   private async verify() {
-    const cmd = detectVerifyCommand(this.session.project.path);
+    const dir = workDir(this.session);
+    const cmd = detectVerifyCommand(dir);
     if (!cmd || this.verifying) return;
     this.verifying = true;
     const at = Date.now();
     this.hub.update(this.id, { verification: { command: cmd, ok: null, output: '', at, durationMs: 0 } });
     try {
-      const r = await runVerify(this.session.project.path, cmd);
+      const r = await runVerify(dir, cmd);
       this.hub.update(this.id, { verification: { command: cmd, ok: r.ok, output: r.output, at, durationMs: r.durationMs } });
       this.timeline('system', r.ok ? `自動チェック 成功: ${cmd}` : `自動チェック 失敗: ${cmd}`, r.output);
     } finally {

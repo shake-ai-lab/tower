@@ -17,6 +17,14 @@ export function SessionCard({ s, selected, onClick }: { s: Session; selected: bo
           {s.agent === 'codex' && (
             <span className="shrink-0 text-[10px] font-normal px-1.5 py-0.5 rounded bg-teal-900/70 text-teal-200">Codex</span>
           )}
+          {s.workspace && (
+            <span
+              title={`別の作業場所（コピー）で作業中。ブランチ ${s.workspace.branch}`}
+              className="shrink-0 text-[10px] font-normal px-1.5 py-0.5 rounded bg-fuchsia-900/70 text-fuchsia-200"
+            >
+              分離
+            </span>
+          )}
           {s.origin === 'external' && (
             <span className="shrink-0 text-[10px] font-normal px-1.5 py-0.5 rounded bg-indigo-900/70 text-indigo-200">
               {s.externalHint ?? '外部'}

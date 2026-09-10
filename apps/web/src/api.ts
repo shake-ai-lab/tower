@@ -5,6 +5,7 @@ import type {
   BridgeStatus,
   ChangesResponse,
   CreateSessionBody,
+  MergeResult,
   MessageBody,
   PermissionDecisionBody,
   ProjectInfo,
@@ -33,6 +34,7 @@ export const api = {
   answer: (id: string, body: AnswerBody) =>
     req<{ ok: true }>(`/api/sessions/${id}/answer`, { method: 'POST', body: JSON.stringify(body) }),
   stop: (id: string) => req<{ ok: boolean }>(`/api/sessions/${id}/stop`, { method: 'POST' }),
+  merge: (id: string) => req<MergeResult>(`/api/sessions/${id}/merge`, { method: 'POST' }),
   bridge: () => req<BridgeStatus>('/api/bridge'),
   setBridge: (body: { enabled: boolean; permissions: boolean }) =>
     req<BridgeStatus>('/api/bridge', { method: 'POST', body: JSON.stringify(body) }),

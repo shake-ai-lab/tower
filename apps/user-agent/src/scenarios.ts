@@ -14,6 +14,8 @@ export interface Scenario {
   followUps?: string[];
   /** 質問された時の好み（利用者役のAIに渡す） */
   preference?: string;
+  /** 別の作業場所（git worktree）で動かす。終了後に「取り込む」を呼んでから verify する */
+  isolate?: boolean;
   /** 最後に実行して成否を機械的に判定するコマンド（作業フォルダで実行） */
   verify?: string;
   /** 何が達成できていれば成功か（判定AIに渡す） */
@@ -80,5 +82,15 @@ export const SCENARIOS: Scenario[] = [
     followUps: ['では remove に範囲外の index が来たらエラーにして。テストも1つ足して、実行して通ることを確認して。'],
     verify: 'npm test',
     goal: '説明→追加指示→実装の2往復ができて、テストが通る',
+  },
+  {
+    key: 'todo-isolated',
+    template: 'todo-cli',
+    prompt:
+      'テストが落ちているので原因を調べて直して。直したらテストを実行して通ることを確認して。',
+    permissionMode: 'acceptEdits',
+    isolate: true,
+    verify: 'npm test',
+    goal: '別の作業場所で直した内容を「取り込む」で元のプロジェクトに反映でき、元のプロジェクトで npm test が通る',
   },
 ];

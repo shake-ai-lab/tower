@@ -4,11 +4,12 @@ import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { createRequire } from 'node:module';
-import type { AgentAvailability, AgentKind, CreateSessionBody, Session } from '@tower/shared';
+import type { AgentAvailability, AgentKind, CreateSessionBody, MergeResult, Session, TimelineKind } from '@tower/shared';
 import { ClaudeRunner } from './agents/claude.ts';
 import { CodexRunner } from './agents/codex.ts';
 import type { AgentRunner } from './agents/types.ts';
 import type { Hub } from './hub.ts';
+import { createWorktree, mergeWorktree, removeWorktree } from './worktree.ts';
 
 const require = createRequire(import.meta.url);
 
@@ -58,12 +59,17 @@ export class SessionManager {
       if (!a.available) throw new Error(a.reason ?? 'Codex が使えません');
     }
 
+    const id = randomUUID();
+    // 別の作業場所（worktree）。作れなければセッションを作らずにエラーを返す
+    const isolated = body.isolate ? createWorktree(projectPath, id) : null;
+
     const now = Date.now();
     const session: Session = {
-      id: randomUUID(),
+      id,
       agent,
       agentSessionId: null,
       project: { path: projectPath, name: path.basename(projectPath) },
+      workspace: isolated?.workspace ?? null,
       title: prompt.split(/\r?\n/)[0].slice(0, 60),
       prompt,
       model: body.model ?? null,
@@ -82,6 +88,15 @@ export class SessionManager {
       lastError: null,
     };
     this.hub.add(session);
+    if (isolated) {
+      const shared = isolated.linked.length ? `。依存パッケージ（node_modules）は元のプロジェクトと共有` : '';
+      this.note(
+        id,
+        'system',
+        `別の作業場所を作りました（ブランチ ${isolated.workspace.branch}）${shared}`,
+        `${isolated.workspace.path}\n元のプロジェクト: ${projectPath}`,
+      );
+    }
     const runner = this.makeRunner(session);
     this.runners.set(session.id, runner);
     runner.start(prompt);
@@ -98,6 +113,9 @@ export class SessionManager {
     const s = this.hub.get(id);
     if (!s) throw new Error('セッションが見つかりません');
     if (!s.agentSessionId) throw new Error('このセッションは再開できません（会話IDが記録される前に終わっています）');
+    if (s.workspace && !fs.existsSync(s.workspace.path)) {
+      throw new Error('分離した作業場所のフォルダが見つかりません（消された可能性があります）。新しいタスクとして起動してください');
+    }
     this.hub.update(id, {
       status: 'starting',
       activity: s.origin === 'external' ? 'Tower が引き継いで再開しています…' : '続きから再開しています…',
@@ -125,7 +143,31 @@ export class SessionManager {
 
   async remove(id: string) {
     await this.stop(id);
+    const s = this.hub.get(id);
+    // 一覧からは先に消す（後片付けはプロセス終了待ちで数秒かかることがある）
     this.hub.remove(id);
+    if (s?.workspace) {
+      const warn = await removeWorktree(s.project.path, s.workspace);
+      if (warn) console.warn(`[worktree] ${id.slice(0, 8)} の後片付けで問題:`, warn);
+    }
+  }
+
+  /** 分離した作業場所の変更を、元のプロジェクトに取り込む */
+  merge(id: string): MergeResult {
+    const s = this.hub.get(id);
+    if (!s) throw new Error('セッションが見つかりません');
+    if (!s.workspace) throw new Error('このセッションは別の作業場所を使っていません（プロジェクトのフォルダで直接作業しています）');
+    if (['starting', 'running', 'waiting_permission', 'waiting_question'].includes(s.status)) {
+      throw new Error('作業中は取り込めません。報告が来るまで待つか、停止してから取り込んでください');
+    }
+    const r = mergeWorktree(s.project.path, s.workspace, s.title);
+    this.hub.update(id, { workspace: { ...s.workspace, lastMerge: { at: Date.now(), ok: r.ok, message: r.message } } });
+    this.note(id, r.ok ? 'system' : 'error', r.ok ? `取り込み: ${r.message}` : `取り込み失敗: ${r.message.split('\n')[0]}`, r.ok ? undefined : r.message);
+    return r;
+  }
+
+  private note(sessionId: string, kind: TimelineKind, text: string, detail?: string) {
+    this.hub.timeline({ id: randomUUID(), sessionId, ts: Date.now(), kind, text, detail });
   }
 
   async stopAll() {

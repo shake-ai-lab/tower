@@ -9,7 +9,15 @@ import {
   type SDKMessage,
   type SDKUserMessage,
 } from '@anthropic-ai/claude-agent-sdk';
-import type { PendingPermission, PendingQuestion, PendingRequest, Question, Session, TimelineKind } from '@tower/shared';
+import {
+  workDir,
+  type PendingPermission,
+  type PendingQuestion,
+  type PendingRequest,
+  type Question,
+  type Session,
+  type TimelineKind,
+} from '@tower/shared';
 import type { Hub } from '../hub.ts';
 import {
   assessRisk,
@@ -22,6 +30,7 @@ import {
 } from '../humanize.ts';
 import { REPORT_INSTRUCTIONS, fallbackReport, parseReport } from '../report.ts';
 import { detectVerifyCommand, runVerify } from '../verify.ts';
+import { workspaceNote } from '../worktree.ts';
 import type { AgentRunner } from './types.ts';
 
 /** 後から push できる AsyncIterable。SDK の streaming input に渡す */
@@ -114,12 +123,15 @@ export class ClaudeRunner implements AgentRunner {
     // hooks 連携（bridge）に「これは Tower 自身のセッション」と伝えて二重取り込みを防ぐ
     env.TOWER_MANAGED = '1';
 
+    const append = s.workspace
+      ? `${REPORT_INSTRUCTIONS}\n\n${workspaceNote(s.workspace, s.project.path)}`
+      : REPORT_INSTRUCTIONS;
     const options: Options = {
-      cwd: s.project.path,
+      cwd: workDir(s),
       model: s.model ?? undefined,
       permissionMode: s.permissionMode ?? 'default',
       resume: resumeFrom,
-      systemPrompt: { type: 'preset', preset: 'claude_code', append: REPORT_INSTRUCTIONS },
+      systemPrompt: { type: 'preset', preset: 'claude_code', append },
       canUseTool: (toolName, input, opts) => this.onPermission(toolName, input, opts.suggestions ?? [], opts.signal),
       abortController: this.abort,
       env,
@@ -200,13 +212,14 @@ export class ClaudeRunner implements AgentRunner {
 
   /** 報告の裏取り: プロジェクトのテストを Tower 側で走らせ、結果をセッションに載せる */
   private async verify() {
-    const cmd = detectVerifyCommand(this.session.project.path);
+    const dir = workDir(this.session);
+    const cmd = detectVerifyCommand(dir);
     if (!cmd || this.verifying) return;
     this.verifying = true;
     const at = Date.now();
     this.hub.update(this.id, { verification: { command: cmd, ok: null, output: '', at, durationMs: 0 } });
     try {
-      const r = await runVerify(this.session.project.path, cmd);
+      const r = await runVerify(dir, cmd);
       this.hub.update(this.id, { verification: { command: cmd, ok: r.ok, output: r.output, at, durationMs: r.durationMs } });
       this.timeline('system', r.ok ? `自動チェック 成功: ${cmd}` : `自動チェック 失敗: ${cmd}`, r.output);
     } finally {

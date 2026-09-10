@@ -1,21 +1,11 @@
 // 変更内容の取得。git があれば作業ツリーの差分、無ければ「触ったファイル」の現在の中身を返す。
-import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import type { ChangedFile, ChangesResponse } from '@tower/shared';
+import { git, isGitRepo } from './worktree.ts';
 
 const MAX_FILE = 200 * 1024;
 const MAX_TOTAL = 2 * 1024 * 1024;
-
-function git(cwd: string, args: string[]): { ok: boolean; out: string } {
-  const r = spawnSync('git', args, { cwd, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 });
-  return { ok: r.status === 0, out: r.stdout ?? '' };
-}
-
-function isGitRepo(cwd: string): boolean {
-  const r = git(cwd, ['rev-parse', '--is-inside-work-tree']);
-  return r.ok && r.out.trim() === 'true';
-}
 
 /** 未追跡ファイルを「全行追加」の diff に見せる */
 function pseudoAddDiff(rel: string, content: string): string {
@@ -35,7 +25,12 @@ function readCapped(file: string): string | null {
   }
 }
 
-export function collectChanges(projectPath: string, touched: string[]): ChangesResponse {
+/**
+ * @param dir     差分を取るフォルダ（分離した作業場所ならそのフォルダ）
+ * @param touched git 無しの時に見せる「触ったファイル」
+ * @param base    比較の起点。通常は HEAD。分離した作業場所では元のブランチとの分岐点（取り込み済みの分は出ない）
+ */
+export function collectChanges(dir: string, touched: string[], base = 'HEAD'): ChangesResponse {
   const files: ChangedFile[] = [];
   let total = 0;
   const push = (f: ChangedFile) => {
@@ -44,25 +39,35 @@ export function collectChanges(projectPath: string, touched: string[]): ChangesR
     files.push(f);
   };
 
-  if (isGitRepo(projectPath)) {
-    const status = git(projectPath, ['status', '--porcelain', '--untracked-files=all']).out;
-    for (const line of status.split(/\r?\n/)) {
+  if (isGitRepo(dir)) {
+    const seen = new Set<string>();
+    // 追跡済みファイルの変更（コミット済み + 未コミット）を base と比べる
+    const named = git(dir, ['diff', '--name-status', '-M', base]).out;
+    for (const line of named.split(/\r?\n/)) {
       if (!line.trim()) continue;
-      const code = line.slice(0, 2);
-      const rel = line.slice(3).replace(/^"|"$/g, '');
-      const abs = path.join(projectPath, rel);
-      if (code === '??') {
-        const content = readCapped(abs);
-        if (content !== null) push({ path: rel, status: 'A', diff: pseudoAddDiff(rel, content) });
-      } else if (code.includes('D')) {
-        push({ path: rel, status: 'D', diff: git(projectPath, ['diff', 'HEAD', '--', rel]).out });
+      const parts = line.split('\t');
+      const code = parts[0][0];
+      const rel = parts[parts.length - 1];
+      seen.add(rel);
+      if (code === 'D') {
+        push({ path: rel, status: 'D', diff: git(dir, ['diff', base, '--', rel]).out });
       } else {
-        const d = git(projectPath, ['diff', 'HEAD', '--', rel]).out;
-        push({ path: rel, status: code.includes('A') ? 'A' : 'M', diff: d || '(差分なし: 内容は同じ)' });
+        const d = git(dir, ['diff', base, '--', rel]).out;
+        push({ path: rel, status: code === 'A' ? 'A' : 'M', diff: d || '(差分なし: 内容は同じ)' });
       }
+    }
+    // 未追跡ファイルは「全行追加」として見せる
+    const status = git(dir, ['status', '--porcelain', '--untracked-files=all']).out;
+    for (const line of status.split(/\r?\n/)) {
+      if (!line.startsWith('??')) continue;
+      const rel = line.slice(3).replace(/^"|"$/g, '');
+      if (seen.has(rel)) continue;
+      const content = readCapped(path.join(dir, rel));
+      if (content !== null) push({ path: rel, status: 'A', diff: pseudoAddDiff(rel, content) });
     }
     return { isGit: true, files };
   }
+  const projectPath = dir;
 
   // git 無し: 触ったファイルの現在の中身だけ
   for (const abs of touched) {

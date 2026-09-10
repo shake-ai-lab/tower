@@ -6,12 +6,13 @@ import { serve } from '@hono/node-server';
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { WebSocketServer } from 'ws';
-import type {
-  AnswerBody,
-  CreateSessionBody,
-  MessageBody,
-  PermissionDecisionBody,
-  ProjectInfo,
+import {
+  workDir,
+  type AnswerBody,
+  type CreateSessionBody,
+  type MessageBody,
+  type PermissionDecisionBody,
+  type ProjectInfo,
 } from '@tower/shared';
 import { Bridge, type HookInput } from './bridge.ts';
 import { loadConfig } from './config.ts';
@@ -20,6 +21,7 @@ import { collectChanges } from './diff.ts';
 import { Hub } from './hub.ts';
 import { SessionManager, agentAvailability } from './manager.ts';
 import { setVerifyEnabled } from './verify.ts';
+import { diffBase } from './worktree.ts';
 
 const config = loadConfig();
 setVerifyEnabled(config.autoVerify);
@@ -77,9 +79,21 @@ app.get('/api/sessions/:id/changes', (c) => {
   const s = hub.get(c.req.param('id'));
   if (!s) return c.json({ error: 'セッションが見つかりません' }, 404);
   try {
+    if (s.workspace) {
+      const r = collectChanges(workDir(s), s.changedFiles, diffBase(s.workspace));
+      return c.json({ ...r, against: `元のプロジェクト（${s.workspace.baseBranch || '分離した時点'}）` });
+    }
     return c.json(collectChanges(s.project.path, s.changedFiles));
   } catch (e) {
     return c.json({ error: e instanceof Error ? e.message : String(e) }, 500);
+  }
+});
+
+app.post('/api/sessions/:id/merge', (c) => {
+  try {
+    return c.json(manager.merge(c.req.param('id')));
+  } catch (e) {
+    return c.json({ error: e instanceof Error ? e.message : String(e) }, 409);
   }
 });
 
