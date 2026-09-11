@@ -11,6 +11,8 @@
   "dependencies": {
     "@monaco-editor/react": "^4.7.0",
     "@tower/shared": "*",
+    "dompurify": "^3.4.8",
+    "marked": "^14.0.0",
     "monaco-editor": "^0.56.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",

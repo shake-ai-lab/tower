@@ -1,10 +1,12 @@
 import { create } from 'zustand';
 
-export type OpenFile = { id: string; sessionId: string; path: string; pane: number; dirty: boolean; onSaved?: () => void };
+/** 開いた時に見せる場所（検索結果から開いた時など）。at が変わるたびにそこへ移る */
+export type Reveal = { line: number; column: number; length: number; at: number };
+export type OpenFile = { id: string; sessionId: string; path: string; pane: number; dirty: boolean; onSaved?: () => void; reveal?: Reveal };
 type Workspace = {
   files: OpenFile[]; selected: (string | null)[]; pane: number; visible: boolean;
   layout: 'single' | 'columns' | 'rows' | 'desk';
-  open: (sessionId: string, path: string, onSaved?: () => void) => void;
+  open: (sessionId: string, path: string, onSaved?: () => void, at?: { line: number; column?: number; length?: number }) => void;
   close: (id: string) => void;
   dirty: (id: string, dirty: boolean) => void;
   activate: (id: string) => void;
@@ -13,12 +15,14 @@ type Workspace = {
 };
 export const useEditorWorkspace = create<Workspace>((set, get) => ({
   files: [], selected: [null, null], pane: 0, visible: false, layout: 'single',
-  open: (sessionId, path, onSaved) => {
+  open: (sessionId, path, onSaved, at) => {
     const id = JSON.stringify([sessionId, path]);
     const s = get();
     const file = s.files.find((f) => f.id === id);
     const pane = file?.pane ?? s.pane;
-    set({ visible: true, pane, files: file ? s.files : [...s.files, { id, sessionId, path, pane, dirty: false, onSaved }], selected: s.selected.map((v, i) => i === pane ? id : v) });
+    const reveal = at ? { line: at.line, column: at.column ?? 1, length: at.length ?? 0, at: Date.now() } : undefined;
+    const files = file ? (reveal ? s.files.map((f) => f.id === id ? { ...f, reveal } : f) : s.files) : [...s.files, { id, sessionId, path, pane, dirty: false, onSaved, reveal }];
+    set({ visible: true, pane, files, selected: s.selected.map((v, i) => i === pane ? id : v) });
   },
   close: (id) => {
     const s = get();

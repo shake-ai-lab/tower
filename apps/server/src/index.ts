@@ -26,7 +26,8 @@ import {
 import { Bridge, type HookInput } from './bridge.ts';
 import { CONFIG_PATH, loadConfig, saveConfig, validateSettings } from './config.ts';
 import { Db } from './db.ts';
-import { collectChanges } from './diff.ts';
+import { collectChanges, lineMarks } from './diff.ts';
+import { listAllFiles, searchText } from './search.ts';
 import { FeedbackFile } from './feedback.ts';
 import { checkImage, listDir, readFileContent, resolveImage, writeFileContent } from './files.ts';
 import { Hub } from './hub.ts';
@@ -186,6 +187,43 @@ app.get('/api/sessions/:id/tree', (c) => {
   if (!s) return c.json({ error: 'セッションが見つかりません' }, 404);
   try {
     return c.json(listDir(workDir(s), c.req.query('path') ?? ''));
+  } catch (e) {
+    return c.json({ error: e instanceof Error ? e.message : String(e) }, 400);
+  }
+});
+
+// ---- エディタの道具（ファイル名で開く・全体検索・変わった行の印） ----
+app.get('/api/sessions/:id/files', (c) => {
+  const s = hub.get(c.req.param('id'));
+  if (!s) return c.json({ error: 'セッションが見つかりません' }, 404);
+  try {
+    return c.json(listAllFiles(workDir(s)));
+  } catch (e) {
+    return c.json({ error: e instanceof Error ? e.message : String(e) }, 400);
+  }
+});
+
+app.get('/api/sessions/:id/search', (c) => {
+  const s = hub.get(c.req.param('id'));
+  if (!s) return c.json({ error: 'セッションが見つかりません' }, 404);
+  const q = c.req.query('q') ?? '';
+  if (q.length > 200) return c.json({ error: '探す文字が長すぎます（200 文字まで）' }, 400);
+  try {
+    return c.json(searchText(workDir(s), q, c.req.query('case') === '1'));
+  } catch (e) {
+    return c.json({ error: e instanceof Error ? e.message : String(e) }, 400);
+  }
+});
+
+app.get('/api/sessions/:id/line-marks', (c) => {
+  const s = hub.get(c.req.param('id'));
+  if (!s) return c.json({ error: 'セッションが見つかりません' }, 404);
+  const rel = c.req.query('path') ?? '';
+  if (!rel) return c.json({ error: 'path がありません' }, 400);
+  try {
+    const marks = lineMarks(workDir(s), rel, s.workspace ? diffBase(s.workspace) : 'HEAD');
+    const against = marks === null ? null : s.workspace ? `元のプロジェクト（${s.workspace.baseBranch || '分離した時点'}）` : '最後の記録（コミット）';
+    return c.json({ marks: marks ?? [], against });
   } catch (e) {
     return c.json({ error: e instanceof Error ? e.message : String(e) }, 400);
   }

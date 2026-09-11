@@ -10,12 +10,15 @@ import type {
   FeedbackNote,
   FeedbackStatus,
   FileContent,
+  FileListResponse,
+  LineMarksResponse,
   MergeResult,
   MessageBody,
   PermissionDecisionBody,
   PermissionChoice,
   ProjectInfo,
   SaveFileBody,
+  SearchResponse,
   Session,
   SettingsStatus,
   TimelineItem,
@@ -50,6 +53,10 @@ export const api = {
   merge: (id: string) => req<MergeResult>(`/api/sessions/${id}/merge`, { method: 'POST' }),
   file: (id: string, path: string) => req<FileContent>(`/api/sessions/${id}/file?path=${encodeURIComponent(path)}`),
   tree: (id: string, path: string) => req<TreeResponse>(`/api/sessions/${id}/tree?path=${encodeURIComponent(path)}`),
+  allFiles: (id: string) => req<FileListResponse>(`/api/sessions/${id}/files`),
+  search: (id: string, q: string, caseSensitive = false) =>
+    req<SearchResponse>(`/api/sessions/${id}/search?q=${encodeURIComponent(q)}${caseSensitive ? '&case=1' : ''}`),
+  lineMarks: (id: string, path: string) => req<LineMarksResponse>(`/api/sessions/${id}/line-marks?path=${encodeURIComponent(path)}`),
   /** 画像をそのまま表示するための URL（<img src> 用） */
   rawUrl: (id: string, path: string) => `/api/sessions/${id}/raw?path=${encodeURIComponent(path)}`,
   /** 年表の項目でエージェントが読んだ画像（<img src> 用） */

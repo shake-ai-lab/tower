@@ -1,11 +1,15 @@
-// 画面からファイルを直す（Monaco）。「たまに自分で直したい」用の最小限の編集画面。
+// 画面からファイルを直す（Monaco）。「たまに自分で直したい」用の編集画面。
 // 保存すると、次に指示を送る時に「このファイルを手で直した」とエージェントへ自動で伝わる（サーバー側で付け足す）。
-import { useCallback, useEffect, useState } from 'react';
-import Editor from '@monaco-editor/react';
-import { imageType } from '@tower/shared';
-import '../monaco';
+// 行の横には「最後の記録（分離した作業場所なら元のプロジェクト）から変わった行」の印を付ける。Markdown は読みやすく表示できる。
+import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from 'react';
+import Editor, { type OnMount } from '@monaco-editor/react';
+import { imageType, type LineMarksResponse } from '@tower/shared';
+import { monaco } from '../monaco';
 import { api } from '../api';
 import { btn, fmtTime } from '../lib';
+import { resolveLink } from '../editor-tools';
+import { renderMarkdown } from '../markdown';
+import { useEditorWorkspace, type Reveal } from '../editor-workspace';
 
 const LANG: Record<string, string> = {
   ts: 'typescript',
@@ -18,6 +22,7 @@ const LANG: Record<string, string> = {
   cjs: 'javascript',
   json: 'json',
   md: 'markdown',
+  markdown: 'markdown',
   css: 'css',
   scss: 'scss',
   html: 'html',
@@ -45,6 +50,8 @@ function langOf(p: string): string {
   return LANG[ext] ?? 'plaintext';
 }
 
+const MARK_COLOR = { added: '#3fb950', modified: '#388bfd', deleted: '#f85149' } as const;
+
 export function FileEditor({
   sessionId,
   path,
@@ -55,6 +62,7 @@ export function FileEditor({
   onDirty,
   windowed = false,
   fontScale = 1,
+  reveal,
 }: {
   sessionId: string;
   path: string;
@@ -65,6 +73,8 @@ export function FileEditor({
   onDirty: (dirty: boolean) => void;
   windowed?: boolean;
   fontScale?: number;
+  /** 検索結果などから開いた時に見せる場所 */
+  reveal?: Reveal;
 }) {
   const [orig, setOrig] = useState<string | null>(null);
   const [value, setValue] = useState('');
@@ -73,6 +83,13 @@ export function FileEditor({
   const [savedAt, setSavedAt] = useState<number | null>(null);
   const [zoom, setZoom] = useState('fit');
   const isImage = !!imageType(path);
+  const isMarkdown = /\.(md|markdown)$/i.test(path);
+  const [mode, setMode] = useState<'preview' | 'edit'>(isMarkdown ? 'preview' : 'edit');
+  const [marks, setMarks] = useState<LineMarksResponse | null>(null);
+  const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
+  const decorations = useRef<monaco.editor.IEditorDecorationsCollection | null>(null);
+  const revealed = useRef(0);
+  const [ready, setReady] = useState(false);
 
   useEffect(() => {
     let alive = true;
@@ -92,6 +109,59 @@ export function FileEditor({
       alive = false;
     };
   }, [sessionId, path, isImage]);
+
+  // 変わった行の印。保存したら取り直す（打っている間の行のずれは Monaco が印ごと動かす）
+  useEffect(() => {
+    if (isImage) return;
+    let alive = true;
+    api
+      .lineMarks(sessionId, path)
+      .then((r) => alive && setMarks(r))
+      .catch(() => alive && setMarks(null));
+    return () => {
+      alive = false;
+    };
+  }, [sessionId, path, isImage, savedAt]);
+
+  useEffect(() => {
+    const ed = editorRef.current;
+    if (!ed || !ready) return;
+    decorations.current ??= ed.createDecorationsCollection();
+    decorations.current.set(
+      (marks?.marks ?? []).map((m) => ({
+        range: new monaco.Range(m.start, 1, m.end, 1),
+        options: {
+          isWholeLine: true,
+          linesDecorationsClassName: `line-mark line-mark-${m.kind}`,
+          overviewRuler: { color: MARK_COLOR[m.kind], position: monaco.editor.OverviewRulerLane.Left },
+        },
+      })),
+    );
+  }, [marks, ready]);
+
+  // 検索結果から開いた時: その行を真ん中に出して、見つかった文字を選ぶ
+  useEffect(() => {
+    const ed = editorRef.current;
+    if (!reveal || !ed || !ready || revealed.current === reveal.at) return;
+    revealed.current = reveal.at;
+    setMode('edit');
+    // Markdown の表示から切り替えた直後は大きさが 0 なので、描き直してから動かす
+    requestAnimationFrame(() =>
+      requestAnimationFrame(() => {
+        ed.layout();
+        const range = new monaco.Range(reveal.line, reveal.column, reveal.line, reveal.column + reveal.length);
+        ed.revealRangeInCenter(range);
+        ed.setSelection(range);
+        ed.focus();
+      }),
+    );
+  }, [reveal, ready]);
+
+  const onMount = useCallback<OnMount>((ed) => {
+    editorRef.current = ed;
+    decorations.current = null;
+    setReady(true);
+  }, []);
 
   const dirty = orig !== null && value !== orig;
 
@@ -126,6 +196,39 @@ export function FileEditor({
     return () => window.removeEventListener('keydown', onKey, true);
   }, [active, save]);
 
+  const preview = isMarkdown && mode === 'preview';
+  // 中身の入れ物ごと覚えておく。毎回作り直すと React が表示を差し替え、押している途中のリンクが消えて押せない
+  const html = useMemo(
+    () => ({ __html: preview && orig !== null ? renderMarkdown(value, path, (p) => api.rawUrl(sessionId, p)) : '' }),
+    [preview, orig, value, path, sessionId],
+  );
+
+  // 表示の中のリンク: 外のページは別の窓（デスクトップ版はいつものブラウザ）、プロジェクトの中のファイルはここで開く
+  const onPreviewClick = (e: MouseEvent) => {
+    const a = (e.target as HTMLElement).closest('a');
+    if (!a) return;
+    e.preventDefault();
+    const href = a.getAttribute('href') ?? '';
+    if (/^https?:/i.test(href)) window.open(href, '_blank', 'noopener');
+    else {
+      const target = resolveLink(path, href);
+      if (target) useEditorWorkspace.getState().open(sessionId, target);
+    }
+  };
+
+  // 隣り合う「変えた行」「足した行」は 1 か所に数える
+  const blocks = (marks?.marks ?? []).reduce((n, m, i, all) => n + (i > 0 && m.start <= all[i - 1].end + 1 ? 0 : 1), 0);
+  const nextChange = () => {
+    const ed = editorRef.current;
+    const starts = [...new Set(decorations.current?.getRanges().map((r) => r.startLineNumber) ?? [])].sort((a, b) => a - b);
+    if (!ed || !starts.length) return;
+    const current = ed.getPosition()?.lineNumber ?? 0;
+    const line = starts.find((l) => l > current) ?? starts[0];
+    ed.revealLineInCenter(line);
+    ed.setPosition({ lineNumber: line, column: 1 });
+    ed.focus();
+  };
+
   return (
     <div aria-label={path} className="file-surface h-full min-w-0 bg-[#12151b] flex flex-col overflow-hidden">
         <header className={`file-toolbar ${windowed && isImage ? 'hidden' : 'flex'} flex-wrap items-center gap-2 px-3 py-2 border-b border-zinc-800`}>
@@ -133,7 +236,25 @@ export function FileEditor({
           {!windowed && <span className="mono text-sm text-zinc-100 truncate">{path}</span>}
           {dirty && <span className="text-xs text-amber-300">● 未保存</span>}
           {!dirty && savedAt && <span className="text-xs text-emerald-300">✔ 保存しました {fmtTime(savedAt)}</span>}
+          {blocks > 0 && !preview && (
+            <button
+              title={`${marks?.against}から変わった行に印を付けています。緑＝足した行、青＝変えた行、赤い三角＝その下で行を消した。押すと次の変わった所へ移ります`}
+              onClick={nextChange}
+              className="text-xs text-sky-300 hover:underline"
+            >
+              変わった所 {blocks} か所 ↓
+            </button>
+          )}
           <div className="ml-auto flex gap-1.5">
+            {isMarkdown && orig !== null && (
+              <div role="group" aria-label="Markdown の表示" className="flex overflow-hidden rounded border border-zinc-700 text-xs">
+                {(['preview', 'edit'] as const).map((m) => (
+                  <button key={m} aria-pressed={mode === m} onClick={() => setMode(m)} className={`px-2 py-0.5 ${mode === m ? 'bg-sky-900 text-sky-100' : 'text-zinc-400 hover:bg-zinc-800'}`}>
+                    {m === 'preview' ? '読みやすく表示' : readOnly ? '文字のまま' : '編集'}
+                  </button>
+                ))}
+              </div>
+            )}
             {isImage && <select aria-label="画像の倍率" value={zoom} onChange={(e) => setZoom(e.target.value)} className="bg-zinc-800 text-xs rounded px-2">
               <option value="fit">全体表示</option>{['50', '100', '200', '400'].map((n) => <option key={n} value={n}>{n}%</option>)}
             </select>}
@@ -155,27 +276,38 @@ export function FileEditor({
           ) : orig === null ? (
             <div className="p-4 text-sm text-zinc-500">読み込み中…</div>
           ) : (
-            <Editor
-              height="100%"
-              theme="vs-dark"
-              language={langOf(path)}
-              value={value}
-              onChange={(v) => setValue(v ?? '')}
-              loading={<div className="p-4 text-sm text-zinc-500">エディタを準備中…</div>}
-              options={{
-                fontSize: Math.round(13 * fontScale * 10) / 10,
-                readOnly,
-                minimap: { enabled: false },
-                wordWrap: 'on',
-                scrollBeyondLastLine: false,
-                automaticLayout: true,
-                renderWhitespace: 'selection',
-              }}
-            />
+            <>
+              {preview && (
+                <div className="h-full overflow-auto" onClick={onPreviewClick}>
+                  <article aria-label={`${path} の表示`} className="md-preview" dangerouslySetInnerHTML={html} />
+                </div>
+              )}
+              {/* Markdown を表示している間もエディタは残す（印・選択・未保存の中身をそのまま保つ） */}
+              <div className={preview ? 'hidden' : 'h-full'}>
+                <Editor
+                  height="100%"
+                  theme="vs-dark"
+                  language={langOf(path)}
+                  value={value}
+                  onChange={(v) => setValue(v ?? '')}
+                  onMount={onMount}
+                  loading={<div className="p-4 text-sm text-zinc-500">エディタを準備中…</div>}
+                  options={{
+                    fontSize: Math.round(13 * fontScale * 10) / 10,
+                    readOnly,
+                    minimap: { enabled: false },
+                    wordWrap: 'on',
+                    scrollBeyondLastLine: false,
+                    automaticLayout: true,
+                    renderWhitespace: 'selection',
+                  }}
+                />
+              </div>
+            </>
           )}
         </div>
         <footer className={`${windowed && !err ? 'hidden' : 'flex'} px-4 py-2 border-t border-zinc-800 text-[11px] text-zinc-500 items-center gap-3`}>
-          <span>{isImage ? '画像プレビュー' : readOnly ? '作業中・外部タスクのファイルは閲覧のみです。' : '保存すると、次の指示で手動変更をAIに伝えます。テストがあれば裏取りも走ります。'}</span>
+          <span>{isImage ? '画像プレビュー' : preview ? '見出し・表・チェック欄を整えて表示しています。リンクを押すと、そのファイルを開きます。' : readOnly ? '作業中・外部タスクのファイルは閲覧のみです。' : '保存すると、次の指示で手動変更をAIに伝えます。テストがあれば裏取りも走ります。'}</span>
           {err && orig !== null && <span className="text-red-300 ml-auto">{err}</span>}
         </footer>
     </div>

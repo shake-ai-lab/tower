@@ -1,7 +1,8 @@
 // 変更内容の取得。git があれば作業ツリーの差分、無ければ「触ったファイル」の現在の中身を返す。
 import fs from 'node:fs';
 import path from 'node:path';
-import type { ChangedFile, ChangesResponse } from '@tower/shared';
+import type { ChangedFile, ChangesResponse, LineMark } from '@tower/shared';
+import { resolveInside } from './files.ts';
 import { git, isGitRepo } from './worktree.ts';
 
 const MAX_FILE = 200 * 1024;
@@ -14,6 +15,49 @@ export function collectHistory(dir: string): NonNullable<ChangesResponse['histor
     const [hash, parents, subject, refs, author, message] = line.split('\x1f');
     return { hash, parents: parents ? parents.split(' ') : [], subject, refs, author, message };
   });
+}
+
+/** 行の横の印に直す。-U0 の差分の見出し（@@ -a,b +c,d @@）だけを見る */
+export function parseLineMarks(diff: string): LineMark[] {
+  const marks: LineMark[] = [];
+  for (const line of diff.split(/\r?\n/)) {
+    const m = /^@@ -\d+(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/.exec(line);
+    if (!m) continue;
+    const removed = m[1] === undefined ? 1 : Number(m[1]);
+    const start = Number(m[2]);
+    const added = m[3] === undefined ? 1 : Number(m[3]);
+    if (added === 0) {
+      // 消えただけ: start は消えた所の直前の行（先頭で消えた時は 0）
+      marks.push({ kind: 'deleted', start: Math.max(1, start), end: Math.max(1, start) });
+      continue;
+    }
+    const changed = Math.min(removed, added);
+    if (changed) marks.push({ kind: 'modified', start, end: start + changed - 1 });
+    if (added > changed) marks.push({ kind: 'added', start: start + changed, end: start + added - 1 });
+  }
+  return marks;
+}
+
+/**
+ * 1 ファイル分の「変わった行」（エディタの行の横の印）。git が無ければ null
+ * @param base 比較の起点（collectChanges と同じ）
+ */
+export function lineMarks(dir: string, rel: string, base = 'HEAD'): LineMark[] | null {
+  const abs = resolveInside(dir, rel);
+  if (!isGitRepo(dir)) return null;
+  const p = path.relative(path.resolve(dir), abs).split(path.sep).join('/');
+  if (!git(dir, ['ls-files', '--error-unmatch', '--', p]).ok) {
+    // .gitignore で外したものは変更扱いしない。新しく作ったファイルは全部の行が「足した行」
+    if (git(dir, ['check-ignore', '-q', '--', p]).ok) return [];
+    try {
+      const text = fs.readFileSync(abs, 'utf8');
+      const n = text.split(/\r?\n/).length - (/\r?\n$/.test(text) ? 1 : 0);
+      return n > 0 ? [{ kind: 'added', start: 1, end: n }] : [];
+    } catch {
+      return [];
+    }
+  }
+  return parseLineMarks(git(dir, ['diff', '--no-color', '--no-ext-diff', '-U0', base, '--', p]).out);
 }
 
 /** 未追跡ファイルを「全行追加」の diff に見せる */

@@ -1,6 +1,8 @@
 // Monaco をローカル同梱で使う設定（既定は CDN から読みに行くので、オフラインでも動くようにする）。
 // FileEditor からだけ読み込まれる（画面全体の初期読み込みを重くしない）。
 // monaco-editor 0.56 の入口: パッケージの exports が "./*" → "./esm/vs/*.js" なので、esm/vs を書かずに指定する。
+// 右クリックのメニューや検索窓などの文字を日本語にする。部品の文字は読み込んだ瞬間に決まるので monaco より先に読む
+import 'monaco-editor/nls/lang/ja';
 import * as monaco from 'monaco-editor';
 import { loader } from '@monaco-editor/react';
 import editorWorker from 'monaco-editor/editor/editor.worker?worker';

@@ -371,6 +371,52 @@ export interface TreeResponse {
   truncated: number;
 }
 
+// ---- エディタの道具（ファイル名で開く・全体検索・変わった行の印） ----
+
+/** 作業フォルダの全ファイル（ファイル名で開く用。.gitignore で除外されたものと重いフォルダは入れない） */
+export interface FileListResponse {
+  /** 作業フォルダからの相対パス（区切りは /） */
+  files: string[];
+  /** 多すぎて途中で切ったか */
+  truncated: boolean;
+}
+
+export interface SearchMatch {
+  /** 1 始まり */
+  line: number;
+  /** 1 始まり。見つかった文字の位置 */
+  column: number;
+  /** 見つかった文字の長さ */
+  length: number;
+  /** その行（長い行は見つかった所の前後だけ） */
+  text: string;
+  /** text の中で見つかった文字が始まる位置（0 始まり） */
+  at: number;
+}
+
+export interface SearchResponse {
+  query: string;
+  files: { path: string; matches: SearchMatch[] }[];
+  /** 見つかった数（表示上限を超えた分も含む） */
+  total: number;
+  /** 上限・時間切れで途中までしか探していない */
+  truncated: boolean;
+}
+
+/** 行の横に付ける印。deleted は「この行の下で行が消えた」 */
+export interface LineMark {
+  kind: 'added' | 'modified' | 'deleted';
+  /** 1 始まり（両端を含む） */
+  start: number;
+  end: number;
+}
+
+export interface LineMarksResponse {
+  marks: LineMark[];
+  /** 何と比べた印か（利用者向けの説明）。git が無く比べられない時は null */
+  against: string | null;
+}
+
 /** 画面で開ける画像。拡張子（小文字） → MIME */
 export const IMAGE_TYPES: Record<string, string> = {
   png: 'image/png',

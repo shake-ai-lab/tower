@@ -7,7 +7,7 @@ const MAX_BYTES = 1024 * 1024;
 /** 画像はそのまま画面に送るので、少し大きくても許す */
 const MAX_IMAGE_BYTES = 20 * 1024 * 1024;
 /** 一覧に出さない重いフォルダ（中を見ても利用者の役に立たず、数が膨大） */
-const SKIP_DIRS = new Set(['node_modules', '.git', '.venv', 'venv', '__pycache__', '.cache', '.next', '.turbo', '.parcel-cache', '.tower']);
+export const SKIP_DIRS = new Set(['node_modules', '.git', '.venv', 'venv', '__pycache__', '.cache', '.next', '.turbo', '.parcel-cache', '.tower']);
 /** 1 つのフォルダで一覧に出す上限 */
 const MAX_ENTRIES = 500;
 
