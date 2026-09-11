@@ -20,6 +20,7 @@ import {
   type ProjectInfo,
   type SaveFileBody,
 } from '@tower/shared';
+import { isInlineImage, readAttachment } from './attachments.ts';
 import { Bridge, type HookInput } from './bridge.ts';
 import { loadConfig } from './config.ts';
 import { Db } from './db.ts';
@@ -124,6 +125,23 @@ app.get('/api/sessions/:id/shots/:file', (c) => {
   return c.body(new Uint8Array(fs.readFileSync(p)), 200, { 'content-type': 'image/png', 'cache-control': 'private, max-age=86400' });
 });
 
+// ---- 指示に添えた画像・ファイル ----
+app.get('/api/sessions/:id/attachments/:file', (c) => {
+  const file = c.req.param('file');
+  const hit = readAttachment(c.req.param('id'), file);
+  if (!hit) return c.text('not found', 404);
+  const headers: Record<string, string> = {
+    'content-type': hit.mime,
+    'cache-control': 'private, max-age=86400',
+    'x-content-type-options': 'nosniff',
+  };
+  // 画像以外は画面の中で開かせない（HTML などをこのサーバーの上で動かさない）
+  if (!isInlineImage({ mime: hit.mime })) {
+    headers['content-disposition'] = `attachment; filename*=UTF-8''${encodeURIComponent(file.replace(/^[\da-z]+-\d+-/, ''))}`;
+  }
+  return c.body(new Uint8Array(hit.body), 200, headers);
+});
+
 // ---- 画面からの直接編集（Monaco） ----
 app.get('/api/sessions/:id/file', (c) => {
   const s = hub.get(c.req.param('id'));
@@ -161,9 +179,10 @@ app.post('/api/sessions/:id/merge', (c) => {
 
 app.post('/api/sessions/:id/message', async (c) => {
   const body = (await c.req.json()) as MessageBody;
-  if (!body.text?.trim()) return c.json({ error: '空です' }, 400);
+  const text = (body.text ?? '').trim();
+  if (!text && !body.attachments?.length) return c.json({ error: '空です' }, 400);
   try {
-    manager.send(c.req.param('id'), body.text.trim());
+    manager.send(c.req.param('id'), text, body.attachments);
     return c.json({ ok: true });
   } catch (e) {
     return c.json({ error: e instanceof Error ? e.message : String(e) }, 409);

@@ -10,6 +10,7 @@ import {
   workDir,
   type AgentAvailability,
   type AgentKind,
+  type AttachmentUpload,
   type CreateSessionBody,
   type MergeResult,
   type Session,
@@ -19,10 +20,14 @@ import {
 import { ClaudeRunner } from './agents/claude.ts';
 import { CodexRunner } from './agents/codex.ts';
 import type { AgentRunner } from './agents/types.ts';
+import { checkUploads, removeAttachments, saveAttachments } from './attachments.ts';
 import type { Hub } from './hub.ts';
 import { SHOTS_DIR, capture, detectPreview, targetLabel } from './preview.ts';
 import { detectVerifyCommand, runVerify } from './verify.ts';
 import { createWorktree, mergeWorktree, removeWorktree } from './worktree.ts';
+
+/** 画像・ファイルだけ添えて文を書かずに送った時の指示 */
+const DEFAULT_ATTACH_PROMPT = '添えた画像・ファイルを見てください';
 
 /** エージェントが手を動かしている最中（取り込み・直接編集はこの間できない） */
 const WORKING: SessionStatus[] = ['starting', 'running', 'waiting_permission', 'waiting_question'];
@@ -110,7 +115,9 @@ export class SessionManager {
     if (!fs.existsSync(projectPath) || !fs.statSync(projectPath).isDirectory()) {
       throw new Error(`プロジェクトフォルダが見つかりません: ${projectPath}`);
     }
-    const prompt = body.prompt.trim();
+    const uploads = checkUploads(body.attachments);
+    // 画像だけ貼って送った時も動けるように、文が空なら添付を見るよう頼む
+    const prompt = body.prompt.trim() || (uploads.length ? DEFAULT_ATTACH_PROMPT : '');
     if (!prompt) throw new Error('指示が空です');
     const agent: AgentKind = body.agent === 'codex' ? 'codex' : 'claude';
     if (agent === 'codex') {
@@ -166,7 +173,7 @@ export class SessionManager {
     if (previewTarget) void this.capturePreview(id, 'before');
     const runner = this.makeRunner(session);
     this.runners.set(session.id, runner);
-    runner.start(prompt);
+    runner.start(prompt, undefined, saveAttachments(id, uploads));
     return session;
   }
 
@@ -184,6 +191,7 @@ export class SessionManager {
             prompt: body.prompt,
             permissionMode: body.permissionMode,
             model,
+            attachments: body.attachments,
             isolate: true,
             compare: { group, label: modelLabel(model) },
           }),
@@ -248,11 +256,21 @@ export class SessionManager {
   }
 
   /** 追加指示。動いていなければ会話IDで再開する（外部セッションはここで Tower が引き継ぐ） */
-  send(id: string, text: string): void {
+  send(id: string, text: string, uploads?: AttachmentUpload[]): void {
     const s = this.hub.get(id);
     if (!s) throw new Error('セッションが見つかりません');
+    const checked = checkUploads(uploads);
+    if (!text && !checked.length) throw new Error('指示が空です');
+    if (!this.runners.has(id)) {
+      // 再開できない時は、添付を保存する前に断る
+      if (!s.agentSessionId) throw new Error('このセッションは再開できません（会話IDが記録される前に終わっています）');
+      if (s.workspace && !fs.existsSync(s.workspace.path)) {
+        throw new Error('分離した作業場所のフォルダが見つかりません（消された可能性があります）。新しいタスクとして起動してください');
+      }
+    }
+    const attachments = saveAttachments(id, checked);
     // エージェントに伝えるべき補足があれば指示の末尾に足す（画面からの直接編集、作業前から落ちていたテスト）
-    let message = text;
+    let message = text || DEFAULT_ATTACH_PROMPT;
     const patch: Partial<Session> = {};
     if (s.manualEdits?.length) {
       message += `\n\n（補足: 利用者が Tower の画面から次のファイルを直接編集しました。作業の前に内容を確認してください: ${s.manualEdits.join(', ')}）`;
@@ -266,12 +284,8 @@ export class SessionManager {
     if (Object.keys(patch).length) this.hub.update(id, patch);
     const running = this.runners.get(id);
     if (running) {
-      running.send(message);
+      running.send(message, attachments);
       return;
-    }
-    if (!s.agentSessionId) throw new Error('このセッションは再開できません（会話IDが記録される前に終わっています）');
-    if (s.workspace && !fs.existsSync(s.workspace.path)) {
-      throw new Error('分離した作業場所のフォルダが見つかりません（消された可能性があります）。新しいタスクとして起動してください');
     }
     this.hub.update(id, {
       status: 'starting',
@@ -283,7 +297,7 @@ export class SessionManager {
     });
     const runner = this.makeRunner(s);
     this.runners.set(id, runner);
-    runner.start(message, s.agentSessionId);
+    runner.start(message, s.agentSessionId!, attachments);
   }
 
   /** 画面から直接編集してよい状態なら、作業フォルダを返す */
@@ -351,6 +365,7 @@ export class SessionManager {
     this.hub.remove(id);
     this.lastReportAt.delete(id);
     fs.rmSync(path.join(SHOTS_DIR, id), { recursive: true, force: true });
+    removeAttachments(id);
     if (s?.workspace) {
       const warn = await removeWorktree(s.project.path, s.workspace);
       if (warn) console.warn(`[worktree] ${id.slice(0, 8)} の後片付けで問題:`, warn);

@@ -1,5 +1,6 @@
 // Claude Code を Agent SDK 経由で1セッション動かし、生イベントを Session/Timeline に翻訳する。
 import { randomUUID } from 'node:crypto';
+import fs from 'node:fs';
 import {
   query,
   type Options,
@@ -11,6 +12,7 @@ import {
 } from '@anthropic-ai/claude-agent-sdk';
 import {
   workDir,
+  type Attachment,
   type PendingPermission,
   type PendingQuestion,
   type PendingRequest,
@@ -19,6 +21,7 @@ import {
   type TimelineKind,
   type Usage,
 } from '@tower/shared';
+import { attachmentDir, attachmentNote, canInline, publicRefs, type SavedAttachment } from '../attachments.ts';
 import type { Hub } from '../hub.ts';
 import {
   assessRisk,
@@ -124,8 +127,11 @@ export class ClaudeRunner implements AgentRunner {
    * @param firstMessage 最初に送る指示（新規なら依頼文、再開なら続きの指示）
    * @param resumeFrom   Claude 側の session_id。指定すると会話の続きから再開する
    */
-  start(firstMessage: string, resumeFrom?: string) {
+  start(firstMessage: string, resumeFrom?: string, attachments: SavedAttachment[] = []) {
     const s = this.session;
+    // 添付の置き場所（作業フォルダの外）も読めるようにしておく。途中で添えた時にも効くよう、先に作っておく
+    const attachDir = attachmentDir(s.id);
+    fs.mkdirSync(attachDir, { recursive: true });
     const live = this.hub.get(s.id) ?? s;
     this.usageBase = live.usage ?? { input: 0, cacheRead: 0, output: 0 };
     this.costBase = live.costUsd ?? 0;
@@ -142,6 +148,7 @@ export class ClaudeRunner implements AgentRunner {
     const append = parts.join('\n\n');
     const options: Options = {
       cwd: workDir(s),
+      additionalDirectories: [attachDir],
       model: s.model ?? undefined,
       permissionMode: s.permissionMode ?? 'default',
       resume: resumeFrom,
@@ -156,17 +163,17 @@ export class ClaudeRunner implements AgentRunner {
       },
     };
 
-    this.timeline('user', firstMessage);
-    this.pushUser(firstMessage);
+    this.timeline('user', firstMessage, undefined, undefined, publicRefs(attachments));
+    this.pushUser(firstMessage, attachments);
     this.q = query({ prompt: this.input, options });
     void this.consume();
   }
 
   /** 追加指示を送る */
-  send(text: string) {
-    this.timeline('user', text);
+  send(text: string, attachments: SavedAttachment[] = []) {
+    this.timeline('user', text, undefined, undefined, publicRefs(attachments));
     this.hub.update(this.id, { status: 'running', activity: '指示を受け取りました', pending: null, pendingCount: 0 });
-    this.pushUser(text);
+    this.pushUser(text, attachments);
   }
 
   async stop() {
@@ -273,12 +280,37 @@ export class ClaudeRunner implements AgentRunner {
     }
   }
 
-  private pushUser(text: string) {
-    this.input.push({ type: 'user', message: { role: 'user', content: text }, parent_tool_use_id: null });
+  /** 画像は会話にそのまま載せ（エージェントがすぐ見られる）、それ以外は保存場所を書き添えて読ませる */
+  private pushUser(text: string, attachments: SavedAttachment[] = []) {
+    const images = attachments.filter(canInline);
+    const body = text + attachmentNote(attachments, (a) => images.includes(a));
+    const content = images.length
+      ? [
+          { type: 'text' as const, text: body },
+          ...images.map((a) => ({
+            type: 'image' as const,
+            source: {
+              type: 'base64' as const,
+              media_type: a.mime as 'image/png' | 'image/jpeg' | 'image/gif' | 'image/webp',
+              data: fs.readFileSync(a.path).toString('base64'),
+            },
+          })),
+        ]
+      : body;
+    this.input.push({ type: 'user', message: { role: 'user', content }, parent_tool_use_id: null });
   }
 
-  private timeline(kind: TimelineKind, text: string, detail?: string, toolName?: string) {
-    this.hub.timeline({ id: randomUUID(), sessionId: this.id, ts: Date.now(), kind, text, detail, toolName });
+  private timeline(kind: TimelineKind, text: string, detail?: string, toolName?: string, attachments?: Attachment[]) {
+    this.hub.timeline({
+      id: randomUUID(),
+      sessionId: this.id,
+      ts: Date.now(),
+      kind,
+      text,
+      detail,
+      toolName,
+      ...(attachments?.length ? { attachments } : {}),
+    });
   }
 
   /** 行列から1件取り出す（resolver も外す） */

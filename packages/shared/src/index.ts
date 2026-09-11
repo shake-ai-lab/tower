@@ -235,6 +235,33 @@ export type TimelineKind =
   | 'system'
   | 'error';
 
+/** 指示に添えた画像・ファイル（サーバーが ~/.tower/attachments/<sessionId>/ に保存したもの） */
+export interface Attachment {
+  /** 利用者が付けた元の名前 */
+  name: string;
+  /** 保存した名前（url の末尾） */
+  file: string;
+  mime: string;
+  size: number;
+  /** 中身の API パス（/api/sessions/:id/attachments/:file） */
+  url: string;
+}
+
+/** 画面 → サーバー: 添える画像・ファイル。data は base64（data: URL の前置きは付けない） */
+export interface AttachmentUpload {
+  name: string;
+  mime: string;
+  data: string;
+}
+
+/** 添付の上限（画面とサーバーで同じ値を使う） */
+export const ATTACH_LIMITS = {
+  /** 1 つあたり */
+  fileBytes: 20 * 1024 * 1024,
+  /** 1 回の指示あたり */
+  count: 10,
+};
+
 export interface TimelineItem {
   id: string;
   sessionId: string;
@@ -245,6 +272,8 @@ export interface TimelineItem {
   /** 展開したときに見せる詳細（コマンド全文、差分など） */
   detail?: string;
   toolName?: string;
+  /** 利用者が指示に添えた画像・ファイル（kind='user' の時） */
+  attachments?: Attachment[];
 }
 
 // ---- WebSocket: サーバー → クライアント ----
@@ -267,6 +296,8 @@ export interface CreateSessionBody {
   autoMerge?: boolean;
   /** 内部用: 「比べる」で作る時のグループ。API から直接指定しない */
   compare?: CompareRef;
+  /** 依頼に添える画像・ファイル */
+  attachments?: AttachmentUpload[];
 }
 
 /** 同じ依頼を複数のモデルに投げて比べる（POST /api/sessions/compare）。全部「別の作業場所」で動く */
@@ -276,6 +307,8 @@ export interface CompareBody {
   permissionMode?: PermissionChoice;
   /** 2 つ以上。null = 既定のモデル */
   models: (string | null)[];
+  /** 依頼に添える画像・ファイル（それぞれの案に同じものを渡す） */
+  attachments?: AttachmentUpload[];
 }
 
 /** 「元のプロジェクトに取り込む」の結果 */
@@ -312,6 +345,8 @@ export interface AnswerBody {
 
 export interface MessageBody {
   text: string;
+  /** 指示に添える画像・ファイル。添付があれば text は空でもよい */
+  attachments?: AttachmentUpload[];
 }
 
 export interface ChangedFile {

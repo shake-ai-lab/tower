@@ -50,6 +50,7 @@ npm run deploy       # 直したものを使う: 画面ビルド → インス�
 - `apps/server/src/humanize.ts` — ツール呼び出し → 日本語の「今やってること」「許可の見出し」「危険度」
 - `apps/server/src/report.ts` — 【報告】書式（システムプロンプト追記）と、その解析。`apps/server/src/reformat.ts` — 書式が無かった時に Haiku で整形し直す（裏で走らせて差し替え）
 - `apps/server/src/files.ts` — 画面からの直接編集（Monaco）の読み書き。作業フォルダの外は拒否。保存後の後始末は `manager.manualEdit`（次の指示に補足を付ける）
+- `apps/server/src/attachments.ts` — 指示に添えた画像・ファイル。`~/.tower/attachments/<id>/` に保存（作業フォルダの外なので差分・取り込みに混ざらない）。画像は会話にそのまま載せ、それ以外は保存場所を指示に書き添えて読ませる（`additionalDirectories` で読めるようにしている）。画面側は `components/Attachments.tsx`（貼り付け・ドラッグ・ボタン）
 - `apps/server/src/janitor.ts` — 動きの無い外部セッションの自動掃除
 - `apps/server/src/feedback.ts` — 「気づいたこと」の Markdown（追加・削除・一覧。手書き部分は触らない）。`version.ts` — 版（束ねた時は esbuild の define）
 - `apps/server/src/preview.ts` — 見た目のスクリーンショット（playwright-core + 入っている Edge/Chrome）。撮るタイミングは `manager`（起動直後と、報告が来るたび）

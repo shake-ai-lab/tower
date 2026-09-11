@@ -5,6 +5,7 @@ import { OUTCOME, STATUS, btn, fmtElapsed, fmtTime, fmtTokens, fmtUsd, isAlive, 
 import { useStore } from '../store';
 import { PendingCard } from './PendingCards';
 import { ChangesPanel } from './ChangesPanel';
+import { AttachButton, AttachList, SentAttachments, useAttachments } from './Attachments';
 
 // Monaco は重いので、「直す」を押した時に初めて読み込む
 const FileEditor = lazy(() => import('./FileEditor').then((m) => ({ default: m.FileEditor })));
@@ -479,7 +480,10 @@ function TimelineRow({ t }: { t: TimelineItem }) {
   const body = (
     <div className={`flex gap-2 text-sm ${cls}`}>
       <span className="shrink-0 w-5 text-center">{ICON[t.kind]}</span>
-      <span className="min-w-0 break-words whitespace-pre-wrap">{t.text}</span>
+      <div className="min-w-0">
+        <span className="break-words whitespace-pre-wrap">{t.text}</span>
+        {t.attachments?.length ? <SentAttachments list={t.attachments} /> : null}
+      </div>
       <span className="ml-auto shrink-0 text-[11px] text-zinc-600">{fmtTime(t.ts)}</span>
     </div>
   );
@@ -505,6 +509,7 @@ export function SessionDetail({ id }: { id: string }) {
   const [showChanges, setShowChanges] = useState(false);
   const [editing, setEditing] = useState<string | null>(null);
   const [editVersion, setEditVersion] = useState(0);
+  const attach = useAttachments();
   const bottom = useRef<HTMLDivElement>(null);
   const scroller = useRef<HTMLDivElement>(null);
 
@@ -529,12 +534,13 @@ export function SessionDetail({ id }: { id: string }) {
 
   const send = async () => {
     const t = text.trim();
-    if (!t) return;
+    if (!t && !attach.items.length) return;
     setBusy(true);
     setErr(null);
     try {
-      await api.message(id, { text: t });
+      await api.message(id, { text: t, attachments: attach.uploads() });
       setText('');
+      attach.clear();
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
     } finally {
@@ -653,17 +659,22 @@ export function SessionDetail({ id }: { id: string }) {
         </div>
       </div>
 
-      <footer className="p-3 border-t border-zinc-800">
+      <footer
+        {...(canSend ? attach.dropProps : {})}
+        className={`p-3 border-t space-y-2 ${attach.dragging ? 'border-sky-500 bg-sky-500/10' : 'border-zinc-800'}`}
+      >
+        <AttachList state={attach} />
         <textarea
           value={text}
           onChange={(e) => setText(e.target.value)}
+          onPaste={canSend ? attach.onPaste : undefined}
           onKeyDown={(e) => {
             if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) void send();
           }}
           disabled={!canSend}
           placeholder={
             alive
-              ? '追加の指示（Ctrl+Enter で送信）'
+              ? '追加の指示（Ctrl+Enter で送信）。画像は貼り付け（Ctrl+V）かドラッグで添えられます'
               : external && s.agentSessionId
                 ? `続きの指示（送ると Tower が ${s.externalHint ?? '外部'} から引き継ぎます）`
                 : s.agentSessionId
@@ -673,10 +684,15 @@ export function SessionDetail({ id }: { id: string }) {
           rows={3}
           className="w-full text-sm bg-black/30 border border-zinc-700 rounded-md px-3 py-2 outline-none focus:border-zinc-500 disabled:opacity-50 resize-none"
         />
-        <div className="mt-2 flex items-center gap-2">
-          <button disabled={!canSend || busy || !text.trim()} onClick={send} className={`${btn.base} ${btn.primary}`}>
+        <div className="flex items-center gap-2">
+          <button
+            disabled={!canSend || busy || (!text.trim() && !attach.items.length)}
+            onClick={send}
+            className={`${btn.base} ${btn.primary}`}
+          >
             {alive ? '送信' : external ? '引き継いで送信' : '再開して送信'}
           </button>
+          <AttachButton state={attach} disabled={!canSend || busy} />
           {err && <span className="text-xs text-red-400">{err}</span>}
         </div>
       </footer>

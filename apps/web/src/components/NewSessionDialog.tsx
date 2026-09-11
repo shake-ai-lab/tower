@@ -12,6 +12,7 @@ import {
 import { api } from '../api';
 import { btn, isAlive } from '../lib';
 import { useStore } from '../store';
+import { AttachButton, AttachList, useAttachments } from './Attachments';
 
 export function NewSessionDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const select = useStore((s) => s.select);
@@ -32,6 +33,7 @@ export function NewSessionDialog({ open, onClose }: { open: boolean; onClose: ()
   const [isolateTouched, setIsolateTouched] = useState(false);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const attach = useAttachments();
 
   // 同じプロジェクトで別のタスクが動いているなら、ぶつからないように既定で「別の作業場所」にする
   const busyInProject = Object.values(sessions).some(
@@ -66,14 +68,16 @@ export function NewSessionDialog({ open, onClose }: { open: boolean; onClose: ()
     setBusy(true);
     setErr(null);
     try {
+      const attachments = attach.uploads();
       if (comparing) {
-        const list = await api.compare({ projectPath, prompt, permissionMode: perm, models: compareModels });
+        const list = await api.compare({ projectPath, prompt, permissionMode: perm, models: compareModels, attachments });
         select(list[0]?.id ?? null);
       } else {
-        const s = await api.create({ projectPath, prompt, agent, model: model || null, permissionMode: perm, isolate, autoMerge: isolate && autoMerge });
+        const s = await api.create({ projectPath, prompt, agent, model: model || null, permissionMode: perm, isolate, autoMerge: isolate && autoMerge, attachments });
         select(s.id);
       }
       setPrompt('');
+      attach.clear();
       setIsolateTouched(false);
       onClose();
     } catch (e) {
@@ -158,16 +162,22 @@ export function NewSessionDialog({ open, onClose }: { open: boolean; onClose: ()
             <span className="text-xs text-zinc-500">{agentUnavailable ?? agentHint}</span>
           </div>
 
-          <textarea
-            autoFocus
-            value={prompt}
-            onChange={(e) => setPrompt(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && prompt.trim() && projectPath) void submit();
-            }}
-            placeholder={'何をしてほしいか、話すように書いてください。\n例: ログイン画面で空欄のまま送信できてしまうのを直して。直したらテストも通して。'}
-            className="flex-1 min-h-[110px] md:min-h-[180px] text-sm bg-black/30 border border-zinc-700 rounded-md px-3 py-2 outline-none focus:border-zinc-500 resize-none leading-relaxed"
-          />
+          <div {...attach.dropProps} className="flex-1 flex flex-col gap-2 min-h-0">
+            <textarea
+              autoFocus
+              value={prompt}
+              onChange={(e) => setPrompt(e.target.value)}
+              onPaste={attach.onPaste}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && (prompt.trim() || attach.items.length) && projectPath) void submit();
+              }}
+              placeholder={
+                '何をしてほしいか、話すように書いてください。\n例: ログイン画面で空欄のまま送信できてしまうのを直して。直したらテストも通して。\n\n画面の写真や資料は、貼り付け（Ctrl+V）かここへドラッグすると添えられます。'
+              }
+              className={`flex-1 min-h-[110px] md:min-h-[180px] text-sm bg-black/30 border rounded-md px-3 py-2 outline-none focus:border-zinc-500 resize-none leading-relaxed ${attach.dragging ? 'border-sky-500 bg-sky-500/10' : 'border-zinc-700'}`}
+            />
+            <AttachList state={attach} />
+          </div>
           <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
             <label className="text-xs text-zinc-500 flex items-center gap-2">
               モデル
@@ -262,9 +272,10 @@ export function NewSessionDialog({ open, onClose }: { open: boolean; onClose: ()
             </div>
           )}
           <div className="flex items-center gap-3">
+            <AttachButton state={attach} disabled={busy} />
             <span className="text-xs text-zinc-600">Ctrl+Enter で起動</span>
             <button
-              disabled={busy || !prompt.trim() || !projectPath || !!agentUnavailable || (comparing && compareModels.length < 2)}
+              disabled={busy || (!prompt.trim() && !attach.items.length) || !projectPath || !!agentUnavailable || (comparing && compareModels.length < 2)}
               onClick={submit}
               className={`${btn.base} ${btn.primary} ml-auto px-5`}
             >
