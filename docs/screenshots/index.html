@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<title>Tower の画面（2026-09-11）</title>
+<style>
+  body { margin: 0; padding: 24px; background: #0f1115; color: #e6e6e6; font-family: "Segoe UI", "Hiragino Sans", "Noto Sans JP", sans-serif; }
+  h1 { font-size: 20px; margin: 0 0 6px; }
+  p.lead { color: #9ca3af; margin: 0 0 24px; font-size: 14px; }
+  section { margin-bottom: 40px; }
+  h2 { font-size: 16px; margin: 0 0 4px; }
+  h2 span { color: #6b7280; font-weight: normal; font-size: 13px; margin-left: 8px; }
+  p { color: #c4c7cc; font-size: 14px; line-height: 1.7; margin: 0 0 10px; max-width: 900px; }
+  img { max-width: 100%; border: 1px solid #333; border-radius: 10px; box-shadow: 0 8px 30px rgba(0,0,0,.5); }
+  .row { display: flex; gap: 16px; flex-wrap: wrap; align-items: flex-start; }
+  .row img.m { width: 300px; }
+</style>
+</head>
+<body>
+<h1>Tower の画面</h1>
+<p class="lead">2 本のタスク（ToDo アプリのバグ修正、喫茶店サイトのダークモード追加）を実際に動かしながら撮影。左が「判断インボックス」、真ん中がセッション一覧、右が選んだセッションの詳細。</p>
+
+<section>
+  <h2>1. 許可を求められたところ<span>01-inbox-permission.png</span></h2>
+  <p>ToDo アプリの修正を「毎回確認」の設定で任せたので、テストを実行する前に許可を聞いてきた。左のインボックスに「危険度 低」のカードとして並び、「許可」「以後も許可」「拒否」で答える。一覧では該当カードが「許可待ち」で光る。</p>
+  <img src="01-inbox-permission.png" alt="許可待ち" />
+</section>
+
+<section>
+  <h2>2. 報告カードと「修正前 → 修正後」<span>03-todo-detail.png</span></h2>
+  <p>報告が「完了」。その下に「別の作業場所（コピー）で作業しています」と「元のプロジェクトに取り込む」ボタン、さらに裏取り「修正前: 失敗 → 修正後: 成功 直りました」。一覧のカードにも「✔ 直った」が付く。</p>
+  <img src="03-todo-detail.png" alt="報告と裏取り" />
+</section>
+
+<section>
+  <h2>3. 差分を見る<span>04b-todo-diff.png</span></h2>
+  <p>「変更されたファイル」を開くと、元のプロジェクトとの差分。1 行だけ変わったのが分かる。各ファイルの右の「直す」で自分で編集できる。</p>
+  <img src="04b-todo-diff.png" alt="差分" />
+</section>
+
+<section>
+  <h2>4. 自分で直す（エディタ）<span>05-todo-editor.png</span></h2>
+  <p>「直す」を押すとエディタが開く。Ctrl+S で保存。保存すると次の指示に「このファイルを手で直した」と AI に自動で伝わり、テストがあれば裏取りも走る。</p>
+  <img src="05-todo-editor.png" alt="エディタ" />
+</section>
+
+<section>
+  <h2>5. サイトの報告と、Tower が撮った見た目<span>06-site-detail.png / 06b-site-preview.png</span></h2>
+  <p>ダークモードを追加したサイト。エージェントは「添付のスクリーンショットで確認してください」と書き、Tower が撮った「修正前 → 修正後（ライト / ダーク）」が報告の下に並ぶ。ブラウザを自分で開く必要はない。</p>
+  <img src="06-site-detail.png" alt="サイトの報告" />
+  <br /><br />
+  <img src="06b-site-preview.png" alt="見た目の修正前・修正後" />
+</section>
+
+<section>
+  <h2>6. サムネイルをクリックして拡大<span>07-site-lightbox.png</span></h2>
+  <p>修正後のダークモード。背景が暗く、文字が明るくなっている。</p>
+  <img src="07-site-lightbox.png" alt="拡大" />
+</section>
+
+<section>
+  <h2>7. 新しいタスクを任せる<span>08-new-task.png</span></h2>
+  <p>プロジェクトを選んで、やってほしいことを話すように書くだけ。エージェント（Claude / Codex）、モデル、許可の方針、「別の作業場所で動かす」を選べる。</p>
+  <img src="08-new-task.png" alt="新しいタスク" />
+</section>
+
+<section>
+  <h2>8. スマホ幅<span>09-mobile-list.png / 10-mobile-detail.png</span></h2>
+  <p>狭い画面では下のタブで「判断待ち」と「セッション」を切り替え、詳細は全画面で重なる。</p>
+  <div class="row">
+    <img class="m" src="09-mobile-list.png" alt="スマホ一覧" />
+    <img class="m" src="10-mobile-detail.png" alt="スマホ詳細" />
+  </div>
+</section>
+</body>
+</html>

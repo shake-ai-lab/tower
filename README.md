@@ -3,6 +3,8 @@
 複数プロジェクト × 複数エージェント（Claude Code、将来 Codex）を **一画面で指揮する** 個人用ツール。
 コードを読まずに「指示を出す・許可する・質問に答える・結果を判断する」だけで開発を進めるためのUI。
 
+画面の様子は [docs/screenshots/index.html](docs/screenshots/index.html)（実際に 2 本のタスクを動かして撮ったもの）。
+
 ## 起動
 
 ```bash
