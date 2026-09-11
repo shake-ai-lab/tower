@@ -48,6 +48,11 @@ export class Db {
       .run(item.id, item.sessionId, item.ts, JSON.stringify(item));
   }
 
+  getTimelineItem(sessionId: string, id: string): TimelineItem | undefined {
+    const row = this.db.prepare('SELECT json FROM timeline WHERE id = ? AND session_id = ?').get(id, sessionId) as { json: string } | undefined;
+    return row ? (JSON.parse(row.json) as TimelineItem) : undefined;
+  }
+
   loadTimeline(sessionId: string, limit = 500): TimelineItem[] {
     const rows = this.db
       .prepare('SELECT json FROM timeline WHERE session_id = ? ORDER BY ts DESC LIMIT ?')

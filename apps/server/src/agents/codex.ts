@@ -32,7 +32,7 @@ function preamble(s: Session): string {
 function friendlyError(msg: string): string {
   const m = msg.toLowerCase();
   if (m.includes('not logged in') || m.includes('login') || m.includes('unauthorized') || m.includes('401')) {
-    return 'Codex にログインしていません。ターミナルで `npx codex login`（ChatGPT アカウント）を実行してから、もう一度指示を送ってください。';
+    return 'Codex にログインしていません。左端の「設定」→「Codexにログイン」で接続してから、もう一度指示を送ってください。';
   }
   if (m.includes('enoent') || m.includes('not found')) {
     return 'Codex の実行ファイルが見つかりません。`npm install` をやり直してください。';

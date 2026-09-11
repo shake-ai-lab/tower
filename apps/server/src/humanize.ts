@@ -1,6 +1,6 @@
 // エージェントの生のツール呼び出しを、コードを読まない人が判断できる日本語に翻訳する。
 import path from 'node:path';
-import type { RiskLevel } from '@tower/shared';
+import { imageType, type RiskLevel } from '@tower/shared';
 
 const str = (v: unknown, max = 200): string => {
   const s = typeof v === 'string' ? v : v == null ? '' : JSON.stringify(v);
@@ -8,6 +8,18 @@ const str = (v: unknown, max = 200): string => {
 };
 const base = (p: unknown) => (typeof p === 'string' ? path.basename(p) : '');
 const firstLine = (s: string) => s.split(/\r?\n/)[0] ?? '';
+
+/**
+ * 指示文から一覧用の題名を作る。VS Code 拡張は指示の前に <ide_opened_file>…</ide_opened_file> や
+ * <system-reminder>…</system-reminder> のようなメタを差し込むので、それを外してから最初の行を取る
+ */
+export function promptTitle(p: string, max = 60): string {
+  const cleaned = p
+    .replace(/<([a-z][\w-]*)(\s[^>]*)?>[\s\S]*?<\/\1>/gi, '')
+    .replace(/<[a-z][\w-]*(\s[^>]*)?\/>/gi, '');
+  const line = cleaned.split(/\r?\n/).map((l) => l.trim()).find(Boolean) ?? firstLine(p).trim();
+  return line.slice(0, max);
+}
 
 /** 「今やってること」1行 */
 export function describeActivity(toolName: string, input: Record<string, unknown>): string {
@@ -151,6 +163,12 @@ export function assessRisk(toolName: string, input: Record<string, unknown>): Ri
     default:
       return 'mid';
   }
+}
+
+/** Read で画像を読んだ時、その画像の場所（年表で中身を見せる） */
+export function readImage(toolName: string, input: Record<string, unknown>): string | undefined {
+  if (toolName === 'Read' && typeof input.file_path === 'string' && imageType(input.file_path)) return input.file_path;
+  return undefined;
 }
 
 /** Edit/Write 系から触ったファイルを拾う */

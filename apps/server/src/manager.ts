@@ -6,6 +6,8 @@ import path from 'node:path';
 import { createRequire } from 'node:module';
 import {
   type CompareBody,
+  PERMISSION_CHOICES,
+  type PermissionChoice,
   modelLabel,
   workDir,
   type AgentAvailability,
@@ -41,7 +43,7 @@ function codexAvailability(): AgentAvailability {
     value =
       r.status === 0 && !/not logged in/i.test(out)
         ? { available: true }
-        : { available: false, reason: 'Codex にログインしていません。ターミナルで `npx codex login` を実行してください' };
+        : { available: false, reason: 'Codex にログインしていません。「Codexにログイン」ボタンから接続してください。設定画面からもログインできます。' };
   } catch (e) {
     value = { available: false, reason: `Codex が見つかりません: ${e instanceof Error ? e.message : String(e)}` };
   }
@@ -49,7 +51,8 @@ function codexAvailability(): AgentAvailability {
   return value;
 }
 
-export function agentAvailability(): Record<AgentKind, AgentAvailability> {
+export function agentAvailability(refresh = false): Record<AgentKind, AgentAvailability> {
+  if (refresh) codexCache = null;
   return { claude: { available: true }, codex: codexAvailability() };
 }
 
@@ -106,6 +109,9 @@ export class SessionManager {
   }
 
   create(body: CreateSessionBody): Session {
+    if (body.permissionMode !== undefined && !PERMISSION_CHOICES.some((p) => p.value === body.permissionMode)) {
+      throw new Error('許可方針が不正です');
+    }
     const projectPath = path.resolve(body.projectPath);
     if (!fs.existsSync(projectPath) || !fs.statSync(projectPath).isDirectory()) {
       throw new Error(`プロジェクトフォルダが見つかりません: ${projectPath}`);
@@ -334,6 +340,24 @@ export class SessionManager {
 
   runner(id: string): AgentRunner | undefined {
     return this.runners.get(id);
+  }
+
+  async setPermissionMode(id: string, mode: PermissionChoice): Promise<Session> {
+    if (!PERMISSION_CHOICES.some((p) => p.value === mode)) throw new Error('許可方針が不正です');
+    const session = this.hub.get(id);
+    if (!session) throw new Error('セッションが見つかりません');
+    if (session.agent !== 'claude' || session.origin === 'external') throw new Error('Towerで動かしているClaudeタスクで変更できます');
+    const runner = this.runners.get(id);
+    if (runner) {
+      if (!runner.setPermissionMode) throw new Error('このタスクは許可方針の変更に対応していません');
+      await runner.setPermissionMode(mode);
+    } else {
+      this.hub.update(id, { permissionMode: mode });
+      this.note(id, 'system', `次回再開時の許可方針を ${mode} に変更しました`);
+    }
+    const current = this.hub.get(id);
+    if (!current) throw new Error('セッションが削除されました');
+    return current;
   }
 
   async stop(id: string) {

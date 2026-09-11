@@ -7,6 +7,15 @@ import { git, isGitRepo } from './worktree.ts';
 const MAX_FILE = 200 * 1024;
 const MAX_TOTAL = 2 * 1024 * 1024;
 
+export function collectHistory(dir: string): NonNullable<ChangesResponse['history']> {
+  const result = git(dir, ['log', '--all', '--topo-order', '-40', '--format=%H%x1f%P%x1f%s%x1f%D%x1f%an%x1f%B%x00']);
+  if (!result.ok || !result.out) return [];
+  return result.out.split('\0').map((line) => line.trim()).filter(Boolean).map((line) => {
+    const [hash, parents, subject, refs, author, message] = line.split('\x1f');
+    return { hash, parents: parents ? parents.split(' ') : [], subject, refs, author, message };
+  });
+}
+
 /** 未追跡ファイルを「全行追加」の diff に見せる */
 function pseudoAddDiff(rel: string, content: string): string {
   const lines = content.split(/\r?\n/);
@@ -83,7 +92,7 @@ export function collectChanges(dir: string, touched: string[], base = 'HEAD'): C
       const content = readCapped(path.join(dir, rel));
       if (content !== null) push({ path: rel, status: 'A', diff: pseudoAddDiff(rel, content) });
     }
-    return { isGit: true, files };
+    return { isGit: true, branch: git(dir, ['branch', '--show-current']).out.trim(), history: collectHistory(dir), files };
   }
   const projectPath = dir;
 

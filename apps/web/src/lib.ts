@@ -1,5 +1,109 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { projectKey } from './project-key';
 import type { ReportOutcome, RiskLevel, Session, SessionStatus } from '@tower/shared';
+
+/** プロジェクト名から決まる色（同じ名前は常に同じ色）。一覧でどのプロジェクトのタスクか一目で分かるように */
+export function projectHue(name: string): number {
+  let h = 7;
+  for (const ch of name) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  return h % 360;
+}
+
+/** プロジェクト名の札（チップ）の色。文字・背景・枠を同じ色相で */
+export function projectStyle(name: string): { color: string; background: string; borderColor: string } {
+  const h = projectHue(projectKey(name));
+  return { color: `hsl(${h} 70% 78%)`, background: `hsl(${h} 55% 32% / 0.45)`, borderColor: `hsl(${h} 55% 50% / 0.55)` };
+}
+
+/** PC 幅（Tailwind の md = 768px 以上）かどうか。パネルの幅指定はこの時だけ効かせる */
+export function useDesktop(minWidth = 768): boolean {
+  const [on, setOn] = useState(() => window.matchMedia(`(min-width: ${minWidth}px)`).matches);
+  useEffect(() => {
+    const mq = window.matchMedia(`(min-width: ${minWidth}px)`);
+    const f = () => setOn(mq.matches);
+    mq.addEventListener('change', f);
+    return () => mq.removeEventListener('change', f);
+  }, [minWidth]);
+  return on;
+}
+
+/**
+ * ドラッグで幅を変えられるパネル。幅は localStorage に残す。
+ * side = パネルが画面のどちら側にあるか（左のパネルは右へ引くと広がり、右のパネルは左へ引くと広がる）
+ */
+export function useResizable(key: string, def: number, min: number, max: number, side: 'left' | 'right') {
+  const ref = useRef<HTMLElement>(null);
+  const endDrag = useRef<(() => void) | null>(null);
+  const [actualWidth, setActualWidth] = useState(def);
+  useEffect(() => {
+    const observer = new ResizeObserver(() => { if (ref.current) setActualWidth(Math.round(ref.current.getBoundingClientRect().width)); });
+    if (ref.current) observer.observe(ref.current);
+    return () => { observer.disconnect(); endDrag.current?.(); };
+  }, []);
+  const limit = useCallback(() => {
+    const siblings = [...(ref.current?.parentElement?.querySelectorAll<HTMLElement>('[data-resizable-panel]') ?? [])];
+    const otherWidth = siblings.filter((el) => el !== ref.current && getComputedStyle(el).position !== 'fixed' && el.getBoundingClientRect().width > 0).reduce((sum, el) => sum + el.getBoundingClientRect().width, 0);
+    return Math.max(min, Math.min(max, window.innerWidth - otherWidth - 320));
+  }, [min, max]);
+  const storageKey = `tower.width.${key}`;
+  const [width, setWidth] = useState(() => {
+    const v = Number(localStorage.getItem(storageKey));
+    return v >= min && v <= max ? v : def;
+  });
+  useEffect(() => localStorage.setItem(storageKey, String(width)), [storageKey, width]);
+  useEffect(() => {
+    const reset = () => setWidth(def);
+    window.addEventListener('tower:reset-widths', reset);
+    return () => window.removeEventListener('tower:reset-widths', reset);
+  }, [def]);
+
+  const onMouseDown = useCallback(
+    (e: React.MouseEvent) => {
+      e.preventDefault();
+      const startX = e.clientX;
+      endDrag.current?.();
+      const start = ref.current?.getBoundingClientRect().width ?? width;
+      // 画面の 6 割より広くはしない（真ん中の一覧が消えないように）
+      const cap = limit();
+      const prevCursor = document.body.style.cursor;
+      const prevSelect = document.body.style.userSelect;
+      document.body.style.cursor = 'col-resize';
+      document.body.style.userSelect = 'none';
+      const move = (ev: MouseEvent) => {
+        const dx = ev.clientX - startX;
+        setWidth(Math.max(min, Math.min(cap, start + (side === 'left' ? dx : -dx))));
+      };
+      const up = () => {
+        document.body.style.cursor = prevCursor;
+        document.body.style.userSelect = prevSelect;
+        window.removeEventListener('mousemove', move);
+        window.removeEventListener('mouseup', up);
+        window.removeEventListener('blur', up);
+        endDrag.current = null;
+      };
+      window.addEventListener('mousemove', move);
+      window.addEventListener('mouseup', up);
+      window.addEventListener('blur', up);
+      endDrag.current = up;
+    },
+    [width, min, side, limit],
+  );
+  const reset = useCallback(() => setWidth(def), [def]);
+  const onKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Home') { e.preventDefault(); reset(); }
+    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+    e.preventDefault();
+    const delta = (e.key === 'ArrowRight' ? 20 : -20) * (side === 'left' ? 1 : -1);
+    setWidth(Math.max(min, Math.min(limit(), (ref.current?.getBoundingClientRect().width ?? width) + delta)));
+  };
+  return { ref, width, actualWidth, onMouseDown, onKeyDown, reset };
+}
+
+/** 保存してあるパネルの幅を全部消す（設定の「元に戻す」）。次の描画で既定に戻る */
+export function clearSavedWidths() {
+  for (const k of Object.keys(localStorage)) if (k.startsWith('tower.width.')) localStorage.removeItem(k);
+  window.dispatchEvent(new Event('tower:reset-widths'));
+}
 
 export const STATUS: Record<SessionStatus, { label: string; dot: string; badge: string; attention?: boolean }> = {
   starting: { label: '起動中', dot: 'bg-zinc-400 animate-pulse', badge: 'bg-zinc-700 text-zinc-200' },

@@ -1,13 +1,14 @@
-import { Suspense, lazy, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { Preview, Report, Screenshot, Session, TimelineItem, Verification } from '@tower/shared';
+import { PERMISSION_CHOICES, type PermissionChoice } from '@tower/shared';
 import { api } from '../api';
-import { OUTCOME, STATUS, btn, fmtElapsed, fmtTime, fmtTokens, fmtUsd, isAlive, verifyBadge } from '../lib';
+import { OUTCOME, STATUS, btn, fmtElapsed, fmtTime, fmtTokens, fmtUsd, isAlive, verifyBadge, useDesktop, useResizable } from '../lib';
 import { useStore } from '../store';
 import { PendingCard } from './PendingCards';
 import { ChangesPanel } from './ChangesPanel';
 
 // Monaco は重いので、「直す」を押した時に初めて読み込む
-const FileEditor = lazy(() => import('./FileEditor').then((m) => ({ default: m.FileEditor })));
+import { useEditorWorkspace } from '../editor-workspace';
 
 const WORKING: Session['status'][] = ['starting', 'running', 'waiting_permission', 'waiting_question'];
 
@@ -65,7 +66,7 @@ export function compareVerdict(b: Verification | null | undefined, v: Verificati
 /** 起動直後の自動チェック（報告が来る前に見せる） */
 function BaselineStrip({ b }: { b: Verification }) {
   return (
-    <div className="rounded-lg border border-zinc-700 bg-zinc-800/40 p-2.5 text-xs text-zinc-300">
+    <div className="rounded-sm border border-zinc-700 bg-zinc-800/40 p-2.5 text-xs text-zinc-300">
       修正前の自動チェック: <span className={b.ok ? 'text-emerald-300' : 'text-red-300'}>{b.ok ? '✔' : '✖'} {okText(b)}</span>
       <span className="text-zinc-500"> — Tower が </span>
       <span className="mono">{b.command}</span>
@@ -85,7 +86,7 @@ function VerificationStrip({ v, baseline, reportOutcome }: { v: Verification; ba
         ? 'border-emerald-500/40 bg-emerald-500/5'
         : 'border-red-500/60 bg-red-500/10';
   return (
-    <div className={`rounded-lg border p-2.5 text-sm ${cls}`}>
+    <div className={`rounded-sm border p-2.5 text-sm ${cls}`}>
       <button onClick={() => setOpen((o) => !o)} className="w-full flex items-center gap-2 text-left">
         <span>{v.ok === null ? '⏳' : v.ok ? '✔' : '✖'}</span>
         <span className="font-medium">
@@ -159,7 +160,7 @@ function PreviewStrip({ p }: { p: Preview }) {
     </div>
   );
   return (
-    <div className="rounded-lg border border-zinc-700 bg-zinc-800/30 p-2.5 text-sm">
+    <div className="rounded-sm border border-zinc-700 bg-zinc-800/30 p-2.5 text-sm">
       <div className="flex items-center gap-2 text-xs">
         <span className="text-zinc-300">📷 見た目</span>
         <span className="text-zinc-500">
@@ -406,7 +407,7 @@ function ReportCard({ r, onFileClick }: { r: Report; onFileClick?: () => void })
   const [raw, setRaw] = useState(false);
   const o = OUTCOME[r.outcome];
   return (
-    <div className="rounded-xl border border-zinc-700 bg-[#171a21] p-4 space-y-3">
+    <div className="rounded-md border border-zinc-700 bg-[#171a21] p-2 space-y-2">
       <div className="flex items-center gap-2">
         <span className="text-xs text-zinc-500">報告</span>
         <span className={`text-xs px-2 py-0.5 rounded ${o.cls}`}>{o.label}</span>
@@ -483,18 +484,44 @@ function TimelineRow({ t }: { t: TimelineItem }) {
       <span className="ml-auto shrink-0 text-[11px] text-zinc-600">{fmtTime(t.ts)}</span>
     </div>
   );
-  if (!t.detail) return <div className="px-1 py-0.5">{body}</div>;
+  const image = t.imagePath ? <TimelineImage t={t} /> : null;
+  if (!t.detail) return <div className="px-1 py-0.5">{body}{image}</div>;
   return (
-    <details className="px-1 py-0.5 group">
-      <summary className="cursor-pointer list-none">{body}</summary>
-      <pre className="mono mt-1 ml-7 text-xs whitespace-pre-wrap break-all bg-black/40 rounded p-2 max-h-72 overflow-auto text-zinc-400">
-        {t.detail}
-      </pre>
-    </details>
+    <div className="px-1 py-0.5">
+      <details className="group">
+        <summary className="cursor-pointer list-none">{body}</summary>
+        <pre className="mono mt-1 ml-7 text-xs whitespace-pre-wrap break-all bg-black/40 rounded p-2 max-h-72 overflow-auto text-zinc-400">
+          {t.detail}
+        </pre>
+      </details>
+      {image}
+    </div>
   );
 }
 
-export function SessionDetail({ id }: { id: string }) {
+/** エージェントが読んだ画像。畳んだままでも見えるように小さく出し、押すと大きくする */
+function TimelineImage({ t }: { t: TimelineItem }) {
+  const [big, setBig] = useState(false);
+  const [gone, setGone] = useState(false);
+  const name = t.imagePath?.split(/[\\/]/).pop() ?? '';
+  if (gone) return <p className="ml-7 mt-1 text-xs text-zinc-500">この画像はもう残っていません（一時的な場所に置かれていた、など）</p>;
+  return (
+    <button type="button" onClick={() => setBig((v) => !v)} title={big ? '押すと小さくします' : '押すと大きくします'} className="ml-7 mt-1 block max-w-[calc(100%-1.75rem)] text-left">
+      <img
+        src={api.timelineImageUrl(t.sessionId, t.id)}
+        alt={name}
+        loading="lazy"
+        onError={() => setGone(true)}
+        className={`${big ? 'max-h-[70vh]' : 'max-h-32'} max-w-full rounded border border-zinc-700 bg-black/40 object-contain`}
+      />
+    </button>
+  );
+}
+
+export function SessionDetail({ id, onShowWorkspace, embedded = false, onClose, hidden = false }: { hidden?: boolean; id: string; onShowWorkspace?: () => void; embedded?: boolean; onClose?: () => void }) {
+  const desktop = useDesktop(1100);
+  const resize = useResizable('detail', 600, 300, 1000, 'right');
+  const [permissionBusy, setPermissionBusy] = useState(false);
   const s = useStore((st) => st.sessions[id]);
   const timeline = useStore((st) => st.timelines[id]);
   const setTimeline = useStore((st) => st.setTimeline);
@@ -503,7 +530,8 @@ export function SessionDetail({ id }: { id: string }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [showChanges, setShowChanges] = useState(false);
-  const [editing, setEditing] = useState<string | null>(null);
+  const openFile = useEditorWorkspace((s) => s.open);
+  const setEditing = (path: string) => openFile(id, path, () => setEditVersion((v) => v + 1));
   const [editVersion, setEditVersion] = useState(0);
   const bottom = useRef<HTMLDivElement>(null);
   const scroller = useRef<HTMLDivElement>(null);
@@ -517,7 +545,7 @@ export function SessionDetail({ id }: { id: string }) {
     scroller.current?.scrollTo({ top: 0 });
   }, [id, s?.pending?.id, s?.report?.generatedAt]);
   useEffect(() => {
-    if (s?.status === 'running') bottom.current?.scrollIntoView({ block: 'end' });
+    if (s?.status === 'running' && scroller.current) scroller.current.scrollTop = scroller.current.scrollHeight;
   }, [timeline?.length, s?.status]);
 
   if (!s) return null;
@@ -529,7 +557,7 @@ export function SessionDetail({ id }: { id: string }) {
 
   const send = async () => {
     const t = text.trim();
-    if (!t) return;
+    if (!t || busy || !canSend) return;
     setBusy(true);
     setErr(null);
     try {
@@ -555,7 +583,8 @@ export function SessionDetail({ id }: { id: string }) {
   };
 
   return (
-    <section className="fixed inset-0 z-40 w-full md:static md:z-auto md:w-[600px] shrink-0 md:border-l border-zinc-800 flex flex-col overflow-hidden bg-[#0c0e12]">
+    <section ref={resize.ref} data-resizable-panel={embedded ? undefined : true} aria-label="タスク詳細" style={{ ...(desktop && !embedded ? { width: resize.width, minWidth: 300, flexShrink: 1 } : {}), ...(hidden ? { display: 'none' } : {}) }} className={`w-full border-zinc-800 flex flex-col overflow-hidden bg-[#0c0e12] ${embedded ? 'relative h-full min-h-0 min-w-0' : desktop ? 'relative border-l' : 'fixed inset-0 z-40'}`}>
+      {desktop && !embedded && <div role="separator" aria-label="タスク詳細の幅" aria-orientation="vertical" aria-valuemin={300} aria-valuemax={1000} aria-valuenow={resize.actualWidth} tabIndex={0} onMouseDown={resize.onMouseDown} onDoubleClick={resize.reset} onKeyDown={resize.onKeyDown} className="absolute left-0 top-0 bottom-0 w-1.5 z-10 cursor-col-resize hover:bg-sky-500/60 focus:bg-sky-500/60" />}
       <header className="p-3 border-b border-zinc-800 space-y-1">
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
           <span className="font-semibold">{s.project.name}</span>
@@ -583,22 +612,32 @@ export function SessionDetail({ id }: { id: string }) {
             <button onClick={remove} className={`${btn.base} ${btn.ghost} !py-1 !text-xs`}>
               削除
             </button>
-            <button onClick={() => select(null)} className={`${btn.base} ${btn.ghost} !py-1 !text-xs`}>
+            {(!embedded || onClose) && <button onClick={onClose ?? (() => select(null))} className={`${btn.base} ${btn.ghost} !py-1 !text-xs`}>
               閉じる
-            </button>
+            </button>}
           </div>
         </div>
-        <div className="text-sm text-zinc-300">{s.title}</div>
+        <div title={s.title} className="text-sm text-zinc-300 line-clamp-2 break-words [overflow-wrap:anywhere]">{s.title}</div>
+        {!desktop && !embedded && <button className="text-xs text-sky-300 text-left" onClick={onShowWorkspace}>ファイル・Git・設定を見る</button>}
+        {s.agent === 'claude' && !external && <label className="block text-xs text-zinc-400">許可方針
+          <select aria-label="タスクの許可方針" disabled={permissionBusy} value={s.permissionMode ?? 'default'} className="ml-2 bg-zinc-800 rounded px-2 py-1" onChange={async (e) => {
+            const mode = e.target.value as PermissionChoice;
+            setPermissionBusy(true); setErr(null);
+            try { useStore.getState().upsertSession(await api.setPermissionMode(id, mode)); }
+            catch (e) { setErr(String(e)); } finally { setPermissionBusy(false); }
+          }}>{PERMISSION_CHOICES.map((p) => <option key={p.value} value={p.value}>{p.label}</option>)}</select>
+          {!embedded && <span className="block mt-1">{PERMISSION_CHOICES.find((p) => p.value === s.permissionMode)?.hint}</span>}
+        </label>}
         <div className="text-xs text-zinc-500 flex items-center gap-2">
           <span className={`inline-block w-2 h-2 rounded-full ${st.dot}`} />
-          {s.activity}
+          <span className="truncate min-w-0" title={s.activity}>{s.activity}</span>
           <span className="ml-auto whitespace-nowrap">
             {s.turns}往復 · {s.toolCalls}操作
           </span>
         </div>
       </header>
 
-      <div ref={scroller} className="flex-1 overflow-y-auto p-3 space-y-3">
+      <div ref={scroller} className="flex-1 overflow-y-auto p-2 space-y-2">
         {external && (
           <div className="text-xs text-indigo-200/80 bg-indigo-400/5 border border-indigo-400/30 rounded-md p-2 leading-relaxed">
             このセッションは {s.externalHint ?? '外部'} で動いています。ここから指示を送ると Tower が会話を引き継ぎます（{s.externalHint ?? '元の画面'} 側で同時に動かさないでください）。
@@ -620,7 +659,7 @@ export function SessionDetail({ id }: { id: string }) {
             {s.lastError}
           </div>
         )}
-        <div className="rounded-xl border border-zinc-800 bg-[#12151b] p-3">
+        <div className="rounded-md border border-zinc-800 bg-[#12151b] p-3">
           <button
             onClick={() => setShowChanges((v) => !v)}
             className="w-full flex items-center gap-2 text-sm text-left"
@@ -658,7 +697,7 @@ export function SessionDetail({ id }: { id: string }) {
           value={text}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) void send();
+            if (e.key === 'Enter' && !e.nativeEvent.isComposing && (e.ctrlKey || e.metaKey)) { e.preventDefault(); void send(); }
           }}
           disabled={!canSend}
           placeholder={
@@ -670,7 +709,7 @@ export function SessionDetail({ id }: { id: string }) {
                   ? '続きの指示（止まっているので、送ると再開します）'
                   : 'このセッションは再開できません'
           }
-          rows={3}
+          rows={embedded ? 2 : 3}
           className="w-full text-sm bg-black/30 border border-zinc-700 rounded-md px-3 py-2 outline-none focus:border-zinc-500 disabled:opacity-50 resize-none"
         />
         <div className="mt-2 flex items-center gap-2">
@@ -681,22 +720,7 @@ export function SessionDetail({ id }: { id: string }) {
         </div>
       </footer>
 
-      {editing && (
-        <Suspense
-          fallback={
-            <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center text-sm text-zinc-300">
-              エディタを読み込み中…
-            </div>
-          }
-        >
-          <FileEditor
-            sessionId={id}
-            path={editing}
-            onClose={() => setEditing(null)}
-            onSaved={() => setEditVersion((v) => v + 1)}
-          />
-        </Suspense>
-      )}
+
     </section>
   );
 }

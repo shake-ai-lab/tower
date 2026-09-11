@@ -46,6 +46,10 @@ export class Hub {
     const cur = this.sessions.get(id);
     if (!cur) return undefined;
     const next: Session = { ...cur, ...patch, updatedAt: Date.now() };
+    if (patch.costUsd !== undefined || patch.usage !== undefined) {
+      const delta = { ts: next.updatedAt, cost: Math.max(0, next.costUsd - cur.costUsd), input: Math.max(0, (next.usage?.input ?? 0) - (cur.usage?.input ?? 0)), cacheRead: Math.max(0, (next.usage?.cacheRead ?? 0) - (cur.usage?.cacheRead ?? 0)), output: Math.max(0, (next.usage?.output ?? 0) - (cur.usage?.output ?? 0)) };
+      if (delta.cost || delta.input || delta.output || delta.cacheRead) next.usageHistory = [...(cur.usageHistory ?? []), delta];
+    }
     this.sessions.set(id, next);
     this.db.saveSession(next);
     this.emit({ type: 'session', session: next });

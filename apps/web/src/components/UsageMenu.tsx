@@ -26,11 +26,17 @@ export function UsageMenu({ sessions }: { sessions: Session[] }) {
     for (const s of sessions) {
       if (s.origin === 'external') continue; // Tower の外で動いているものは量が分からない
       add(all, s);
-      if (s.createdAt >= weekStart) add(week, s);
-      if (s.createdAt >= dayStart) {
-        add(today, s);
+      const sumSince = (start: number): Sum => {
+        const entries = (s.usageHistory ?? []).filter((entry) => entry.ts >= start);
+        return entries.reduce((sum, entry) => ({ count: 1, input: sum.input + entry.input, cacheRead: sum.cacheRead + entry.cacheRead, output: sum.output + entry.output, cost: sum.cost + entry.cost }), empty());
+      };
+      const merge = (target: Sum, value: Sum) => { for (const key of ['count', 'input', 'cacheRead', 'output', 'cost'] as const) target[key] += value[key]; };
+      merge(week, sumSince(weekStart));
+      const daily = sumSince(dayStart);
+      merge(today, daily);
+      if (daily.count) {
         const p = byProject.get(s.project.name) ?? empty();
-        add(p, s);
+        merge(p, daily);
         byProject.set(s.project.name, p);
       }
     }
@@ -41,8 +47,8 @@ export function UsageMenu({ sessions }: { sessions: Session[] }) {
   }, [sessions]);
 
   const rows: [string, Sum][] = [
-    ['今日', stats.today],
-    ['この 7 日', stats.week],
+    ['今日（記録分）', stats.today],
+    ['この7日（記録分）', stats.week],
     ['全部', stats.all],
   ];
   return (
@@ -52,7 +58,7 @@ export function UsageMenu({ sessions }: { sessions: Session[] }) {
         className={`${btn.base} ${btn.ghost} !text-xs whitespace-nowrap`}
         title="エージェントがタスクに使ったトークン量と費用の目安"
       >
-        使った量{stats.today.cost > 0 && <span className="opacity-70 ml-1">今日 {fmtUsd(stats.today.cost)}</span>}
+        使った量{stats.today.cost > 0 && <span className="opacity-70 ml-1">今日の記録 {fmtUsd(stats.today.cost)}</span>}
       </button>
       {open && (
         <div className="absolute right-0 top-full mt-1 w-[min(420px,calc(100vw-2rem))] rounded-lg border border-zinc-700 bg-[#171a21] shadow-xl p-3 text-xs z-50 space-y-3">
@@ -97,7 +103,7 @@ export function UsageMenu({ sessions }: { sessions: Session[] }) {
           <p className="text-zinc-500 leading-relaxed">
             エージェントがタスクの作業に使った量です。Tower 自体は AI を呼びません（例外: 書式の無い報告を整形する時だけ、小さなモデルを 1 回）。
             「読んだ」の大半は前回までの会話の使い回し（キャッシュ）で、新しく読ませた分よりずっと軽く数えられます。
-            Max / Pro の定額で使っているなら費用は請求されず、利用枠の目安になります。VS Code 側のセッションは量が分からないので含みません。タスクを始めた日で数えます。
+            使用量が報告された日で集計します。更新前の使用量は日付を復元できないため「全部」のみに含まれます。実行中の未報告分・外部タスク・費用を報告しないエージェントの費用は含まれません。表示額はアカウント全体の合計ではありません。
           </p>
         </div>
       )}

@@ -9,7 +9,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { BridgeStatus, PendingPermission, PermissionChoice, Session, TimelineKind } from '@tower/shared';
 import type { Hub } from './hub.ts';
-import { assessRisk, describeActivity, describePermission, firstLine, toolDetail, touchedFile } from './humanize.ts';
+import { assessRisk, describeActivity, describePermission, firstLine, promptTitle, readImage, toolDetail, touchedFile } from './humanize.ts';
 import { detectPreview, targetLabel } from './preview.ts';
 import { scheduleReformat } from './reformat.ts';
 import { fallbackReport, parseReport } from './report.ts';
@@ -196,8 +196,8 @@ export class Bridge {
     return s;
   }
 
-  private timeline(sessionId: string, kind: TimelineKind, text: string, detail?: string, toolName?: string) {
-    this.hub.timeline({ id: randomUUID(), sessionId, ts: Date.now(), kind, text, detail, toolName });
+  private timeline(sessionId: string, kind: TimelineKind, text: string, detail?: string, toolName?: string, imagePath?: string) {
+    this.hub.timeline({ id: randomUUID(), sessionId, ts: Date.now(), kind, text, detail, toolName, imagePath });
   }
 
   handleEvent(input: HookInput) {
@@ -211,7 +211,7 @@ export class Bridge {
     if (hint && !s.externalHint) this.hub.update(id, { externalHint: hint });
     if (s.title === PLACEHOLDER_TITLE && input.hook_event_name !== 'UserPromptSubmit') {
       const first = detectFirstPrompt(input.transcript_path);
-      if (first) this.hub.update(id, { title: firstLine(first).slice(0, 60), prompt: s.prompt || first });
+      if (first) this.hub.update(id, { title: promptTitle(first), prompt: s.prompt || first });
     }
 
     switch (input.hook_event_name) {
@@ -236,7 +236,7 @@ export class Bridge {
         };
         if (!s.prompt) {
           patch.prompt = p;
-          patch.title = firstLine(p).slice(0, 60);
+          patch.title = promptTitle(p);
         }
         this.hub.update(id, patch);
         break;
@@ -247,7 +247,7 @@ export class Bridge {
         const inp = input.tool_input ?? {};
         const activity = describeActivity(tool, inp);
         const f = touchedFile(tool, inp);
-        this.timeline(id, 'tool_use', activity, toolDetail(tool, inp), tool);
+        this.timeline(id, 'tool_use', activity, toolDetail(tool, inp), tool, readImage(tool, inp));
         this.hub.update(id, {
           status: s.pending ? s.status : 'running',
           activity: s.pending ? s.activity : activity,
@@ -387,6 +387,14 @@ export class Bridge {
   }
 
   // ---- hooks の導入 ----
+
+  /** 待つ秒数を変える（画面の「設定」から）。hooks を入れてあれば、その中の --wait も書き直す */
+  setWaitSeconds(n: number) {
+    if (n === this.opts.waitSeconds) return;
+    this.opts.waitSeconds = n;
+    const st = this.status();
+    if (st.installed) this.install(true, st.permissions);
+  }
 
   status(): BridgeStatus {
     const hooks = readSettings().hooks ?? {};

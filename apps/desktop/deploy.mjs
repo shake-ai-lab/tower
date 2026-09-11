@@ -74,7 +74,10 @@ if (!fs.existsSync(installed)) fail(`入った先が見つかりません: ${ins
 
 // 4. 開く
 console.log(`開きます: ${installed}`);
-spawn(installed, [], { detached: true, stdio: 'ignore', cwd: path.dirname(installed) }).unref();
+// Electronベースの開発環境から実行しても、アプリをNodeモードで起動しない。
+const launchEnv = { ...process.env };
+delete launchEnv.ELECTRON_RUN_AS_NODE;
+spawn(installed, [], { detached: true, stdio: 'ignore', cwd: path.dirname(installed), env: launchEnv }).unref();
 let h = null;
 for (let i = 0; i < 120 && !(h = await health()); i++) await sleep(500);
 if (!h) fail('起動しましたが、サーバーが応答しません（Tower の窓にエラーが出ていないか見てください）');

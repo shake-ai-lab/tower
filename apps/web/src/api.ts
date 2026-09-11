@@ -13,10 +13,14 @@ import type {
   MergeResult,
   MessageBody,
   PermissionDecisionBody,
+  PermissionChoice,
   ProjectInfo,
   SaveFileBody,
   Session,
+  SettingsStatus,
   TimelineItem,
+  TowerSettings,
+  TreeResponse,
 } from '@tower/shared';
 
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
@@ -28,7 +32,9 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
 
 export const api = {
   projects: () => req<ProjectInfo[]>('/api/projects'),
-  agents: () => req<Record<AgentKind, AgentAvailability>>('/api/agents'),
+  browseProjects: (path: string) => req<{ path: string; parent: string | null; projects: ProjectInfo[] }>(`/api/projects/browse?path=${encodeURIComponent(path)}`),
+  agents: (refresh = false) => req<Record<AgentKind, AgentAvailability>>(`/api/agents${refresh ? '?refresh=1' : ''}`),
+  codexLogin: (start = false) => req<{ status: 'idle' | 'waiting' | 'success' | 'error'; url?: string; message?: string }>('/api/agents/codex/login', start ? { method: 'POST', body: '{}' } : undefined),
   sessions: () => req<Session[]>('/api/sessions'),
   timeline: (id: string) => req<TimelineItem[]>(`/api/sessions/${id}/timeline`),
   changes: (id: string) => req<ChangesResponse>(`/api/sessions/${id}/changes`),
@@ -43,6 +49,14 @@ export const api = {
   stop: (id: string) => req<{ ok: boolean }>(`/api/sessions/${id}/stop`, { method: 'POST' }),
   merge: (id: string) => req<MergeResult>(`/api/sessions/${id}/merge`, { method: 'POST' }),
   file: (id: string, path: string) => req<FileContent>(`/api/sessions/${id}/file?path=${encodeURIComponent(path)}`),
+  tree: (id: string, path: string) => req<TreeResponse>(`/api/sessions/${id}/tree?path=${encodeURIComponent(path)}`),
+  /** 画像をそのまま表示するための URL（<img src> 用） */
+  rawUrl: (id: string, path: string) => `/api/sessions/${id}/raw?path=${encodeURIComponent(path)}`,
+  /** 年表の項目でエージェントが読んだ画像（<img src> 用） */
+  timelineImageUrl: (id: string, itemId: string) => `/api/sessions/${id}/timeline/${itemId}/image`,
+  settings: () => req<SettingsStatus>('/api/settings'),
+  setPermissionMode: (id: string, mode: PermissionChoice) => req<Session>(`/api/sessions/${id}/permission-mode`, { method: 'PUT', body: JSON.stringify({ mode }) }),
+  saveSettings: (body: Partial<TowerSettings>) => req<SettingsStatus>('/api/settings', { method: 'PUT', body: JSON.stringify(body) }),
   saveFile: (id: string, body: SaveFileBody) =>
     req<{ ok: true; path: string }>(`/api/sessions/${id}/file`, { method: 'PUT', body: JSON.stringify(body) }),
   config: () => req<{ externalKeepHours?: number; reformatReports?: boolean }>('/api/config'),

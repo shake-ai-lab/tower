@@ -14,12 +14,13 @@ export type SessionStatus =
   | 'stopped';            // 人が止めた / サーバー再起動で中断（指示を送ると再開）
 
 /** 許可の方針。Claude Code の permissionMode に対応 */
-export type PermissionChoice = 'default' | 'acceptEdits' | 'auto';
+export type PermissionChoice = 'default' | 'acceptEdits' | 'auto' | 'bypassPermissions';
 
 export const PERMISSION_CHOICES: { value: PermissionChoice; label: string; hint: string }[] = [
   { value: 'acceptEdits', label: '編集は自動', hint: 'ファイルの編集は自動で進める。コマンド実行だけ確認する' },
   { value: 'default', label: '毎回確認', hint: 'ファイル編集もコマンドも、都度あなたが許可する' },
   { value: 'auto', label: 'おまかせ', hint: '安全そうな操作はAIが自動承認。危なそうなものだけ確認する' },
+  { value: 'bypassPermissions', label: '全自動', hint: 'ツールの許可確認を省略して実行します。コマンドや削除も確認されません。質問への回答は必要です。' },
 ];
 
 export interface ProjectRef {
@@ -214,6 +215,7 @@ export interface Session {
   turns: number;
   /** 費用の目安（USD）。Max/Pro の定額なら請求はされない。Codex は 0 のまま */
   costUsd: number;
+  usageHistory?: { ts: number; cost: number; input: number; cacheRead: number; output: number }[];
   /** 使ったトークン量（目安）。外部セッションは省略 */
   usage?: Usage | null;
   /** 同じ依頼を複数のモデルに投げて比べている時の印。同じ group のセッションが「他の案」 */
@@ -245,6 +247,8 @@ export interface TimelineItem {
   /** 展開したときに見せる詳細（コマンド全文、差分など） */
   detail?: string;
   toolName?: string;
+  /** エージェントが画像を読んだ時、その画像の場所。画面は GET /api/sessions/:id/timeline/:itemId/image で見る */
+  imagePath?: string;
 }
 
 // ---- WebSocket: サーバー → クライアント ----
@@ -325,6 +329,8 @@ export interface ChangedFile {
 
 export interface ChangesResponse {
   isGit: boolean;
+  branch?: string;
+  history?: { hash: string; parents: string[]; subject: string; refs: string; author: string; message?: string }[];
   files: ChangedFile[];
   /** 分離した作業場所の時: 差分の比較先の説明（例: 「元のブランチ main」） */
   against?: string;
@@ -341,6 +347,79 @@ export interface FileContent {
 export interface SaveFileBody {
   path: string;
   content: string;
+}
+
+// ---- 作業フォルダの中身（画面左のエクスプローラ。1 階層ずつ取る） ----
+
+export interface TreeEntry {
+  name: string;
+  /** 作業フォルダからの相対パス（区切りは /） */
+  path: string;
+  kind: 'dir' | 'file';
+  /** ファイルの大きさ（バイト） */
+  size?: number;
+}
+
+export interface TreeResponse {
+  /** 取ったフォルダ（'' = 作業フォルダそのもの） */
+  path: string;
+  /** フォルダ → ファイルの順、それぞれ名前順 */
+  entries: TreeEntry[];
+  /** 重いので省いたフォルダの名前（node_modules など） */
+  skipped: string[];
+  /** 多すぎて途中で切った時、出していない数 */
+  truncated: number;
+}
+
+/** 画面で開ける画像。拡張子（小文字） → MIME */
+export const IMAGE_TYPES: Record<string, string> = {
+  png: 'image/png',
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  gif: 'image/gif',
+  webp: 'image/webp',
+  svg: 'image/svg+xml',
+  bmp: 'image/bmp',
+  ico: 'image/x-icon',
+  avif: 'image/avif',
+};
+
+/** 画像なら MIME、そうでなければ null */
+export function imageType(p: string): string | null {
+  const name = p.split(/[\\/]/).pop() ?? '';
+  const ext = name.includes('.') ? name.split('.').pop()!.toLowerCase() : '';
+  return IMAGE_TYPES[ext] ?? null;
+}
+
+// ---- 設定（~/.tower/config.json。画面の「設定」から変えられる） ----
+
+export interface TowerSettings {
+  /** 127.0.0.1 = このPCのみ。0.0.0.0 にすると同じWi-Fiのスマホからも開ける（要再起動） */
+  host: string;
+  /** 待ち受けポート（要再起動） */
+  port: number;
+  /** この下のフォルダを「プロジェクト」として一覧に出す */
+  projectRoots: string[];
+  /** 報告のたびにプロジェクトのテストを Tower 側で走らせて裏取りする（プロジェクトの .tower.json の "verify" で上書き可） */
+  autoVerify: boolean;
+  /** VS Code 連携で許可を Tower で答える時、何秒待ってから元の画面に任せるか */
+  bridgeWaitSeconds: number;
+  /** 報告に決まった書式が無かった時、Haiku で読みやすく整形し直す */
+  reformatReports: boolean;
+  /** VS Code / ターミナルのセッションを、最後の動きから何時間で一覧から自動で消すか（0 = 消さない） */
+  externalKeepHours: number;
+  /** 画面の「気づいたこと」を溜める Markdown */
+  feedbackFile: string;
+}
+
+export interface SettingsStatus {
+  /** 設定ファイルの場所 */
+  file: string;
+  settings: TowerSettings;
+  /** Tower の版 */
+  version: string;
+  /** 起動時から変わっていて、Tower を開き直さないと反映されない項目の説明（例: 「ポート（4800 → 4801）」） */
+  needsRestart: string[];
 }
 
 export interface ProjectInfo extends ProjectRef {

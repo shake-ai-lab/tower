@@ -1,0 +1,26 @@
+import type { DeskRect } from './components/DeskWindowControls';
+
+// Logical (0, 0) sits in the middle, leaving room on every side.
+export const DESK_ORIGIN = { x: 24000, y: 18000 };
+// Text size inside a window (the frame keeps its size; only the editor font grows).
+export const TEXT_MIN = .6, TEXT_MAX = 2.5;
+export const textScale = (rect: DeskRect) => rect.text ?? 1;
+export const scaleText = (rect: DeskRect, value: number): DeskRect => ({ ...rect, text: Math.max(TEXT_MIN, Math.min(TEXT_MAX, value)) });
+export function rotateDesk(rect: DeskRect, angle: number): DeskRect {
+  const a = rect.angle * Math.PI / 180, b = angle * Math.PI / 180;
+  return { ...rect, angle,
+    x: rect.x + (rect.w * (Math.cos(a) - Math.cos(b)) - rect.h * (Math.sin(a) - Math.sin(b))) / 2,
+    y: rect.y + (rect.w * (Math.sin(a) - Math.sin(b)) + rect.h * (Math.cos(a) - Math.cos(b))) / 2 };
+}
+export function deskBounds(rects: DeskRect[]) {
+  const points = rects.flatMap((r) => {
+    const a = r.angle * Math.PI / 180;
+    return [[0, 0], [r.w, 0], [0, r.h], [r.w, r.h]].map(([x, y]) => ({
+      x: r.x + x * Math.cos(a) - y * Math.sin(a),
+      y: r.y + x * Math.sin(a) + y * Math.cos(a),
+    }));
+  });
+  if (!points.length) return { x: 0, y: 0, w: 520, h: 440 };
+  const left = Math.min(...points.map((p) => p.x)), top = Math.min(...points.map((p) => p.y));
+  return { x: left, y: top, w: Math.max(...points.map((p) => p.x)) - left, h: Math.max(...points.map((p) => p.y)) - top };
+}

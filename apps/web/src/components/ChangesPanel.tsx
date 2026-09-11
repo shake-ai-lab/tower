@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import type { ChangesResponse } from '@tower/shared';
 import { api } from '../api';
+import { GitHistory } from './GitHistory';
+import { Icon } from './Icon';
 
 const STATUS_LABEL: Record<string, { text: string; cls: string }> = {
   M: { text: '変更', cls: 'bg-amber-900/70 text-amber-200' },
@@ -62,6 +64,8 @@ export function ChangesPanel({
 
   useEffect(() => {
     let alive = true;
+    setErr(null);
+    setData(null);
     api
       .changes(sessionId)
       .then((d) => alive && setData(d))
@@ -73,10 +77,22 @@ export function ChangesPanel({
 
   if (err) return <div className="text-xs text-red-400">{err}</div>;
   if (!data) return <div className="text-xs text-zinc-500">変更を読み込み中…</div>;
-  if (data.files.length === 0) return <div className="text-xs text-zinc-500">変更されたファイルはありません。</div>;
+
+  // 変更ファイルをフォルダごとにまとめる（プロジェクト直下を先頭に、フォルダ順 → 名前順）
+  const dirOf = (path: string) => (path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : '');
+  const groups: [string, ChangesResponse['files']][] = [];
+  for (const f of [...data.files].sort((a, b) => dirOf(a.path).localeCompare(dirOf(b.path)) || a.path.localeCompare(b.path))) {
+    const folder = dirOf(f.path) || 'プロジェクト直下';
+    const last = groups.at(-1);
+    if (last?.[0] === folder) last[1].push(f);
+    else groups.push([folder, [f]]);
+  }
 
   return (
     <div className="space-y-2">
+      {data.isGit && <><div className="flex items-center gap-2 rounded-sm bg-sky-400/10 border border-sky-400/20 px-2.5 py-2 text-xs text-sky-300 break-all"><Icon name="git" className="shrink-0" />ブランチ: {data.branch || 'HEAD（ブランチ未選択）'}</div><GitHistory commits={data.history ?? []} /></>}
+      <h3 className="text-xs font-semibold text-zinc-300 pt-3">変更ファイル <span className="rounded-full bg-zinc-800 px-2 py-0.5 ml-1">{data.files.length}</span></h3>
+      {data.files.length === 0 && <div className="text-xs text-zinc-500">変更されたファイルはありません。</div>}
       {!data.isGit && (
         <div className="text-[11px] text-zinc-500">
           このフォルダは git 管理されていないので「変更前」が分かりません。触ったファイルの今の中身を表示しています。
@@ -85,39 +101,57 @@ export function ChangesPanel({
       {data.against && (
         <div className="text-[11px] text-zinc-500">{data.against}との差分です。すでに取り込んだ分は含みません。</div>
       )}
-      {data.files.map((f) => {
-        const st = STATUS_LABEL[f.status] ?? STATUS_LABEL['?'];
-        const isOpen = open[f.path] ?? data.files.length <= 3;
-        return (
-          <div key={f.path} className="rounded-md border border-zinc-800">
-            <div className="flex items-center gap-2 px-2 py-1.5 text-xs hover:bg-zinc-800/60">
-              <button
-                onClick={() => setOpen((o) => ({ ...o, [f.path]: !isOpen }))}
-                className="flex-1 min-w-0 flex items-center gap-2 text-left"
-              >
-                <span className={`px-1.5 py-0.5 rounded ${st.cls}`}>{st.text}</span>
-                <span className="mono text-zinc-200 truncate">{f.path}</span>
-                <span className="ml-auto text-zinc-600">{isOpen ? '▾' : '▸'}</span>
-              </button>
-              {f.status !== 'D' && (
-                <button
-                  disabled={!onEdit}
-                  onClick={() => onEdit?.(f.path)}
-                  title={onEdit ? 'このファイルを画面で開いて自分で直す' : editHint}
-                  className="shrink-0 px-2 py-0.5 rounded bg-zinc-800 text-zinc-300 hover:bg-zinc-700 disabled:opacity-40 disabled:cursor-not-allowed"
-                >
-                  直す
-                </button>
-              )}
-            </div>
-            {isOpen && (
-              <div className="px-2 pb-2">
-                <DiffBody diff={f.diff} />
+      {!!groups.length && (
+        <ul className="text-xs">
+          {groups.map(([folder, files]) => (
+            <li key={folder} className="pt-1">
+              {/* 長いフォルダ名は末尾（いちばん近いフォルダ）を残して頭を省く。\u200E は先頭の「.」などが右へ回らないように */}
+              <div title={folder} className="flex items-center gap-1.5 px-1 py-1 text-[11px] text-zinc-500">
+                <Icon name="folder" className="shrink-0 text-amber-300/70" />
+                <span dir="rtl" className="truncate">{`\u200E${folder}\u200E`}</span>
               </div>
-            )}
-          </div>
-        );
-      })}
+              <ul className="ml-2.5 border-l border-zinc-800">
+                {files.map((f) => {
+                  const st = STATUS_LABEL[f.status] ?? STATUS_LABEL['?'];
+                  const isOpen = open[f.path] ?? false;
+                  return (
+                    <li key={f.path}>
+                      <div className={`group flex items-center gap-1 h-7 pl-1.5 pr-1 rounded-r hover:bg-zinc-800/60 ${isOpen ? 'bg-zinc-800/40' : ''}`}>
+                        <button
+                          onClick={() => setOpen((o) => ({ ...o, [f.path]: !isOpen }))}
+                          aria-expanded={isOpen}
+                          title={`${f.path}（押すと変更点を${isOpen ? '閉じる' : '見る'}）`}
+                          className="flex-1 min-w-0 h-full flex items-center gap-1.5 text-left"
+                        >
+                          <span aria-hidden="true" className="w-2 shrink-0 text-[10px] text-zinc-600">{isOpen ? '▾' : '▸'}</span>
+                          <span className={`shrink-0 whitespace-nowrap rounded-sm px-1 text-[10px] leading-4 ${st.cls}`}>{st.text}</span>
+                          <span className={`truncate ${f.status === 'D' ? 'text-zinc-500 line-through' : 'text-zinc-200'}`}>{f.path.split('/').at(-1)}</span>
+                        </button>
+                        {/* 狭い幅でも名前を読めるよう、「開く」は行に乗った時・選んだ時・変更点を開いている時だけ出す（タッチ操作では常に出す） */}
+                        {f.status !== 'D' && (
+                          <button
+                            disabled={!onEdit}
+                            onClick={() => onEdit?.(f.path)}
+                            title={onEdit ? 'このファイルを画面で開いて自分で直す' : editHint}
+                            className={`shrink-0 rounded px-1.5 leading-5 text-sky-300 hover:bg-zinc-700 disabled:text-zinc-500 disabled:cursor-not-allowed ${isOpen ? 'inline-block' : 'hidden group-hover:inline-block group-focus-within:inline-block [@media(hover:none)]:inline-block'}`}
+                          >
+                            開く
+                          </button>
+                        )}
+                      </div>
+                      {isOpen && (
+                        <div className="pl-2 pr-1 pt-1 pb-2">
+                          <DiffBody diff={f.diff} />
+                        </div>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }

@@ -12,6 +12,7 @@ import {
 import {
   workDir,
   type PendingPermission,
+  type PermissionChoice,
   type PendingQuestion,
   type PendingRequest,
   type Question,
@@ -25,6 +26,7 @@ import {
   describeActivity,
   describePermission,
   firstLine,
+  readImage,
   summarizeToolResult,
   toolDetail,
   touchedFile,
@@ -144,6 +146,7 @@ export class ClaudeRunner implements AgentRunner {
       cwd: workDir(s),
       model: s.model ?? undefined,
       permissionMode: s.permissionMode ?? 'default',
+      allowDangerouslySkipPermissions: true,
       resume: resumeFrom,
       systemPrompt: { type: 'preset', preset: 'claude_code', append },
       canUseTool: (toolName, input, opts) => this.onPermission(toolName, input, opts.suggestions ?? [], opts.signal),
@@ -163,6 +166,19 @@ export class ClaudeRunner implements AgentRunner {
   }
 
   /** 追加指示を送る */
+  async setPermissionMode(mode: PermissionChoice) {
+    if (!this.q || this.stoppedByUser) throw new Error('タスクが停止しています。再開後に変更してください');
+    await this.q.setPermissionMode(mode);
+    this.hub.update(this.id, { permissionMode: mode });
+    this.timeline('system', `許可方針を ${mode} に変更しました`);
+    // 全自動を明示的に選んだ時だけ、既に並んでいる許可要求も進める。質問は残す。
+    if (mode === 'bypassPermissions') {
+      for (const pending of [...this.queue]) {
+        if (pending.kind === 'permission') this.resolvePermission(pending.id, 'allow');
+      }
+    }
+  }
+
   send(text: string) {
     this.timeline('user', text);
     this.hub.update(this.id, { status: 'running', activity: '指示を受け取りました', pending: null, pendingCount: 0 });
@@ -277,8 +293,8 @@ export class ClaudeRunner implements AgentRunner {
     this.input.push({ type: 'user', message: { role: 'user', content: text }, parent_tool_use_id: null });
   }
 
-  private timeline(kind: TimelineKind, text: string, detail?: string, toolName?: string) {
-    this.hub.timeline({ id: randomUUID(), sessionId: this.id, ts: Date.now(), kind, text, detail, toolName });
+  private timeline(kind: TimelineKind, text: string, detail?: string, toolName?: string, imagePath?: string) {
+    this.hub.timeline({ id: randomUUID(), sessionId: this.id, ts: Date.now(), kind, text, detail, toolName, imagePath });
   }
 
   /** 行列から1件取り出す（resolver も外す） */
@@ -413,7 +429,7 @@ export class ClaudeRunner implements AgentRunner {
             const f = touchedFile(block.name, input);
             if (f) changed.add(f);
             activity = describeActivity(block.name, input);
-            this.timeline('tool_use', activity, toolDetail(block.name, input), block.name);
+            this.timeline('tool_use', activity, toolDetail(block.name, input), block.name, readImage(block.name, input));
           }
         }
         // 判断待ち中は activity を上書きしない（許可待ちの表示を守る）

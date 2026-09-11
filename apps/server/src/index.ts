@@ -17,15 +17,18 @@ import {
   type FeedbackStatus,
   type MessageBody,
   type PermissionDecisionBody,
+  type PermissionChoice,
   type ProjectInfo,
   type SaveFileBody,
+  type SettingsStatus,
+  type TowerSettings,
 } from '@tower/shared';
 import { Bridge, type HookInput } from './bridge.ts';
-import { loadConfig } from './config.ts';
+import { CONFIG_PATH, loadConfig, saveConfig, validateSettings } from './config.ts';
 import { Db } from './db.ts';
 import { collectChanges } from './diff.ts';
 import { FeedbackFile } from './feedback.ts';
-import { readFileContent, writeFileContent } from './files.ts';
+import { checkImage, listDir, readFileContent, resolveImage, writeFileContent } from './files.ts';
 import { Hub } from './hub.ts';
 import { startJanitor } from './janitor.ts';
 import { SessionManager, agentAvailability } from './manager.ts';
@@ -34,16 +37,41 @@ import { setReformatEnabled } from './reformat.ts';
 import { setVerifyEnabled } from './verify.ts';
 import { VERSION } from './version.ts';
 import { diffBase } from './worktree.ts';
+import { browseProjects } from './project-browser.ts';
+import { codexLoginState, startCodexLogin } from './codex-login.ts';
 
 const config = loadConfig();
-const feedback = new FeedbackFile(config.feedbackFile);
+/** 起動時の待ち受け。画面から変えても、これと違う間は「開き直してください」と出す */
+const bootListen = { host: config.host, port: config.port };
+let feedback = new FeedbackFile(config.feedbackFile);
 setVerifyEnabled(config.autoVerify);
 setReformatEnabled(config.reformatReports);
 const db = new Db();
 const hub = new Hub(db);
 const manager = new SessionManager(hub);
 const bridge = new Bridge(hub, { port: config.port, waitSeconds: config.bridgeWaitSeconds });
-startJanitor(hub, config.externalKeepHours);
+let stopJanitor = startJanitor(hub, config.externalKeepHours);
+
+function settingsStatus(): SettingsStatus {
+  const needsRestart: string[] = [];
+  if (config.host !== bootListen.host) needsRestart.push(`待ち受けアドレス（${bootListen.host} → ${config.host}）`);
+  if (config.port !== bootListen.port) needsRestart.push(`ポート（${bootListen.port} → ${config.port}）`);
+  return { file: CONFIG_PATH, settings: { ...config }, version: VERSION, needsRestart };
+}
+
+/** 画面からの設定変更をファイルに書き、再起動が要らないものはその場で反映する */
+function applySettings(patch: Partial<TowerSettings>) {
+  const saved = saveConfig(patch);
+  Object.assign(config, saved);
+  setVerifyEnabled(config.autoVerify);
+  setReformatEnabled(config.reformatReports);
+  if (feedback.file !== config.feedbackFile) feedback = new FeedbackFile(config.feedbackFile);
+  bridge.setWaitSeconds(config.bridgeWaitSeconds);
+  if (patch.externalKeepHours !== undefined) {
+    stopJanitor();
+    stopJanitor = startJanitor(hub, config.externalKeepHours);
+  }
+}
 
 function listProjects(): ProjectInfo[] {
   const out: ProjectInfo[] = [];
@@ -75,7 +103,35 @@ app.use('/api/*', cors());
 app.get('/api/health', (c) => c.json({ ok: true, sessions: hub.sessions.size, version: VERSION }));
 app.get('/api/config', (c) => c.json(config));
 app.get('/api/projects', (c) => c.json(listProjects()));
-app.get('/api/agents', (c) => c.json(agentAvailability()));
+app.get('/api/projects/browse', (c) => {
+  try { return c.json(browseProjects(c.req.query('path') ?? '')); }
+  catch (e) { return c.json({ error: `フォルダを開けません: ${e instanceof Error ? e.message : String(e)}` }, 400); }
+});
+
+// ---- 設定（画面の「設定」タブ。~/.tower/config.json を読み書きする） ----
+app.get('/api/settings', (c) => c.json(settingsStatus()));
+
+app.put('/api/settings', async (c) => {
+  try {
+    const patch = validateSettings((await c.req.json()) as Partial<TowerSettings>);
+    applySettings(patch);
+    return c.json(settingsStatus());
+  } catch (e) {
+    return c.json({ error: e instanceof Error ? e.message : String(e) }, 400);
+  }
+});
+app.get('/api/agents', (c) => c.json(agentAvailability(c.req.query('refresh') === '1')));
+app.use('/api/agents/codex/login', async (c, next) => {
+  const origin = c.req.header('origin');
+  if (origin && origin !== new URL(c.req.url).origin) return c.json({ error: '同じTower画面から操作してください' }, 403);
+  if (c.req.method === 'POST' && !c.req.header('content-type')?.startsWith('application/json')) return c.json({ error: 'JSONが必要です' }, 415);
+  await next();
+});
+app.get('/api/agents/codex/login', (c) => c.json(codexLoginState()));
+app.post('/api/agents/codex/login', (c) => {
+  try { return c.json(startCodexLogin()); }
+  catch { return c.json({ error: '同梱のCodexを起動できませんでした。Towerを再インストールしてください。' }, 500); }
+});
 app.get('/api/sessions', (c) => c.json(hub.list()));
 
 app.post('/api/sessions', async (c) => {
@@ -123,6 +179,49 @@ app.get('/api/sessions/:id/shots/:file', (c) => {
   if (!fs.existsSync(p)) return c.text('not found', 404);
   return c.body(new Uint8Array(fs.readFileSync(p)), 200, { 'content-type': 'image/png', 'cache-control': 'private, max-age=86400' });
 });
+
+// ---- エクスプローラ（作業フォルダの中身を 1 階層ずつ） ----
+app.get('/api/sessions/:id/tree', (c) => {
+  const s = hub.get(c.req.param('id'));
+  if (!s) return c.json({ error: 'セッションが見つかりません' }, 404);
+  try {
+    return c.json(listDir(workDir(s), c.req.query('path') ?? ''));
+  } catch (e) {
+    return c.json({ error: e instanceof Error ? e.message : String(e) }, 400);
+  }
+});
+
+// 画像をそのまま返す（画面のエディタで表示する用）
+app.get('/api/sessions/:id/raw', (c) => {
+  const s = hub.get(c.req.param('id'));
+  if (!s) return c.json({ error: 'セッションが見つかりません' }, 404);
+  const rel = c.req.query('path') ?? '';
+  if (!rel) return c.json({ error: 'path がありません' }, 400);
+  try {
+    const f = resolveImage(workDir(s), rel);
+    return c.body(new Uint8Array(fs.readFileSync(f.abs)), 200, imageHeaders(f.mime));
+  } catch (e) {
+    return c.json({ error: e instanceof Error ? e.message : String(e) }, 400);
+  }
+});
+
+// 年表: エージェントが読んだ画像を見せる。作業フォルダの外（一時フォルダなど）でも、その項目に記録された画像だけは返す
+app.get('/api/sessions/:id/timeline/:itemId/image', (c) => {
+  const s = hub.get(c.req.param('id'));
+  if (!s) return c.json({ error: 'セッションが見つかりません' }, 404);
+  const item = db.getTimelineItem(s.id, c.req.param('itemId'));
+  if (!item?.imagePath) return c.json({ error: '画像の記録がありません' }, 404);
+  try {
+    const f = checkImage(path.resolve(workDir(s), item.imagePath));
+    return c.body(new Uint8Array(fs.readFileSync(f.abs)), 200, imageHeaders(f.mime));
+  } catch (e) {
+    return c.json({ error: e instanceof Error ? e.message : String(e) }, 404);
+  }
+});
+
+function imageHeaders(mime: string) {
+  return { 'content-type': mime, 'cache-control': 'no-cache', 'x-content-type-options': 'nosniff', 'content-security-policy': "sandbox; default-src 'none'; style-src 'unsafe-inline'" };
+}
 
 // ---- 画面からの直接編集（Monaco） ----
 app.get('/api/sessions/:id/file', (c) => {
@@ -177,6 +276,15 @@ app.post('/api/sessions/:id/permission', async (c) => {
   if (r) ok = body.decision === 'defer' ? false : r.resolvePermission(body.requestId, body.decision, body.message);
   else ok = bridge.resolvePermission(body.requestId, body.decision, body.message);
   return ok ? c.json({ ok: true }) : c.json({ error: 'その許可要求はもう有効ではありません' }, 409);
+});
+
+app.put('/api/sessions/:id/permission-mode', async (c) => {
+  try {
+    const body = await c.req.json() as { mode: PermissionChoice };
+    return c.json(await manager.setPermissionMode(c.req.param('id'), body.mode));
+  } catch (e) {
+    return c.json({ error: e instanceof Error ? e.message : String(e) }, 409);
+  }
 });
 
 // ---- VS Code / ターミナル連携（Claude Code hooks からの通知） ----
