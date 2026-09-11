@@ -11,8 +11,10 @@ import { WebSocketServer } from 'ws';
 import {
   workDir,
   type AnswerBody,
+  type CreateFeedbackBody,
   type CreateSessionBody,
   type CompareBody,
+  type FeedbackStatus,
   type MessageBody,
   type PermissionDecisionBody,
   type ProjectInfo,
@@ -22,6 +24,7 @@ import { Bridge, type HookInput } from './bridge.ts';
 import { loadConfig } from './config.ts';
 import { Db } from './db.ts';
 import { collectChanges } from './diff.ts';
+import { FeedbackFile } from './feedback.ts';
 import { readFileContent, writeFileContent } from './files.ts';
 import { Hub } from './hub.ts';
 import { startJanitor } from './janitor.ts';
@@ -29,9 +32,11 @@ import { SessionManager, agentAvailability } from './manager.ts';
 import { SHOTS_DIR } from './preview.ts';
 import { setReformatEnabled } from './reformat.ts';
 import { setVerifyEnabled } from './verify.ts';
+import { VERSION } from './version.ts';
 import { diffBase } from './worktree.ts';
 
 const config = loadConfig();
+const feedback = new FeedbackFile(config.feedbackFile);
 setVerifyEnabled(config.autoVerify);
 setReformatEnabled(config.reformatReports);
 const db = new Db();
@@ -67,7 +72,7 @@ function listProjects(): ProjectInfo[] {
 const app = new Hono();
 app.use('/api/*', cors());
 
-app.get('/api/health', (c) => c.json({ ok: true, sessions: hub.sessions.size }));
+app.get('/api/health', (c) => c.json({ ok: true, sessions: hub.sessions.size, version: VERSION }));
 app.get('/api/config', (c) => c.json(config));
 app.get('/api/projects', (c) => c.json(listProjects()));
 app.get('/api/agents', (c) => c.json(agentAvailability()));
@@ -210,6 +215,27 @@ app.post('/api/sessions/:id/answer', async (c) => {
   const body = (await c.req.json()) as AnswerBody;
   const ok = r.answerQuestion(body.requestId, body.answers);
   return ok ? c.json({ ok: true }) : c.json({ error: 'その質問はもう有効ではありません' }, 409);
+});
+
+// ---- 気づいたこと（使いながらの不満・要望を Markdown に溜める。Claude Code がそれを読んで直す） ----
+app.get('/api/feedback', (c) => {
+  const body: FeedbackStatus = { file: feedback.file, version: VERSION, notes: feedback.list() };
+  return c.json(body);
+});
+
+app.post('/api/feedback', async (c) => {
+  const body = (await c.req.json()) as CreateFeedbackBody;
+  try {
+    return c.json(feedback.add(body), 201);
+  } catch (e) {
+    return c.json({ error: e instanceof Error ? e.message : String(e) }, 400);
+  }
+});
+
+app.delete('/api/feedback/:id', (c) => {
+  const id = c.req.param('id');
+  if (!/^[a-z0-9]{6,}$/.test(id)) return c.json({ error: 'id が不正です' }, 400);
+  return feedback.remove(id) ? c.json({ ok: true }) : c.json({ error: 'その項目はもうありません' }, 404);
 });
 
 app.post('/api/sessions/:id/stop', async (c) => {

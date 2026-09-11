@@ -12,6 +12,9 @@ const path = require('node:path');
 const ROOT = path.resolve(__dirname, '../..');
 const PORT = Number(process.env.TOWER_PORT ?? 4800);
 const SMOKE = process.env.TOWER_DESKTOP_SMOKE === '1';
+// サインイン時の自動起動（--hidden）では窓を出さずトレイだけにする
+const HIDDEN = process.argv.includes('--hidden');
+const LOGIN_ARGS = ['--hidden'];
 // インストーラ版（build.mjs）では、束ねたサーバーと画面が main.cjs の隣に置かれる
 const BUNDLED_SERVER = path.join(__dirname, 'app', 'server.mjs');
 const BUNDLED = fs.existsSync(BUNDLED_SERVER);
@@ -98,6 +101,7 @@ function createWindow(url) {
     title: 'Tower',
     backgroundColor: '#0f1115',
     autoHideMenuBar: true,
+    show: !HIDDEN,
     icon: path.join(__dirname, 'icon.png'),
     webPreferences: { contextIsolation: true },
   });
@@ -117,10 +121,23 @@ function createWindow(url) {
 function createTray() {
   tray = new Tray(nativeImage.createFromPath(path.join(__dirname, 'icon.png')));
   tray.setToolTip('Tower');
+  // インストールした版だけ: Windows にサインインした時に自動で開く（トレイに常駐。窓は出さない）
+  const loginItem = app.isPackaged
+    ? [
+        {
+          label: 'サインイン時に自動で開く（トレイに常駐）',
+          type: 'checkbox',
+          checked: app.getLoginItemSettings({ args: LOGIN_ARGS }).openAtLogin,
+          click: (item) => app.setLoginItemSettings({ openAtLogin: item.checked, args: LOGIN_ARGS }),
+        },
+        { type: 'separator' },
+      ]
+    : [];
   tray.setContextMenu(
     Menu.buildFromTemplate([
       { label: '開く', click: show },
       { type: 'separator' },
+      ...loginItem,
       {
         label: '終了',
         click: () => {
@@ -167,6 +184,13 @@ function watchSessions() {
     ws.on('error', () => {});
   };
   connect();
+}
+
+// 2 つ目を開こうとしたら（デスクトップのアイコンをもう一度押した等）、今ある窓を前に出すだけ
+if (!SMOKE && !app.requestSingleInstanceLock()) {
+  app.quit();
+} else {
+  app.on('second-instance', show);
 }
 
 app.whenReady().then(async () => {

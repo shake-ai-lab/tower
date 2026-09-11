@@ -5,7 +5,10 @@ import type {
   BridgeStatus,
   ChangesResponse,
   CompareBody,
+  CreateFeedbackBody,
   CreateSessionBody,
+  FeedbackNote,
+  FeedbackStatus,
   FileContent,
   MergeResult,
   MessageBody,
@@ -47,4 +50,7 @@ export const api = {
   setBridge: (body: { enabled: boolean; permissions: boolean }) =>
     req<BridgeStatus>('/api/bridge', { method: 'POST', body: JSON.stringify(body) }),
   remove: (id: string) => req<{ ok: true }>(`/api/sessions/${id}`, { method: 'DELETE' }),
+  feedback: () => req<FeedbackStatus>('/api/feedback'),
+  addFeedback: (body: CreateFeedbackBody) => req<FeedbackNote>('/api/feedback', { method: 'POST', body: JSON.stringify(body) }),
+  removeFeedback: (id: string) => req<{ ok: true }>(`/api/feedback/${id}`, { method: 'DELETE' }),
 };

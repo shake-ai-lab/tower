@@ -355,6 +355,56 @@ export interface AgentAvailability {
   reason?: string;
 }
 
+// ---- 気づいたこと（利用者が使いながら書き残す不満・要望・不具合・良かった点） ----
+// 1 つの Markdown（設定 feedbackFile。既定 ~/.tower/feedback.md）に溜まり、Claude Code がそれを読んで直す
+
+export type FeedbackKind = 'complaint' | 'request' | 'bug' | 'praise';
+
+export const FEEDBACK_KINDS: { value: FeedbackKind; label: string; hint: string }[] = [
+  { value: 'complaint', label: '不満', hint: '使いにくい・分かりにくい・遅い' },
+  { value: 'request', label: '要望', hint: 'こうなってほしい・これが欲しい' },
+  { value: 'bug', label: '不具合', hint: '動きがおかしい・止まった' },
+  { value: 'praise', label: '良かった', hint: 'このままがいい・助かった' },
+];
+
+/** 書いた時に見ていた画面。サーバーが「場面:」の 1 行にする */
+export interface FeedbackContext {
+  /** 例: 「詳細「shakeailab-zenn / 記事の校正」（報告あり）」「新しいタスク」「一覧」 */
+  view?: string;
+  /** 画面の幅（px）。狭ければ「スマホ幅」と記す */
+  width?: number;
+  /** 'desktop' = Electron の窓 / 'browser' = ブラウザ */
+  client?: 'desktop' | 'browser';
+}
+
+export interface FeedbackNote {
+  id: string;
+  createdAt: number;
+  kind: FeedbackKind;
+  text: string;
+  /** 「場面:」の中身（見ていた画面・版・幅） */
+  scene: string;
+  /** true = ファイル上で [x]（対応済み） */
+  done: boolean;
+  /** 「対応:」の中身（Claude Code が直した時に書く） */
+  resolution: string | null;
+}
+
+export interface CreateFeedbackBody {
+  kind: FeedbackKind;
+  text: string;
+  context?: FeedbackContext;
+}
+
+export interface FeedbackStatus {
+  /** 溜めているファイルの場所 */
+  file: string;
+  /** Tower の版 */
+  version: string;
+  /** ファイル上の順（古い → 新しい） */
+  notes: FeedbackNote[];
+}
+
 export const AGENT_CHOICES: { value: AgentKind; label: string; hint: string }[] = [
   { value: 'claude', label: 'Claude Code', hint: '許可・質問・報告のすべてに対応' },
   {

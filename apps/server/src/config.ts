@@ -17,6 +17,8 @@ export interface TowerConfig {
   reformatReports: boolean;
   /** VS Code / ターミナルのセッションを、最後の動きから何時間で一覧から自動で消すか（0 = 消さない） */
   externalKeepHours: number;
+  /** 画面の「気づいたこと」を溜める Markdown。Tower 自体を直しているなら、そのリポジトリの docs/feedback.md を指すと Claude Code がそのまま読める */
+  feedbackFile: string;
 }
 
 export const DATA_DIR = path.join(os.homedir(), '.tower');
@@ -36,6 +38,7 @@ export function loadConfig(): TowerConfig {
     bridgeWaitSeconds: 90,
     reformatReports: true,
     externalKeepHours: 24,
+    feedbackFile: path.join(DATA_DIR, 'feedback.md'),
   };
   if (!fs.existsSync(CONFIG_PATH)) {
     fs.writeFileSync(CONFIG_PATH, JSON.stringify(base, null, 2));

@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { Session, SessionStatus } from '@tower/shared';
+import type { FeedbackContext, Session, SessionStatus } from '@tower/shared';
 import { BridgeMenu } from './components/BridgeMenu';
+import { FeedbackMenu } from './components/FeedbackMenu';
 import { Inbox } from './components/Inbox';
 import { NewSessionDialog } from './components/NewSessionDialog';
 import { SessionCard } from './components/SessionCard';
 import { SessionDetail } from './components/SessionDetail';
 import { UsageMenu } from './components/UsageMenu';
-import { btn, useTick } from './lib';
+import { STATUS, btn, useTick } from './lib';
 import { useStore } from './store';
 
 // 並び順: 人を待っているもの → 作業中 → 報告あり → その他。同順位は新しい順
@@ -42,6 +43,8 @@ export default function App() {
   const select = useStore((s) => s.select);
   const connected = useStore((s) => s.connected);
   const [dialog, setDialog] = useState(false);
+  /** 「気づいたこと」の書き込み欄 */
+  const [feedback, setFeedback] = useState(false);
   /** スマホ表示のタブ（PC では両方見えるので関係ない） */
   const [tab, setTab] = useState<'inbox' | 'list'>('inbox');
   const [notifPerm, setNotifPerm] = useState<NotificationPermission>(
@@ -109,16 +112,43 @@ export default function App() {
       const tag = (e.target as HTMLElement | null)?.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
       if (e.key === 'n' && !dialog) setDialog(true);
+      if (e.key === 'f' && !dialog) {
+        e.preventDefault();
+        setFeedback(true);
+      }
       if (e.key === '/' && !dialog) {
         e.preventDefault();
         setTab('list');
         searchRef.current?.focus();
       }
-      if (e.key === 'Escape') select(null);
+      if (e.key === 'Escape') {
+        if (feedback) setFeedback(false);
+        else select(null);
+      }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [dialog, select]);
+  }, [dialog, feedback, select]);
+
+  /** 「気づいたこと」に添える、いま見ている画面の説明 */
+  const scene = (): FeedbackContext => {
+    const s = selectedId ? sessions[selectedId] : null;
+    const title = s ? (s.title.length > 40 ? `${s.title.slice(0, 40)}…` : s.title) : '';
+    const view = dialog
+      ? '新しいタスク'
+      : s
+        ? `詳細「${s.project.name} / ${title}」（${STATUS[s.status].label}）`
+        : window.innerWidth < 768 && tab === 'inbox'
+          ? '判断待ち'
+          : q
+            ? `一覧（「${q}」で検索中）`
+            : '一覧';
+    return {
+      view,
+      width: window.innerWidth,
+      client: /Electron/i.test(navigator.userAgent) ? 'desktop' : 'browser',
+    };
+  };
 
   return (
     <div className="h-full flex flex-col">
@@ -140,6 +170,7 @@ export default function App() {
             <UsageMenu sessions={list} />
             <BridgeMenu />
           </div>
+          <FeedbackMenu open={feedback} onOpenChange={setFeedback} scene={scene} />
           {notifPerm === 'default' && (
             <button
               onClick={() => Notification.requestPermission().then(setNotifPerm)}

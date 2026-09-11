@@ -26,6 +26,8 @@ const run = (cmd, cwd = ROOT) => {
   execSync(cmd, { cwd, stdio: 'inherit', shell: true });
 };
 
+const rootPkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
+
 // 1. 画面
 if (!args.has('--skip-web')) run('npm run build -w apps/web');
 
@@ -44,6 +46,8 @@ await build({
   external: ['@anthropic-ai/claude-agent-sdk', 'playwright-core'],
   // 実行ファイルが巨大なものは入れない（stubs/ 参照）
   alias: { '@openai/codex-sdk': path.join(HERE, 'stubs', 'codex-sdk.mjs') },
+  // 束ねると package.json が隣に無いので、版はここで埋め込む（「気づいたこと」の場面に記す）
+  define: { 'process.env.TOWER_VERSION': JSON.stringify(rootPkg.version) },
   // 束ねた CommonJS 側の require() が ESM の中でも動くように、本物の require を用意する
   banner: {
     js: "import { createRequire as __towerCreateRequire } from 'node:module'; globalThis.require = __towerCreateRequire(import.meta.url);",
@@ -58,7 +62,6 @@ fs.copyFileSync(path.join(HERE, 'main.cjs'), path.join(STAGE, 'main.cjs'));
 fs.copyFileSync(path.join(HERE, 'icon.png'), path.join(STAGE, 'icon.png'));
 
 const serverPkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'apps/server/package.json'), 'utf8'));
-const rootPkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
 const electronVersion = JSON.parse(fs.readFileSync(path.join(ROOT, 'node_modules/electron/package.json'), 'utf8')).version;
 const runtimeDeps = ['@anthropic-ai/claude-agent-sdk', 'playwright-core', 'ws'];
 fs.writeFileSync(

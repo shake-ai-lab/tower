@@ -150,8 +150,17 @@ starting → running ⇄ waiting_permission
 - 外部セッションの「今やってること」には Claude Code 側の Bash 説明文（英語）がそのまま出る
 - 「変更されたファイル」の開閉状態が、別のセッションを選んでも引き継がれる（困りはしない）
 
+### 使いながら直すための土台（2026-09-11 夜）
+「デプロイして使いたい。使いながらの不満や改善点を Claude Code が読めるようにしたい」への答え。
+- **気づいたこと**（ヘッダのボタン、キー `f`）: 種類（不満 / 要望 / 不具合 / 良かった）+ 一言。開いた時点で見ていた画面（「詳細「proj / 題名」（報告あり）」「新しいタスク」「一覧」）と版・幅を「場面:」として添える
+- 置き場所は **Markdown 1 つ**（`config.feedbackFile`。利用者の設定はリポジトリの `docs/feedback.md`）。SQLite や JSONL ではなく Markdown にしたのは、Claude Code が読む・`[x]` を付ける・「対応:」を書くのを、道具無しでそのままできるようにするため。サーバー（`feedback.ts`）は見出し行 `- [ ] 日時 種類 #id` で項目を見分け、自分が書いた項目の追加・削除だけをする。手書きの行や「対応:」は原文のまま残す（消す時も他の項目は raw を書き戻す）
+- 版: `version.ts`（開発中は package.json、束ねた時は esbuild の `define`）。`/api/health` にも出す
+- **`npm run deploy`**（`apps/desktop/deploy.mjs`）: build.mjs → `taskkill Tower.exe` → `Tower-Setup-x.exe /S` → 入った Tower.exe を起動 → `/api/health` で版を確認。ポート 4800 に別サーバー（開発用）が居ればその旨を警告（入れ直した Tower はそちらにつながってしまうため）
+- Electron: `requestSingleInstanceLock`（2 つ目は既存の窓を前に出す）、トレイに「サインイン時に自動で開く」（`setLoginItemSettings` + `--hidden` で窓を出さずトレイだけ）
+- 運用: CLAUDE.md に「セッションの最初に `docs/feedback.md` の `[ ]` を確認」「直したら `[x]` + 対応: → typecheck → deploy」を書いた
+
 ### フェーズ3 の残り
-- なし（全部済み）。次は使いながらの改善
+- なし（全部済み）。次は使いながらの改善（`docs/feedback.md` に溜まったものから）
 
 ## 既知の制約
 - サーバー再起動で動作中セッションは `stopped` になる

@@ -1,7 +1,7 @@
 {
   "name": "tower",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "AIエージェント管制塔 — 複数プロジェクト×複数エージェントを一画面で指揮する",
   "workspaces": [
     "apps/*",
@@ -12,7 +12,8 @@
     "typecheck": "npm run typecheck -w apps/server && npm run typecheck -w apps/web && npm run typecheck -w apps/user-agent",
     "dogfood": "npm run start -w apps/user-agent --",
     "desktop": "npm run build -w apps/web && npm run start -w apps/desktop",
-    "installer": "node apps/desktop/build.mjs"
+    "installer": "node apps/desktop/build.mjs",
+    "deploy": "node apps/desktop/deploy.mjs"
   },
   "devDependencies": {
     "concurrently": "^9.1.2",
