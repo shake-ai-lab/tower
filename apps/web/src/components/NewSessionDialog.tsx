@@ -85,12 +85,12 @@ export function NewSessionDialog({ open, onClose }: { open: boolean; onClose: ()
   return (
     <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4" onClick={onClose}>
       <div
-        className="w-full max-w-4xl rounded-2xl border border-zinc-700 bg-[#12151b] shadow-2xl flex overflow-hidden max-h-[85vh]"
+        className="w-full max-w-4xl rounded-2xl border border-zinc-700 bg-[#12151b] shadow-2xl flex flex-col md:flex-row overflow-hidden max-h-[92vh] md:max-h-[85vh]"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="w-72 shrink-0 border-r border-zinc-800 flex flex-col">
+        <div className="w-full md:w-72 shrink-0 border-b md:border-b-0 md:border-r border-zinc-800 flex flex-col">
           <div className="p-3 text-xs text-zinc-500">プロジェクト</div>
-          <div className="flex-1 overflow-y-auto px-2 pb-2 space-y-0.5">
+          <div className="flex-1 overflow-y-auto px-2 pb-2 space-y-0.5 max-h-32 md:max-h-none">
             {projects.map((p) => (
               <button
                 key={p.path}
@@ -117,7 +117,7 @@ export function NewSessionDialog({ open, onClose }: { open: boolean; onClose: ()
           </div>
         </div>
 
-        <div className="flex-1 p-4 flex flex-col gap-3 min-w-0">
+        <div className="flex-1 p-4 flex flex-col gap-3 min-w-0 overflow-y-auto">
           <div className="flex items-center justify-between">
             <h2 className="font-semibold">新しいタスクを任せる</h2>
             <button onClick={onClose} className="text-zinc-500 hover:text-zinc-300 text-sm">
@@ -155,7 +155,7 @@ export function NewSessionDialog({ open, onClose }: { open: boolean; onClose: ()
               if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && prompt.trim() && projectPath) void submit();
             }}
             placeholder={'何をしてほしいか、話すように書いてください。\n例: ログイン画面で空欄のまま送信できてしまうのを直して。直したらテストも通して。'}
-            className="flex-1 min-h-[180px] text-sm bg-black/30 border border-zinc-700 rounded-md px-3 py-2 outline-none focus:border-zinc-500 resize-none leading-relaxed"
+            className="flex-1 min-h-[110px] md:min-h-[180px] text-sm bg-black/30 border border-zinc-700 rounded-md px-3 py-2 outline-none focus:border-zinc-500 resize-none leading-relaxed"
           />
           <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
             <label className="text-xs text-zinc-500 flex items-center gap-2">

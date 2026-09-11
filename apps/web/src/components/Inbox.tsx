@@ -3,7 +3,7 @@ import { useStore } from '../store';
 import { PendingCard } from './PendingCards';
 import { fmtElapsed } from '../lib';
 
-export function Inbox() {
+export function Inbox({ className = '' }: { className?: string }) {
   const sessions = useStore((s) => s.sessions);
   const select = useStore((s) => s.select);
   const pending = useMemo(
@@ -15,7 +15,7 @@ export function Inbox() {
   );
 
   return (
-    <aside className="w-[400px] shrink-0 border-r border-zinc-800 overflow-y-auto p-3 space-y-3 bg-[#0c0e12]">
+    <aside className={`w-full md:w-[400px] shrink-0 md:border-r border-zinc-800 overflow-y-auto p-3 space-y-3 bg-[#0c0e12] ${className}`}>
       <h2 className="flex items-center gap-2 text-sm font-semibold text-zinc-300 px-1">
         判断インボックス
         <span

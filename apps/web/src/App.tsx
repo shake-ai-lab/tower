@@ -38,6 +38,8 @@ export default function App() {
   const select = useStore((s) => s.select);
   const connected = useStore((s) => s.connected);
   const [dialog, setDialog] = useState(false);
+  /** スマホ表示のタブ（PC では両方見えるので関係ない） */
+  const [tab, setTab] = useState<'inbox' | 'list'>('inbox');
   const [notifPerm, setNotifPerm] = useState<NotificationPermission>(
     'Notification' in window ? Notification.permission : 'denied',
   );
@@ -94,32 +96,35 @@ export default function App() {
         <div className="font-bold tracking-wide">Tower</div>
         <div className="text-xs text-zinc-500 flex items-center gap-1.5">
           <span className={`inline-block w-2 h-2 rounded-full ${connected ? 'bg-emerald-400' : 'bg-red-500'}`} />
-          {connected ? '接続中' : '再接続中…'}
+          <span className="hidden sm:inline">{connected ? '接続中' : '再接続中…'}</span>
         </div>
-        <div className="text-xs text-zinc-400">
+        <div className="hidden sm:block text-xs text-zinc-400">
           作業中 <b className="text-zinc-200">{working}</b> · 判断待ち{' '}
           <b className={waiting ? 'text-amber-300' : 'text-zinc-200'}>{waiting}</b> · 全 {list.length}
         </div>
         <div className="ml-auto flex items-center gap-2">
-          <BridgeMenu />
+          <div className="hidden sm:block">
+            <BridgeMenu />
+          </div>
           {notifPerm === 'default' && (
             <button
               onClick={() => Notification.requestPermission().then(setNotifPerm)}
-              className={`${btn.base} ${btn.ghost} !text-xs`}
+              className={`${btn.base} ${btn.ghost} !text-xs whitespace-nowrap`}
             >
-              通知を有効にする
+              通知<span className="hidden sm:inline">を有効にする</span>
             </button>
           )}
-          <button onClick={() => setDialog(true)} className={`${btn.base} ${btn.primary}`}>
-            ＋ 新しいタスク <span className="opacity-60 text-xs ml-1">n</span>
+          <button onClick={() => setDialog(true)} className={`${btn.base} ${btn.primary} whitespace-nowrap`}>
+            ＋ 新しいタスク <span className="hidden sm:inline opacity-60 text-xs ml-1">n</span>
           </button>
         </div>
       </header>
 
       <div className="flex-1 flex overflow-hidden">
-        <Inbox />
+        {/* スマホ（md 未満）では「判断待ち」と「セッション」をタブで切り替える。PC では横に並べる */}
+        <Inbox className={tab === 'inbox' ? 'block' : 'hidden md:block'} />
 
-        <main className="flex-1 overflow-y-auto p-4">
+        <main className={`${tab === 'list' ? 'block' : 'hidden'} md:block flex-1 overflow-y-auto p-3 md:p-4`}>
           {list.length === 0 ? (
             <div className="h-full flex flex-col items-center justify-center text-zinc-500 gap-3">
               <div className="text-lg">まだセッションがありません</div>
@@ -138,6 +143,23 @@ export default function App() {
 
         {selectedId && sessions[selectedId] && <SessionDetail id={selectedId} />}
       </div>
+
+      <nav className="md:hidden h-12 shrink-0 border-t border-zinc-800 flex bg-[#0c0e12]">
+        <button
+          onClick={() => setTab('inbox')}
+          className={`flex-1 text-sm flex items-center justify-center gap-2 ${tab === 'inbox' ? 'text-zinc-100 border-t-2 border-sky-500' : 'text-zinc-500'}`}
+        >
+          判断待ち
+          <span className={`text-xs px-1.5 py-0.5 rounded-full ${waiting ? 'bg-amber-400 text-black' : 'bg-zinc-800 text-zinc-400'}`}>{waiting}</span>
+        </button>
+        <button
+          onClick={() => setTab('list')}
+          className={`flex-1 text-sm flex items-center justify-center gap-2 ${tab === 'list' ? 'text-zinc-100 border-t-2 border-sky-500' : 'text-zinc-500'}`}
+        >
+          セッション
+          <span className="text-xs px-1.5 py-0.5 rounded-full bg-zinc-800 text-zinc-400">{list.length}</span>
+        </button>
+      </nav>
 
       <NewSessionDialog open={dialog} onClose={() => setDialog(false)} />
     </div>

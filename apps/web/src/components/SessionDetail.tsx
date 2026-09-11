@@ -400,7 +400,7 @@ export function SessionDetail({ id }: { id: string }) {
   };
 
   return (
-    <section className="w-[600px] shrink-0 border-l border-zinc-800 flex flex-col overflow-hidden bg-[#0c0e12]">
+    <section className="fixed inset-0 z-40 w-full md:static md:z-auto md:w-[600px] shrink-0 md:border-l border-zinc-800 flex flex-col overflow-hidden bg-[#0c0e12]">
       <header className="p-3 border-b border-zinc-800 space-y-1">
         <div className="flex items-center gap-2">
           <span className="font-semibold">{s.project.name}</span>

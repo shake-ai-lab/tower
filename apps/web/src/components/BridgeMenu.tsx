@@ -41,7 +41,7 @@ export function BridgeMenu() {
       </button>
       {open && (
         <div
-          className="absolute right-0 mt-2 w-[380px] z-40 rounded-xl border border-zinc-700 bg-[#12151b] shadow-2xl p-4 space-y-3 text-sm"
+          className="absolute right-0 mt-2 w-[min(380px,calc(100vw-2rem))] z-40 rounded-xl border border-zinc-700 bg-[#12151b] shadow-2xl p-4 space-y-3 text-sm"
           onClick={(e) => e.stopPropagation()}
         >
           <div className="font-semibold">VS Code / ターミナル連携</div>
