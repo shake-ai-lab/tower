@@ -7,8 +7,9 @@
 // - 料金の見積もりは出ないので costUsd は 0 のまま
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
-import { Codex, type Thread, type ThreadEvent, type ThreadItem } from '@openai/codex-sdk';
-import { workDir, type Session, type TimelineKind } from '@tower/shared';
+import { Codex, type Input, type Thread, type ThreadEvent, type ThreadItem } from '@openai/codex-sdk';
+import { workDir, type Attachment, type Session, type TimelineKind } from '@tower/shared';
+import { attachmentNote, isInlineImage, publicRefs, type SavedAttachment } from '../attachments.ts';
 import type { Hub } from '../hub.ts';
 import { firstLine } from '../humanize.ts';
 import { previewNote } from '../preview.ts';
@@ -44,7 +45,7 @@ export class CodexRunner implements AgentRunner {
   private thread: Thread | null = null;
   private abort = new AbortController();
   private busy = false;
-  private queued: string[] = [];
+  private queued: { text: string; attachments: SavedAttachment[] }[] = [];
   private stoppedByUser = false;
   private verifying = false;
   private first = true;
@@ -58,7 +59,7 @@ export class CodexRunner implements AgentRunner {
     return this.session.id;
   }
 
-  start(firstMessage: string, resumeFrom?: string) {
+  start(firstMessage: string, resumeFrom?: string, attachments: SavedAttachment[] = []) {
     const s = this.session;
     const codex = new Codex();
     const opts = {
@@ -70,18 +71,18 @@ export class CodexRunner implements AgentRunner {
     };
     this.thread = resumeFrom ? codex.resumeThread(resumeFrom, opts) : codex.startThread(opts);
     this.first = !resumeFrom;
-    this.timeline('user', firstMessage);
-    void this.runTurn(firstMessage);
+    this.timeline('user', firstMessage, undefined, undefined, publicRefs(attachments));
+    void this.runTurn(firstMessage, attachments);
   }
 
-  send(text: string) {
-    this.timeline('user', text);
+  send(text: string, attachments: SavedAttachment[] = []) {
+    this.timeline('user', text, undefined, undefined, publicRefs(attachments));
     if (this.busy) {
-      this.queued.push(text);
+      this.queued.push({ text, attachments });
       this.hub.update(this.id, { activity: '指示を受け取りました（今の作業の後に実行）' });
       return;
     }
-    void this.runTurn(text);
+    void this.runTurn(text, attachments);
   }
 
   async stop() {
@@ -101,15 +102,28 @@ export class CodexRunner implements AgentRunner {
 
   // ---- 内部 ----
 
-  private timeline(kind: TimelineKind, text: string, detail?: string, toolName?: string) {
-    this.hub.timeline({ id: randomUUID(), sessionId: this.id, ts: Date.now(), kind, text, detail, toolName });
+  private timeline(kind: TimelineKind, text: string, detail?: string, toolName?: string, attachments?: Attachment[]) {
+    this.hub.timeline({
+      id: randomUUID(),
+      sessionId: this.id,
+      ts: Date.now(),
+      kind,
+      text,
+      detail,
+      toolName,
+      ...(attachments?.length ? { attachments } : {}),
+    });
   }
 
-  private async runTurn(text: string) {
+  private async runTurn(text: string, attachments: SavedAttachment[] = []) {
     if (!this.thread) return;
     this.busy = true;
     this.hub.update(this.id, { status: 'running', activity: '準備完了。作業を始めます', pending: null, pendingCount: 0 });
-    const input = this.first ? preamble(this.session) + text : text + REMINDER;
+    const body = (this.first ? preamble(this.session) + text : text + REMINDER) + attachmentNote(attachments, isInlineImage);
+    const images = attachments.filter(isInlineImage);
+    const input: Input = images.length
+      ? [{ type: 'text', text: body }, ...images.map((a) => ({ type: 'local_image' as const, path: a.path }))]
+      : body;
     this.first = false;
     let lastText = '';
     let failed: string | null = null;
@@ -151,7 +165,7 @@ export class CodexRunner implements AgentRunner {
     scheduleReformat(this.hub, this.id, report);
 
     const next = this.queued.shift();
-    if (next) void this.runTurn(next);
+    if (next) void this.runTurn(next.text, next.attachments);
   }
 
   /** イベント1件を状態に反映。最終テキストとエラーを返す */
