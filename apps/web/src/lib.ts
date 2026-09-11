@@ -105,9 +105,10 @@ export function clearSavedWidths() {
   window.dispatchEvent(new Event('tower:reset-widths'));
 }
 
-export const STATUS: Record<SessionStatus, { label: string; dot: string; badge: string; attention?: boolean }> = {
-  starting: { label: '起動中', dot: 'bg-zinc-400 animate-pulse', badge: 'bg-zinc-700 text-zinc-200' },
-  running: { label: '作業中', dot: 'bg-sky-400 animate-pulse', badge: 'bg-sky-900/70 text-sky-200' },
+/** working = エージェントが手を動かしている最中（流れる帯とくるくるで目立たせる） */
+export const STATUS: Record<SessionStatus, { label: string; dot: string; badge: string; attention?: boolean; working?: boolean }> = {
+  starting: { label: '起動中', dot: 'bg-zinc-400 animate-pulse', badge: 'bg-zinc-700 text-zinc-200', working: true },
+  running: { label: '作業中', dot: 'bg-sky-400 animate-pulse', badge: 'bg-sky-500 text-white font-semibold', working: true },
   waiting_permission: {
     label: '許可待ち',
     dot: 'bg-amber-400',

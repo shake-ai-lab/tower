@@ -1,24 +1,38 @@
 import type { Session } from '@tower/shared';
 import { OUTCOME, STATUS, fmtElapsed, fmtUsd, projectStyle, verifyBadge } from '../lib';
 
+/** 状態の札。作業中はくるくる回る印を付けて、止まっているものと見分けやすくする */
+export function StatusBadge({ status, className = 'text-xs' }: { status: Session['status']; className?: string }) {
+  const st = STATUS[status];
+  return (
+    <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full whitespace-nowrap ${className} ${st.badge}`}>
+      {st.working && <span aria-hidden="true" className="working-spinner" />}
+      {st.label}
+    </span>
+  );
+}
+
 export function SessionCard({ s, selected, onClick, compact = false }: { s: Session; selected: boolean; onClick: () => void; compact?: boolean }) {
   const st = STATUS[s.status];
   const vb = verifyBadge(s);
-  if (compact) return <button onClick={onClick} aria-pressed={selected} className={`min-w-0 w-full flex flex-wrap items-center gap-2 text-left rounded-sm border px-3 py-2 ${selected ? 'border-sky-500 bg-sky-400/5' : 'border-zinc-800 bg-[#171a21] hover:bg-zinc-800'}`}>
+  const bar = st.working && <span aria-hidden="true" className="working-bar absolute top-0 inset-x-0" />;
+  if (compact) return <button onClick={onClick} aria-pressed={selected} className={`relative overflow-hidden min-w-0 w-full flex flex-wrap items-center gap-2 text-left rounded-sm border px-3 py-2 ${selected ? 'border-sky-500 bg-sky-400/5' : st.working ? 'working-card' : 'border-zinc-800 bg-[#171a21] hover:bg-zinc-800'}`}>
+    {bar}
     <span className={`w-2 h-2 rounded-full shrink-0 ${st.dot}`} />
     <span className="text-sm truncate flex-1 min-w-0" title={s.title}>{s.title}</span>
-    <span className={`text-[10px] px-2 py-0.5 rounded-full ${st.badge}`}>{st.label}</span>
-    <span className="w-full pl-4 text-[11px] text-zinc-500 truncate">{s.agent === 'codex' ? 'Codex' : 'Claude'} · {s.activity} · {fmtElapsed(s.createdAt)}経過</span>
+    <StatusBadge status={s.status} className="text-[10px]" />
+    <span className={`w-full pl-4 text-[11px] truncate ${st.working ? 'text-sky-200/80' : 'text-zinc-500'}`}>{s.agent === 'codex' ? 'Codex' : 'Claude'} · {s.activity} · {fmtElapsed(s.createdAt)}経過</span>
   </button>;
   return (
     <button
       onClick={onClick}
       aria-pressed={selected}
       className={[
-        'min-w-0 text-left rounded-md border p-3 bg-[#171a21] hover:bg-[#1c2029] transition flex flex-col gap-2',
-        selected ? 'border-sky-500' : st.attention ? 'border-amber-400/70 attention' : 'border-zinc-800',
+        'relative overflow-hidden min-w-0 text-left rounded-md border p-3 bg-[#171a21] hover:bg-[#1c2029] transition flex flex-col gap-2',
+        selected ? 'border-sky-500' : st.attention ? 'border-amber-400/70 attention' : st.working ? 'working-card' : 'border-zinc-800',
       ].join(' ')}
     >
+      {bar}
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="font-semibold flex flex-wrap items-center gap-1.5 min-w-0 max-w-full">
           <span className="truncate rounded border px-1.5 py-0.5 text-xs" style={projectStyle(s.project.path)} title={s.project.path}>{s.project.name}</span>
@@ -47,12 +61,12 @@ export function SessionCard({ s, selected, onClick, compact = false }: { s: Sess
             </span>
           )}
         </div>
-        <span className={`text-xs px-2 py-0.5 rounded-full whitespace-nowrap ${st.badge}`}>{st.label}</span>
+        <StatusBadge status={s.status} />
       </div>
 
       <div className="text-sm text-zinc-300 line-clamp-2 break-words [overflow-wrap:anywhere]">{s.title}</div>
 
-      <div className="text-xs text-zinc-400 flex items-center gap-2 min-w-0">
+      <div className={`text-xs flex items-center gap-2 min-w-0 ${st.working ? 'text-sky-200' : 'text-zinc-400'}`}>
         <span className={`inline-block w-2 h-2 rounded-full shrink-0 ${st.dot}`} />
         <span className="truncate">{s.activity}</span>
       </div>
