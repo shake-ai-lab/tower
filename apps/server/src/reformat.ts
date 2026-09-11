@@ -6,6 +6,7 @@ import { query } from '@anthropic-ai/claude-agent-sdk';
 import type { Report, ReportOutcome, Session } from '@tower/shared';
 import type { Hub } from './hub.ts';
 import { firstLine } from './humanize.ts';
+import { cleanFileName } from './report.ts';
 
 let enabled = true;
 export function setReformatEnabled(v: boolean) {
@@ -123,7 +124,7 @@ export async function reformatReport(raw: string, request: string, timeoutMs = 9
       request: clean(out.request) || request,
       outcome: OUTCOME[clean(out.outcome)] ?? 'unknown',
       summary: list(out.summary, 5),
-      changedFiles: list(out.changedFiles, 30),
+      changedFiles: list(out.changedFiles, 30).map(cleanFileName).filter(Boolean),
       needsDecision: needs && !/^(なし|null)$/i.test(needs) ? needs : null,
       nextStep: next && !/^(なし|null)$/i.test(next) ? next : null,
       raw,

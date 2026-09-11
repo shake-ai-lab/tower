@@ -14,6 +14,23 @@ function pseudoAddDiff(rel: string, content: string): string {
   return [`--- /dev/null`, `+++ b/${rel}`, `@@ -0,0 +1,${lines.length} @@`, ...lines.map((l) => `+${l}`)].join('\n');
 }
 
+/** 見せても仕方がない生成物（テストが作るキャッシュ、依存、ビルド結果）。未追跡ファイルの一覧から外す */
+const JUNK_RE =
+  /(^|\/)(__pycache__|node_modules|\.venv|venv|\.pytest_cache|\.mypy_cache|\.ruff_cache|\.cache|coverage|\.DS_Store|Thumbs\.db)(\/|$)|\.(pyc|pyo|class|o|obj|exe|dll|so|dylib|log|tmp)$/i;
+
+/** 先頭 8KB に NUL があればバイナリ扱い */
+function looksBinary(file: string): boolean {
+  try {
+    const fd = fs.openSync(file, 'r');
+    const buf = Buffer.alloc(8000);
+    const n = fs.readSync(fd, buf, 0, buf.length, 0);
+    fs.closeSync(fd);
+    return buf.subarray(0, n).includes(0);
+  } catch {
+    return false;
+  }
+}
+
 function readCapped(file: string): string | null {
   try {
     const st = fs.statSync(file);
@@ -62,6 +79,7 @@ export function collectChanges(dir: string, touched: string[], base = 'HEAD'): C
       if (!line.startsWith('??')) continue;
       const rel = line.slice(3).replace(/^"|"$/g, '');
       if (seen.has(rel)) continue;
+      if (JUNK_RE.test(rel) || looksBinary(path.join(dir, rel))) continue;
       const content = readCapped(path.join(dir, rel));
       if (content !== null) push({ path: rel, status: 'A', diff: pseudoAddDiff(rel, content) });
     }

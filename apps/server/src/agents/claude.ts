@@ -105,6 +105,8 @@ export class ClaudeRunner implements AgentRunner {
   private verifying = false;
   /** 直近の応答が使った文脈の大きさ（トークン）。会話の容量に対する割合を出す */
   private lastContext = 0;
+  /** tool_use の id → 名前と入力。結果（tool_result）を人向けに要約する時に引く */
+  private toolUses = new Map<string, { name: string; input: Record<string, unknown> }>();
   /** query() は再開のたびに集計がゼロから始まるので、開始時点の値を土台にして足す */
   private usageBase: Usage = { input: 0, cacheRead: 0, output: 0 };
   private costBase = 0;
@@ -398,11 +400,16 @@ export class ClaudeRunner implements AgentRunner {
         for (const block of m.message.content) {
           if (block.type === 'text' && block.text.trim()) {
             this.lastAssistantText = block.text;
-            this.timeline('assistant_text', firstLine(block.text).slice(0, 140), block.text);
+            // 最後の【報告】は上の報告カードに整形して出るので、年表では「書いた」ことだけ分かればよい
+            const head = block.text.trimStart().startsWith('【報告】')
+              ? '報告を書きました（上の「報告」に表示）'
+              : firstLine(block.text).slice(0, 140);
+            this.timeline('assistant_text', head, block.text);
             activity = '考えをまとめています';
           } else if (block.type === 'tool_use') {
             const input = (block.input ?? {}) as Record<string, unknown>;
             toolCalls++;
+            this.toolUses.set(block.id, { name: block.name, input });
             const f = touchedFile(block.name, input);
             if (f) changed.add(f);
             activity = describeActivity(block.name, input);
@@ -425,8 +432,11 @@ export class ClaudeRunner implements AgentRunner {
         if (Array.isArray(content)) {
           for (const block of content) {
             if (block.type === 'tool_result') {
-              const summary = summarizeToolResult(block.content);
               const isErr = block.is_error === true;
+              const tu = this.toolUses.get(block.tool_use_id);
+              this.toolUses.delete(block.tool_use_id);
+              // エラーは原文（何が起きたか）が要る。成功は「何をしたか」を日本語で
+              const summary = isErr ? summarizeToolResult(block.content) : summarizeToolResult(block.content, tu?.name, tu?.input);
               this.timeline(isErr ? 'error' : 'tool_result', isErr ? `失敗: ${summary}` : summary || '(結果なし)');
             }
           }

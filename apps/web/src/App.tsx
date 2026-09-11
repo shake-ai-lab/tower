@@ -21,6 +21,9 @@ const ORDER: Record<SessionStatus, number> = {
   stopped: 4,
 };
 
+/** 「終わったもの」= もう動かないもの。報告待ち（idle）は次の指示を出せるので含めない */
+const FINISHED: SessionStatus[] = ['stopped', 'done', 'error'];
+
 function notify(s: Session) {
   if (!('Notification' in window) || Notification.permission !== 'granted' || !s.pending) return;
   const p = s.pending;
@@ -53,12 +56,17 @@ export default function App() {
   const waiting = list.filter((s) => s.pending).length;
   const working = list.filter((s) => s.status === 'running' || s.status === 'starting').length;
 
-  // 履歴検索: プロジェクト名・依頼文・報告の言葉で絞り込む（空白区切りは AND）
+  // 終わったもの（停止・完了・エラー）を隠して一覧を軽くする。消すわけではないので「使った量」の集計はそのまま
+  const [hideDone, setHideDone] = useState(() => localStorage.getItem('tower.hideDone') === '1');
+  useEffect(() => localStorage.setItem('tower.hideDone', hideDone ? '1' : '0'), [hideDone]);
+  const finishedCount = list.filter((s) => FINISHED.includes(s.status)).length;
+
+  // 履歴検索: プロジェクト名・依頼文・報告の言葉で絞り込む（空白区切りは AND）。検索中は隠しているものも対象
   const [q, setQ] = useState('');
   const searchRef = useRef<HTMLInputElement>(null);
   const shown = useMemo(() => {
     const words = q.trim().toLowerCase().split(/\s+/).filter(Boolean);
-    if (words.length === 0) return list;
+    if (words.length === 0) return hideDone ? list.filter((s) => !FINISHED.includes(s.status)) : list;
     const text = (s: Session) =>
       [s.project.name, s.title, s.prompt, s.model ?? '', s.agent, s.workspace?.branch ?? '', s.report?.raw ?? '', s.report?.summary.join(' ') ?? '']
         .join('\n')
@@ -67,7 +75,7 @@ export default function App() {
       const t = text(s);
       return words.every((w) => t.includes(w));
     });
-  }, [list, q]);
+  }, [list, q, hideDone]);
 
   useEffect(() => {
     document.title = waiting ? `(${waiting}) Tower` : 'Tower';
@@ -116,9 +124,12 @@ export default function App() {
     <div className="h-full flex flex-col">
       <header className="h-12 shrink-0 border-b border-zinc-800 flex items-center gap-4 px-4 bg-[#0c0e12]">
         <div className="font-bold tracking-wide">Tower</div>
-        <div className="text-xs text-zinc-500 flex items-center gap-1.5">
-          <span className={`inline-block w-2 h-2 rounded-full ${connected ? 'bg-emerald-400' : 'bg-red-500'}`} />
-          <span className="hidden sm:inline">{connected ? '接続中' : '再接続中…'}</span>
+        <div
+          className="text-xs text-zinc-500 flex items-center gap-1.5"
+          title={connected ? 'サーバーとつながっています' : 'サーバーとの接続が切れました。つなぎ直しています'}
+        >
+          <span className={`inline-block w-2 h-2 rounded-full ${connected ? 'bg-emerald-400' : 'bg-red-500 animate-pulse'}`} />
+          {!connected && <span className="text-red-300">接続が切れました。つなぎ直しています…</span>}
         </div>
         <div className="hidden sm:block text-xs text-zinc-400">
           作業中 <b className="text-zinc-200">{working}</b> · 判断待ち{' '}
@@ -179,9 +190,20 @@ export default function App() {
                     </button>
                   </span>
                 )}
+                {!q && finishedCount > 0 && (
+                  <button
+                    onClick={() => setHideDone((v) => !v)}
+                    title="停止・完了・エラーで終わったものを一覧から隠します（消しません。検索と「使った量」には残ります）"
+                    className="text-xs text-zinc-500 hover:text-zinc-300 underline whitespace-nowrap"
+                  >
+                    {hideDone ? `終わったもの ${finishedCount} 件を見せる` : `終わったもの ${finishedCount} 件を隠す`}
+                  </button>
+                )}
               </div>
               {shown.length === 0 ? (
-                <div className="text-sm text-zinc-500 px-1">「{q}」に一致するセッションはありません</div>
+                <div className="text-sm text-zinc-500 px-1">
+                  {q ? `「${q}」に一致するセッションはありません` : '動いているものも、指示待ちのものもありません。終わったものは隠しています。'}
+                </div>
               ) : (
                 <div className="grid gap-3 grid-cols-[repeat(auto-fill,minmax(300px,1fr))]">
                   {shown.map((s) => (

@@ -64,6 +64,19 @@ function bullets(block: string): string[] {
     .filter((l) => l && !isNone(l));
 }
 
+/**
+ * 報告の「変更ファイル」行から注釈を取り除いてパスだけにする。
+ * 例: 「README.md（新規作成）」「`src/a.ts` - 修正」「bin.js: 実装」→ パスのみ。パスでない説明文はそのまま返す
+ */
+export function cleanFileName(line: string): string {
+  return line
+    .replace(/`/g, '')
+    .replace(/\s*[（(][^）)]*[）)]\s*$/, '')
+    .replace(/\s+[-–—]\s.*$/, '')
+    .replace(/[:：]\s.*$/, '')
+    .trim();
+}
+
 /** 【報告】書式を解析。見つからなければ null */
 export function parseReport(finalText: string, fallbackRequest: string): Report | null {
   const idx = finalText.lastIndexOf('【報告】');
@@ -87,7 +100,7 @@ export function parseReport(finalText: string, fallbackRequest: string): Report 
     request: section(body, '依頼') || fallbackRequest,
     outcome,
     summary,
-    changedFiles: bullets(section(body, '変更ファイル')),
+    changedFiles: bullets(section(body, '変更ファイル')).map(cleanFileName).filter(Boolean),
     needsDecision: isNone(needs) ? null : needs,
     nextStep: isNone(next) ? null : next,
     raw: finalText,

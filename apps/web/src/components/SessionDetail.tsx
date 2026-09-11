@@ -21,9 +21,9 @@ const ICON: Record<TimelineItem['kind'], string> = {
   error: '⚠️',
 };
 
-const URL_RE = /(https?:[^\s)）」]+)/g;
+const URL_RE = /(https?:[^\s)）」]+|`[^`\n]+`)/g;
 
-/** 文中の URL をリンクにする */
+/** 文中の URL をリンクに、`バッククォート` をコード表示にする（エージェントは Markdown 風に書いてくるので記号のまま見せない） */
 function Linkify({ text }: { text: string }) {
   const parts = text.split(URL_RE);
   return (
@@ -33,6 +33,10 @@ function Linkify({ text }: { text: string }) {
           <a key={i} href={p} target="_blank" rel="noreferrer" className="text-sky-400 underline break-all">
             {p}
           </a>
+        ) : /^`[^`]+`$/.test(p) ? (
+          <code key={i} className="mono text-[0.9em] px-1 py-px rounded bg-zinc-800 text-zinc-200 break-all">
+            {p.slice(1, -1)}
+          </code>
         ) : (
           <span key={i}>{p}</span>
         ),
@@ -250,6 +254,16 @@ function CompareStrip({ s }: { s: Session }) {
     .sort((a, b) => a.createdAt - b.createdAt);
   const others = group.filter((x) => x.id !== s.id);
   const merged = !!s.workspace?.lastMerge?.ok;
+
+  // 他の案を片付けた後: 表を出しても比べる相手がいないので、一言だけにする
+  if (others.length === 0) {
+    return (
+      <div className="text-xs bg-violet-400/5 border border-violet-400/30 rounded-md p-2 leading-relaxed text-violet-200/80">
+        複数のモデルで比べた案のうち、この案（{c.label}）だけを残しています。
+        {merged ? '元のプロジェクトに取り込み済みです。' : '採用するなら下の「元のプロジェクトに取り込む」を押してください。'}
+      </div>
+    );
+  }
 
   const discard = async () => {
     const names = others.map((x) => x.compare?.label ?? '').join(' / ');

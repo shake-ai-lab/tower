@@ -9,19 +9,31 @@ const STATUS_LABEL: Record<string, { text: string; cls: string }> = {
   '?': { text: '現在の内容', cls: 'bg-zinc-800 text-zinc-300' },
 };
 
+/** git の diff ヘッダ（diff --git / index / --- a/ / +++ b/ …）。コードを読まない人には雑音なので出さない */
+const HEADER_RE = /^(diff --git |index [0-9a-f]+\.\.[0-9a-f]+|--- (a\/|\/dev\/null)|\+\+\+ (b\/|\/dev\/null)|new file mode|deleted file mode|similarity index|rename (from|to) |old mode|new mode|Binary files )/;
+
 function DiffBody({ diff }: { diff: string }) {
+  const lines = diff.split('\n').filter((line) => !HEADER_RE.test(line));
+  let hunks = 0;
   return (
     <pre className="mono text-xs leading-5 overflow-auto max-h-[420px] bg-black/40 rounded p-2">
-      {diff.split('\n').map((line, i) => {
-        const cls = line.startsWith('+++') || line.startsWith('---')
-          ? 'text-zinc-500'
-          : line.startsWith('@@')
-            ? 'text-sky-400'
-            : line.startsWith('+')
-              ? 'text-emerald-300 bg-emerald-500/10'
-              : line.startsWith('-')
-                ? 'text-red-300 bg-red-500/10'
-                : 'text-zinc-400';
+      {lines.map((line, i) => {
+        const hunk = line.match(/^@@[^@]*@@\s?(.*)$/);
+        if (hunk) {
+          hunks++;
+          // 離れた場所の変更の区切り。先頭の 1 つ目は区切り線を出さない
+          return (
+            <div key={i} className={`px-1 whitespace-pre text-zinc-600 ${hunks > 1 ? 'border-t border-zinc-800 mt-1 pt-1' : ''}`}>
+              {hunks > 1 ? '… ' : ''}
+              {hunk[1] ? <span className="text-sky-400/70">{hunk[1]}</span> : hunks > 1 ? '' : ' '}
+            </div>
+          );
+        }
+        const cls = line.startsWith('+')
+          ? 'text-emerald-300 bg-emerald-500/10'
+          : line.startsWith('-')
+            ? 'text-red-300 bg-red-500/10'
+            : 'text-zinc-400';
         return (
           <div key={i} className={`px-1 whitespace-pre ${cls}`}>
             {line || ' '}

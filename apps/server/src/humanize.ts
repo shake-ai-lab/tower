@@ -160,16 +160,41 @@ export function touchedFile(toolName: string, input: Record<string, unknown>): s
   return null;
 }
 
-/** ツール結果を年表用に短くする */
-export function summarizeToolResult(content: unknown): string {
-  if (typeof content === 'string') return firstLine(content).slice(0, 120);
-  if (Array.isArray(content)) {
-    const texts = content
-      .map((c) => (c && typeof c === 'object' && 'text' in c ? String((c as { text: unknown }).text) : ''))
-      .filter(Boolean);
-    return firstLine(texts.join(' ')).slice(0, 120);
+/**
+ * ツール結果を年表用に短くする。
+ * 元のツールが分かる時（toolName）は、英語の定型文（"The file … has been updated successfully" 等）を
+ * そのまま出さず、何が起きたかを日本語で言う。エラーの時は原文の先頭行を出す方が役に立つので toolName を渡さない
+ */
+export function summarizeToolResult(content: unknown, toolName?: string, input?: Record<string, unknown>): string {
+  const text =
+    typeof content === 'string'
+      ? content
+      : Array.isArray(content)
+        ? content
+            .map((c) => (c && typeof c === 'object' && 'text' in c ? String((c as { text: unknown }).text) : ''))
+            .filter(Boolean)
+            .join('\n')
+        : '';
+  const lines = text.split(/\r?\n/).filter((l) => l.trim());
+  const rest = lines.length > 1 ? `（ほか ${lines.length - 1} 行）` : '';
+  switch (toolName) {
+    case 'Read':
+      return `${base(input?.file_path)} を読みました（${lines.length} 行）`;
+    case 'Edit':
+    case 'MultiEdit':
+      return `${base(input?.file_path)} を書き換えました`;
+    case 'NotebookEdit':
+      return `${base(input?.notebook_path)} を書き換えました`;
+    case 'Write':
+      return `${base(input?.file_path)} を書きました`;
+    case 'TodoWrite':
+      return '作業計画を更新しました';
+    case 'Bash':
+    case 'PowerShell':
+      return lines.length ? `${lines[0].trim().slice(0, 120)}${rest}` : '(出力なし)';
+    default:
+      return firstLine(text).slice(0, 120);
   }
-  return '';
 }
 
 /** 年表の詳細欄: Edit は変更前後、Write は中身、コマンドは全文、それ以外は入力 JSON */

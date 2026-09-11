@@ -132,6 +132,24 @@ starting → running ⇄ waiting_permission
 - monorepo の node_modules は入れない（Monaco・Vite・Electron 自体が入って巨大になる）。stage に要るものだけ。それでも `@openai/codex-win32-x64`（378MB）が入って 1GB 近くになったので、`@openai/codex-sdk` は `stubs/codex-sdk.mjs` に差し替えて束ね、インストーラには入れない（サーバーは「見つからない」扱いで起動する）
 - ESM に束ねると ws などの CommonJS 側の `require('events')` が "Dynamic require is not supported" で落ちる → banner で `globalThis.require = createRequire(import.meta.url)` を入れて本物の require に流す
 
+### 人間役で使ってみた（2026-09-11、フェーズ3 の後）
+利用者役 AI ではなく、自分で画面を操作して一通り通した（起動 → 許可 → 報告 → 差分 → 直接編集 → 追加指示 → 質問に答える → 停止と再開 → 比べる → 取り込み → 片付け → 検索 → 使った量 → スマホ幅 → 削除。材料は `~/.tower/dogfood/human/` の 4 テンプレ、操作台は `~/.tower/dogfood/drive.mjs`（playwright を HTTP で操る）。所見は `docs/dogfood/2026-09-11-human.md`）。直したもの:
+- 報告の「変更ファイル」に書かれた「README.md（新規作成）」がそのまま `changedFiles` に足され、件数が 1 多かった → `report.ts cleanFileName` で注釈（括弧・バッククォート・「- 説明」「: 説明」）を落としてから合流
+- Python のテストを走らせると `__pycache__/*.pyc` が「追加」として差分に出た（中身はバイナリの化け文字）→ `diff.ts` で生成物（`__pycache__` / `node_modules` / `.venv` / `coverage` 等）とバイナリ（先頭 8KB に NUL）を未追跡一覧から外す
+- 年表のツール結果が英語の定型文だった（"The file … has been updated successfully"）→ tool_use の id → 名前を覚えておき、`summarizeToolResult` で「README.md を読みました（11 行）」「todo.js を書き換えました」に。エラー時は原文の先頭行のまま。最後の【報告】本文は「報告を書きました（上の「報告」に表示）」
+- 許可カードの編集プレビューが 1 段の枠で、変更後がスクロールの下に隠れて判断できなかった → 変更前 / 変更後を 2 段に（`PendingCards DetailBlock`）
+- 差分の `diff --git` / `index …` / `--- a/` などのヘッダ行を消し、`@@` は区切り線に
+- 報告文中の `バッククォート` をコード表示に（記号のまま見えていた）
+- ヘッダの「接続中」（つながっているのか、つなごうとしているのか分からない）→ つながっている時は緑の点だけ、切れた時だけ赤字で説明
+- 一覧が古い「停止」で埋まる → 「終わったもの N 件を隠す」（localStorage。消さないので使った量の集計と検索には残る）
+- 比べる案を片付けた後に「同じ依頼を 1 つのモデルに投げて比べています」と出ていた → 残した案だけの一言に
+
+気づいたが直していないこと:
+- 使った量はセッションから集計しているので、セッションを削除すると今日の合計も減る（比較の片付けで $0.20 減った）。台帳を別に持つなら後で
+- サーバー再起動で全部「停止」になり、「隠す」がオンだと一覧から消える（件数は出る）。指示を送れば再開はできる
+- 外部セッションの「今やってること」には Claude Code 側の Bash 説明文（英語）がそのまま出る
+- 「変更されたファイル」の開閉状態が、別のセッションを選んでも引き継がれる（困りはしない）
+
 ### フェーズ3 の残り
 - なし（全部済み）。次は使いながらの改善
 

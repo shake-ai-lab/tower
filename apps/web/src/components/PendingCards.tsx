@@ -5,6 +5,30 @@ import { RISK, btn } from '../lib';
 
 const errMsg = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
+/** 許可要求の詳細。編集は「変更前 / 変更後」が両方見えるように 2 段で出す（1 段だと変更後がスクロールの下に隠れて判断できない） */
+function DetailBlock({ detail }: { detail: string }) {
+  const m = detail.match(/^([\s\S]*?)--- 変更前\n([\s\S]*?)\n\n\+\+\+ 変更後\n([\s\S]*)$/);
+  if (!m) {
+    return (
+      <pre className="mono mt-2 text-xs bg-black/40 rounded p-2 max-h-56 overflow-auto whitespace-pre-wrap break-all text-zinc-300">
+        {detail}
+      </pre>
+    );
+  }
+  const [, head, before, after] = m;
+  return (
+    <div className="mt-2 text-xs space-y-1">
+      {head.trim() && <div className="mono text-zinc-500 break-all">{head.trim()}</div>}
+      <div className="rounded overflow-hidden border border-zinc-800">
+        <div className="px-2 py-0.5 bg-red-500/10 text-red-300/80 text-[11px]">変更前</div>
+        <pre className="mono px-2 py-1 bg-black/40 max-h-32 overflow-auto whitespace-pre-wrap break-all text-zinc-400">{before || '(空)'}</pre>
+        <div className="px-2 py-0.5 bg-emerald-500/10 text-emerald-300/80 text-[11px]">変更後</div>
+        <pre className="mono px-2 py-1 bg-black/40 max-h-44 overflow-auto whitespace-pre-wrap break-all text-zinc-200">{after || '(空: この部分を消します)'}</pre>
+      </div>
+    </div>
+  );
+}
+
 export function PermissionCard({ session, pending }: { session: Session; pending: PendingPermission }) {
   const [reason, setReason] = useState('');
   const [busy, setBusy] = useState(false);
@@ -53,11 +77,7 @@ export function PermissionCard({ session, pending }: { session: Session; pending
         {external && <span className="text-indigo-300">{hint} のセッション</span>}
       </div>
       <div className="mt-1.5 font-medium leading-snug">{pending.headline}</div>
-      {pending.detail && (
-        <pre className="mono mt-2 text-xs bg-black/40 rounded p-2 max-h-40 overflow-auto whitespace-pre-wrap break-all text-zinc-300">
-          {pending.detail}
-        </pre>
-      )}
+      {pending.detail && <DetailBlock detail={pending.detail} />}
       <input
         value={reason}
         onChange={(e) => setReason(e.target.value)}
