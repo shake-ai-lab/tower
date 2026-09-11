@@ -1,6 +1,9 @@
 import { useEffect, useRef } from 'react';
-import { createAquarium, stepAquarium, type AquariumState, type Fish } from '../aquarium-simulation';
+import { createAquarium, stepAquarium, LOOKS, SPECIES, type AquariumState, type Fish } from '../aquarium-simulation';
 import { createWaterRenderer } from '../aquarium-water';
+
+// Where each species sits in the sprite atlas (top, height), as fractions of its height.
+const ROWS = [[.005, .282], [.289, .283], [.575, .397]];
 
 // Three viewport-sized layers: the live water (WebGL), fish behind the glass, and fine matter in front.
 export function Aquarium({ active, paused }: { active: boolean; paused: boolean }) {
@@ -22,8 +25,8 @@ export function Aquarium({ active, paused }: { active: boolean; paused: boolean 
     if (!state.current) state.current = createAquarium(crypto.getRandomValues(new Uint32Array(1))[0]);
     const scene = state.current;
     const environment = new Image(), atlas = new Image();
-    const mirror = document.createElement('canvas');
     const backdrop = document.createElement('canvas'), bg = backdrop.getContext('2d')!;
+    let sprites: { image: HTMLCanvasElement; mirror: HTMLCanvasElement }[] = [];
     let frame = 0, previous = 0, w = 1, h = 1, ready = false, disposed = false;
     const host = el.parentElement!;
     // Still photo for machines without WebGL.
@@ -39,17 +42,26 @@ export function Aquarium({ active, paused }: { active: boolean; paused: boolean 
       bg.fillStyle = '#03263135'; bg.fillRect(0, 0, backdrop.width, backdrop.height);
       ready = true;
     };
-    const flip = () => {
-      mirror.width = atlas.naturalWidth; mirror.height = atlas.naturalHeight;
-      const m = mirror.getContext('2d')!; m.translate(mirror.width, 0); m.scale(-1, 1); m.drawImage(atlas, 0, 0);
+    // One small sprite per look, tinted once here rather than every frame, plus its mirror for strips seen from the other side.
+    const build = () => {
+      sprites = LOOKS.map((look) => {
+        const [top, height] = ROWS[look.species];
+        const sw = atlas.naturalWidth, sh = atlas.naturalHeight * height;
+        const image = document.createElement('canvas'), mirror = document.createElement('canvas');
+        image.width = mirror.width = 640; image.height = mirror.height = Math.round(640 * sh / sw);
+        const g = image.getContext('2d')!; g.filter = look.filter;
+        g.drawImage(atlas, 0, top * atlas.naturalHeight, sw, sh, 0, 0, image.width, image.height);
+        const m = mirror.getContext('2d')!; m.translate(mirror.width, 0); m.scale(-1, 1); m.drawImage(image, 0, 0);
+        return { image, mirror };
+      });
     };
     const drawFish = (target: CanvasRenderingContext2D, fish: Fish) => {
-      if (!atlas.complete || !atlas.naturalWidth) return;
-      const crops = [[.005, .282], [.289, .283], [.575, .397]];
-      const [top, height] = crops[fish.species];
-      const sw = atlas.naturalWidth, sh = atlas.naturalHeight * height, sy = top * atlas.naturalHeight;
-      const length = (fish.species === 2 ? 145 : fish.species === 1 ? 88 : 65) * fish.size * (.48 + fish.z * .65) * Math.min(1.3, Math.max(.7, w / 1250));
-      const tall = length * sh / sw;
+      const sprite = sprites[fish.look];
+      if (!sprite) return;
+      const { image, mirror } = sprite, sw = image.width, sh = image.height;
+      const length = SPECIES[fish.species].length * fish.size * (.42 + fish.z * .8) * Math.min(1.3, Math.max(.7, w / 1250));
+      if (fish.x * w < -length || fish.x * w > w + length) return;
+      const tall = length * sh / sw * LOOKS[fish.look].stretch;
       const strips = 22, slice = sw / strips, step = length / strips;
       // A turn is a twist around the fish's spine: the head faces the new way first, the tail follows.
       // Each strip has its own yaw; its width is the cosine, its depth the sine (toward the glass or away).
@@ -64,15 +76,18 @@ export function Aquarium({ active, paused }: { active: boolean; paused: boolean 
       // Seen head-on a fish still has a body; keep that much width when a strip is edge-on.
       const shift = -(xs[0] + xs[strips]) / 2, alpha = .42 + fish.z * .5;
       target.save(); target.translate(fish.x * w, fish.y * h);
-      target.rotate(Math.atan2(fish.vy, Math.max(.012, Math.abs(fish.vx))) * .32 * (fish.facing < 0 ? -1 : 1));
+      // The body tilts exactly as far as the fish climbs or dives, and levels through a turn.
+      target.rotate(fish.pitch * fish.facing);
+      // The tail beats harder when the fish pushes on and barely stirs while it hovers.
+      const effort = Math.min(1.5, fish.speed / SPECIES[fish.species].speed);
       for (let i = 0; i < strips; i++) {
         const p = i / (strips - 1), bend = Math.pow(1 - p, 2.8);
-        const offset = Math.sin(fish.phase - p * 3.5) * tall * .12 * bend;
+        const offset = Math.sin(fish.phase - p * 3.5) * tall * (.03 + .06 * effort) * bend;
         const width = step * Math.max(Math.abs(cos[i]), thick * Math.abs(sin[i])), left = (xs[i] + xs[i + 1]) / 2 + shift - width / 2;
         const size = tall * (1 + sin[i] * .16);
         target.globalAlpha = alpha * (1 - .3 * Math.abs(sin[i]));
-        if (cos[i] >= 0) target.drawImage(atlas, i * slice, sy, slice, sh, left, -size / 2 + offset, width + .5, size);
-        else target.drawImage(mirror, sw - (i + 1) * slice, sy, slice, sh, left, -size / 2 + offset, width + .5, size);
+        if (cos[i] >= 0) target.drawImage(image, i * slice, 0, slice, sh, left, -size / 2 + offset, width + .5, size);
+        else target.drawImage(mirror, sw - (i + 1) * slice, 0, slice, sh, left, -size / 2 + offset, width + .5, size);
       }
       target.restore();
     };
@@ -129,7 +144,7 @@ export function Aquarium({ active, paused }: { active: boolean; paused: boolean 
       fg.restore();
       host.style.setProperty('--water-x', `${50 + Math.sin(time * .19) * 35}%`);
       host.style.setProperty('--water-y', `${50 + Math.sin(time * .13 + 2) * 40}%`);
-      el.dataset.sceneReady = String(ready && atlas.complete && atlas.naturalWidth > 0);
+      el.dataset.sceneReady = String(ready && sprites.length > 0);
       el.dataset.simulationTime = time.toFixed(3);
     };
     const tick = (stamp: number) => {
@@ -145,7 +160,7 @@ export function Aquarium({ active, paused }: { active: boolean; paused: boolean 
       if (playback.current.active && !playback.current.paused && !document.hidden) frame = requestAnimationFrame(tick);
     };
     refresh.current = sync;
-    environment.onload = () => { photo(); sync(); }; atlas.onload = () => { flip(); sync(); };
+    environment.onload = () => { photo(); sync(); }; atlas.onload = () => { build(); sync(); };
     environment.onerror = sync; atlas.onerror = sync;
     environment.src = '/aquarium/aquascape.png'; atlas.src = '/aquarium/fish-atlas.png';
     const resize = new ResizeObserver(() => {
