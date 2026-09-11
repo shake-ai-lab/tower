@@ -93,6 +93,8 @@ export interface Verification {
   ok: boolean | null;
   /** 出力の末尾 */
   output: string;
+  /** 件数の要約（例: 「失敗 2 件・成功 3 件」「全部成功（5 件）」）。拾えなければ省略 */
+  summary?: string | null;
   at: number;
   durationMs: number;
 }
@@ -151,6 +153,8 @@ export interface Session {
   report: Report | null;
   /** 直近の報告に対する自動チェック */
   verification?: Verification | null;
+  /** 起動直後（エージェントが手を付ける前）の自動チェック。「修正前 → 修正後」の対比用 */
+  baseline?: Verification | null;
   turns: number;
   costUsd: number;
   toolCalls: number;

@@ -221,7 +221,7 @@ export class ClaudeRunner implements AgentRunner {
     this.hub.update(this.id, { verification: { command: cmd, ok: null, output: '', at, durationMs: 0 } });
     try {
       const r = await runVerify(dir, cmd);
-      this.hub.update(this.id, { verification: { command: cmd, ok: r.ok, output: r.output, at, durationMs: r.durationMs } });
+      this.hub.update(this.id, { verification: { command: cmd, ok: r.ok, output: r.output, summary: r.summary, at, durationMs: r.durationMs } });
       this.timeline('system', r.ok ? `自動チェック 成功: ${cmd}` : `自動チェック 失敗: ${cmd}`, r.output);
     } finally {
       this.verifying = false;

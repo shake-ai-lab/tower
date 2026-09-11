@@ -110,10 +110,28 @@ export class SessionManager {
         `${isolated.workspace.path}\n元のプロジェクト: ${projectPath}`,
       );
     }
+    // エージェントが手を付ける前の状態を測っておく（「修正前 → 修正後」の対比用）。起動は待たせない
+    void this.runBaseline(session);
     const runner = this.makeRunner(session);
     this.runners.set(session.id, runner);
     runner.start(prompt);
     return session;
+  }
+
+  private async runBaseline(s: Session) {
+    const dir = workDir(s);
+    const cmd = detectVerifyCommand(dir);
+    if (!cmd) return;
+    const at = Date.now();
+    const r = await runVerify(dir, cmd, 90_000);
+    if (!this.hub.get(s.id)) return; // その間に消された
+    this.hub.update(s.id, { baseline: { command: cmd, ok: r.ok, output: r.output, summary: r.summary, at, durationMs: r.durationMs } });
+    this.note(
+      s.id,
+      'system',
+      `修正前の自動チェック ${r.ok ? '成功' : '失敗'}: ${cmd}${r.summary ? `（${r.summary}）` : ''}`,
+      r.output,
+    );
   }
 
   /** 追加指示。動いていなければ会話IDで再開する（外部セッションはここで Tower が引き継ぐ） */
@@ -187,7 +205,7 @@ export class SessionManager {
     this.hub.update(id, { verification: { command: cmd, ok: null, output: '', at, durationMs: 0 } });
     try {
       const r = await runVerify(dir, cmd);
-      this.hub.update(id, { verification: { command: cmd, ok: r.ok, output: r.output, at, durationMs: r.durationMs } });
+      this.hub.update(id, { verification: { command: cmd, ok: r.ok, output: r.output, summary: r.summary, at, durationMs: r.durationMs } });
       this.note(id, 'system', r.ok ? `自動チェック 成功: ${cmd}` : `自動チェック 失敗: ${cmd}`, r.output);
     } finally {
       this.verifying.delete(id);

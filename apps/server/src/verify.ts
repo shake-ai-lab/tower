@@ -50,11 +50,48 @@ export function detectVerifyCommand(projectPath: string): string | null {
   return null;
 }
 
+/**
+ * テスト出力から件数を拾って日本語にする（分かる範囲で）。
+ * node:test（# pass / # fail）、jest / vitest / pytest / mocha / cargo（"N passed" "N failed" の行）に対応。拾えなければ null
+ */
+export function summarizeTestOutput(output: string, ok: boolean): string | null {
+  let pass: number | null = null;
+  let fail: number | null = null;
+  const tapPass = output.match(/^# pass (\d+)/m);
+  const tapFail = output.match(/^# fail (\d+)/m);
+  if (tapPass || tapFail) {
+    pass = tapPass ? Number(tapPass[1]) : 0;
+    fail = tapFail ? Number(tapFail[1]) : 0;
+  } else {
+    const lines = output.split(/\r?\n/);
+    // jest / vitest / pytest / cargo は最後の集計行に "N passed" "N failed" が並ぶ
+    const line = lines.filter((l) => /\b\d+ (passed|failed)\b/.test(l)).at(-1);
+    if (line) {
+      const p = line.match(/(\d+) passed/);
+      const f = line.match(/(\d+) failed/);
+      pass = p ? Number(p[1]) : 0;
+      fail = f ? Number(f[1]) : 0;
+    } else {
+      // mocha は "N passing" と "N failing" が別の行
+      const last = (re: RegExp) => lines.map((l) => l.match(re)).filter(Boolean).at(-1);
+      const p = last(/(\d+) passing/);
+      const f = last(/(\d+) failing/);
+      if (p || f) {
+        pass = p ? Number(p[1]) : 0;
+        fail = f ? Number(f[1]) : 0;
+      }
+    }
+  }
+  if (pass === null || fail === null) return null;
+  if (fail === 0) return pass > 0 ? `全部成功（${pass} 件）` : ok ? '成功' : '失敗';
+  return `失敗 ${fail} 件${pass ? `・成功 ${pass} 件` : ''}`;
+}
+
 export function runVerify(
   projectPath: string,
   command: string,
   timeoutMs = 120_000,
-): Promise<{ ok: boolean; output: string; durationMs: number }> {
+): Promise<{ ok: boolean; output: string; summary: string | null; durationMs: number }> {
   return new Promise((resolve) => {
     const t0 = Date.now();
     const chunks: string[] = [];
@@ -69,7 +106,13 @@ export function runVerify(
     child.on('close', (code) => {
       clearTimeout(timer);
       const output = chunks.join('').trim();
-      resolve({ ok: code === 0, output: output.length > 4000 ? `…${output.slice(-4000)}` : output, durationMs: Date.now() - t0 });
+      const ok = code === 0;
+      resolve({
+        ok,
+        output: output.length > 4000 ? `…${output.slice(-4000)}` : output,
+        summary: summarizeTestOutput(output, ok),
+        durationMs: Date.now() - t0,
+      });
     });
   });
 }

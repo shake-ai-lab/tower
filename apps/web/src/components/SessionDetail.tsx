@@ -41,9 +41,33 @@ function Linkify({ text }: { text: string }) {
   );
 }
 
-function VerificationStrip({ v, reportOutcome }: { v: Verification; reportOutcome: Report['outcome'] | null }) {
+const okText = (v: Verification) => v.summary ?? (v.ok ? '成功' : '失敗');
+
+/** 修正前と修正後を比べた一言。修正前が無ければ null */
+export function compareVerdict(b: Verification | null | undefined, v: Verification): { text: string; tone: 'good' | 'bad' | 'warn' } | null {
+  if (!b || b.ok === null || v.ok === null) return null;
+  if (!b.ok && v.ok) return { text: '直りました', tone: 'good' };
+  if (b.ok && !v.ok) return { text: '修正で壊れました（修正前は通っていました）', tone: 'bad' };
+  if (!b.ok && !v.ok) return { text: 'まだ直っていません（修正前から失敗）', tone: 'warn' };
+  return null;
+}
+
+/** 起動直後の自動チェック（報告が来る前に見せる） */
+function BaselineStrip({ b }: { b: Verification }) {
+  return (
+    <div className="rounded-lg border border-zinc-700 bg-zinc-800/40 p-2.5 text-xs text-zinc-300">
+      修正前の自動チェック: <span className={b.ok ? 'text-emerald-300' : 'text-red-300'}>{b.ok ? '✔' : '✖'} {okText(b)}</span>
+      <span className="text-zinc-500"> — Tower が </span>
+      <span className="mono">{b.command}</span>
+      <span className="text-zinc-500"> を実行</span>
+    </div>
+  );
+}
+
+function VerificationStrip({ v, baseline, reportOutcome }: { v: Verification; baseline?: Verification | null; reportOutcome: Report['outcome'] | null }) {
   const [open, setOpen] = useState(false);
   const conflict = v.ok === false && reportOutcome === 'done';
+  const verdict = compareVerdict(baseline, v);
   const cls =
     v.ok === null
       ? 'border-zinc-700 bg-zinc-800/40'
@@ -56,12 +80,33 @@ function VerificationStrip({ v, reportOutcome }: { v: Verification; reportOutcom
         <span>{v.ok === null ? '⏳' : v.ok ? '✔' : '✖'}</span>
         <span className="font-medium">
           {v.ok === null ? '裏取り中' : v.ok ? '裏取りOK' : '裏取りNG'}
+          {v.ok !== null && v.summary && <span className="font-normal">（{v.summary}）</span>}
           <span className="text-zinc-500 font-normal"> — Tower が </span>
           <span className="mono text-xs">{v.command}</span>
           <span className="text-zinc-500 font-normal"> を実行</span>
         </span>
         <span className="ml-auto text-xs text-zinc-500">{open ? '閉じる' : '出力を見る'}</span>
       </button>
+      {baseline && baseline.ok !== null && v.ok !== null && (
+        <div className="mt-1.5 text-xs text-zinc-300">
+          修正前: <span className={baseline.ok ? 'text-emerald-300' : 'text-red-300'}>{okText(baseline)}</span>
+          <span className="text-zinc-500"> → </span>
+          修正後: <span className={v.ok ? 'text-emerald-300' : 'text-red-300'}>{okText(v)}</span>
+          {verdict && (
+            <span
+              className={`ml-2 px-1.5 py-0.5 rounded ${
+                verdict.tone === 'good'
+                  ? 'bg-emerald-900/70 text-emerald-200'
+                  : verdict.tone === 'bad'
+                    ? 'bg-red-600 text-white font-semibold'
+                    : 'bg-amber-900/70 text-amber-200'
+              }`}
+            >
+              {verdict.text}
+            </span>
+          )}
+        </div>
+      )}
       {conflict && (
         <div className="mt-1.5 text-xs text-red-200">
           エージェントは「完了」と報告していますが、テストは失敗しています。報告を鵜呑みにせず、追加指示で直させてください。
@@ -335,7 +380,11 @@ export function SessionDetail({ id }: { id: string }) {
         {s.pending && <PendingCard session={s} />}
         {s.report && <ReportCard r={s.report} onFileClick={() => setShowChanges(true)} />}
         {s.workspace && <WorkspaceStrip s={s} />}
-        {s.verification && <VerificationStrip v={s.verification} reportOutcome={s.report?.outcome ?? null} />}
+        {s.verification ? (
+          <VerificationStrip v={s.verification} baseline={s.baseline} reportOutcome={s.report?.outcome ?? null} />
+        ) : (
+          s.baseline && <BaselineStrip b={s.baseline} />
+        )}
         {s.lastError && (
           <div className="rounded-md border border-red-500/50 bg-red-500/10 p-2 text-xs text-red-200 whitespace-pre-wrap">
             {s.lastError}

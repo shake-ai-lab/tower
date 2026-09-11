@@ -215,7 +215,10 @@ async function judge(tr: Track): Promise<Judge> {
       ? `## 機械的な検証（${tr.sc.verify}${tr.merge ? '、取り込み後に元のプロジェクトで実行' : ''}）: ${tr.verify.ok ? '成功' : '失敗'}\n${tr.verify.output.slice(0, 600)}`
       : '',
     s.verification
-      ? `## アプリが画面に出した自動チェック（${s.verification.command}）: ${s.verification.ok === null ? '実行中' : s.verification.ok ? '裏取りOK' : '裏取りNG'}`
+      ? `## アプリが画面に出した自動チェック（${s.verification.command}）: ${s.verification.ok === null ? '実行中' : s.verification.ok ? '裏取りOK' : '裏取りNG'}${s.verification.summary ? `（${s.verification.summary}）` : ''}` +
+        (s.baseline
+          ? `\n修正前（エージェントが手を付ける前にアプリが実行）: ${s.baseline.ok ? '成功' : '失敗'}${s.baseline.summary ? `（${s.baseline.summary}）` : ''} → 修正後: ${s.verification.ok ? '成功' : '失敗'}${s.verification.summary ? `（${s.verification.summary}）` : ''}`
+          : '')
       : '## アプリの自動チェック: 表示なし',
     `## 終了理由: ${tr.finishReason}、所要 ${fmt((tr.finishedAt ?? now()) - tr.startedAt)}、状態 ${s.status}`,
     '',
@@ -241,7 +244,7 @@ function writeReport(runId: string, tracks: Track[]) {
     const allow = t.permissions.filter((p) => p.decision !== 'deny').length;
     const deny = t.permissions.length - allow;
     lines.push(
-      `| ${t.sc.key} | ${t.finishReason} | ${fmt((t.finishedAt ?? now()) - t.startedAt)} | ${allow}/${deny} | ${t.questions.length} | ${t.reports.map((r) => r.r.outcome).join(',') || '-'} | ${t.session?.verification ? (t.session.verification.ok === null ? '⏳' : t.session.verification.ok ? '✔' : '✖') : '-'} | ${t.verify ? (t.verify.ok ? '✅' : '❌') : '-'} | ${t.judge?.reportClarity ?? '-'} | ${t.judge?.goalAchieved ?? '-'} |`,
+      `| ${t.sc.key} | ${t.finishReason} | ${fmt((t.finishedAt ?? now()) - t.startedAt)} | ${allow}/${deny} | ${t.questions.length} | ${t.reports.map((r) => r.r.outcome).join(',') || '-'} | ${t.session?.baseline ? `${t.session.baseline.ok ? '✔' : '✖'}→` : ''}${t.session?.verification ? (t.session.verification.ok === null ? '⏳' : t.session.verification.ok ? '✔' : '✖') : '-'} | ${t.verify ? (t.verify.ok ? '✅' : '❌') : '-'} | ${t.judge?.reportClarity ?? '-'} | ${t.judge?.goalAchieved ?? '-'} |`,
     );
   }
   lines.push('', '## アプリへの改善提案（利用者役AIの意見・重複あり）', '');

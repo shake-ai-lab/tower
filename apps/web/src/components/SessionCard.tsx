@@ -57,7 +57,17 @@ export function SessionCard({ s, selected, onClick }: { s: Session; selected: bo
                     : 'bg-red-600 text-white font-semibold'
               }`}
             >
-              {s.verification.ok === null ? '⏳ 確認中' : s.verification.ok ? '✔ 裏取りOK' : '✖ 裏取りNG'}
+              {s.verification.ok === null
+                ? '⏳ 確認中'
+                : s.verification.ok
+                  ? s.baseline?.ok === false
+                    ? '✔ 直った'
+                    : '✔ 裏取りOK'
+                  : s.baseline?.ok === true
+                    ? '✖ 壊れた'
+                    : s.baseline?.ok === false
+                      ? '✖ まだNG'
+                      : '✖ 裏取りNG'}
             </span>
           )}
           <span className="line-clamp-2">{s.report.needsDecision ?? s.report.summary[0] ?? ''}</span>
