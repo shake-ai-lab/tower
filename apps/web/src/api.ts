@@ -4,6 +4,7 @@ import type {
   AnswerBody,
   BridgeStatus,
   ChangesResponse,
+  CompareBody,
   CreateSessionBody,
   FileContent,
   MergeResult,
@@ -29,6 +30,7 @@ export const api = {
   timeline: (id: string) => req<TimelineItem[]>(`/api/sessions/${id}/timeline`),
   changes: (id: string) => req<ChangesResponse>(`/api/sessions/${id}/changes`),
   create: (body: CreateSessionBody) => req<Session>('/api/sessions', { method: 'POST', body: JSON.stringify(body) }),
+  compare: (body: CompareBody) => req<Session[]>('/api/sessions/compare', { method: 'POST', body: JSON.stringify(body) }),
   message: (id: string, body: MessageBody) =>
     req<{ ok: true }>(`/api/sessions/${id}/message`, { method: 'POST', body: JSON.stringify(body) }),
   permission: (id: string, body: PermissionDecisionBody) =>

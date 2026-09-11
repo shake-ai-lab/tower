@@ -12,6 +12,7 @@ import {
   workDir,
   type AnswerBody,
   type CreateSessionBody,
+  type CompareBody,
   type MessageBody,
   type PermissionDecisionBody,
   type ProjectInfo,
@@ -77,6 +78,16 @@ app.post('/api/sessions', async (c) => {
   try {
     const s = manager.create(body);
     return c.json(s, 201);
+  } catch (e) {
+    return c.json({ error: e instanceof Error ? e.message : String(e) }, 400);
+  }
+});
+
+// 同じ依頼を複数のモデルに投げて比べる（全部「別の作業場所」）
+app.post('/api/sessions/compare', async (c) => {
+  const body = (await c.req.json()) as CompareBody;
+  try {
+    return c.json(manager.createCompare(body), 201);
   } catch (e) {
     return c.json({ error: e instanceof Error ? e.message : String(e) }, 400);
   }
@@ -212,7 +223,8 @@ app.delete('/api/sessions/:id', async (c) => {
 });
 
 // ---- 画面（ビルド済み）の配信。`npm run build -w apps/web` の後なら、このポートだけで全部動く（デスクトップ版・スマホ用） ----
-const WEB_DIST = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../web/dist');
+// デスクトップ版（1 ファイルに束ねたサーバー）では置き場所が変わるので、環境変数で指せる
+const WEB_DIST = process.env.TOWER_WEB_DIST || path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../web/dist');
 if (fs.existsSync(path.join(WEB_DIST, 'index.html'))) {
   const root = path.relative(process.cwd(), WEB_DIST).split(path.sep).join('/') || '.';
   app.use('/*', serveStatic({ root }));

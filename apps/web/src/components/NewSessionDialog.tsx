@@ -25,6 +25,9 @@ export function NewSessionDialog({ open, onClose }: { open: boolean; onClose: ()
   const [perm, setPerm] = useState<PermissionChoice>('acceptEdits');
   const [isolate, setIsolate] = useState(false);
   const [autoMerge, setAutoMerge] = useState(false);
+  /** 同じ依頼を複数のモデルに投げて比べる（全部「別の作業場所」） */
+  const [compare, setCompare] = useState(false);
+  const [compareModels, setCompareModels] = useState<string[]>(['sonnet', 'haiku']);
   /** 利用者が自分でチェックを触ったら、自動の切り替えをやめる */
   const [isolateTouched, setIsolateTouched] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -63,8 +66,13 @@ export function NewSessionDialog({ open, onClose }: { open: boolean; onClose: ()
     setBusy(true);
     setErr(null);
     try {
-      const s = await api.create({ projectPath, prompt, agent, model: model || null, permissionMode: perm, isolate, autoMerge: isolate && autoMerge });
-      select(s.id);
+      if (comparing) {
+        const list = await api.compare({ projectPath, prompt, permissionMode: perm, models: compareModels });
+        select(list[0]?.id ?? null);
+      } else {
+        const s = await api.create({ projectPath, prompt, agent, model: model || null, permissionMode: perm, isolate, autoMerge: isolate && autoMerge });
+        select(s.id);
+      }
       setPrompt('');
       setIsolateTouched(false);
       onClose();
@@ -81,6 +89,9 @@ export function NewSessionDialog({ open, onClose }: { open: boolean; onClose: ()
   const modelChoices = agent === 'codex' ? CODEX_MODEL_CHOICES : MODEL_CHOICES;
   // 一覧に無いパス（直接入力）は git かどうか分からないので、チェックは出してサーバー側で確かめる
   const hasGit = projects.find((p) => p.path === projectPath)?.hasGit ?? true;
+  const comparing = agent === 'claude' && hasGit && compare;
+  const toggleCompareModel = (v: string) =>
+    setCompareModels((cur) => (cur.includes(v) ? cur.filter((x) => x !== v) : [...cur, v]));
 
   return (
     <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4" onClick={onClose}>
@@ -192,7 +203,38 @@ export function NewSessionDialog({ open, onClose }: { open: boolean; onClose: ()
             )}
             {agent === 'claude' && <span className="text-xs text-zinc-600">{permHint}</span>}
           </div>
-          {hasGit && (
+          {hasGit && agent === 'claude' && (
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+              <label
+                className="text-xs text-zinc-300 flex items-center gap-1.5 cursor-pointer select-none"
+                title="同じ依頼を選んだモデルそれぞれに投げます。全部「別の作業場所」で動くので、見比べて気に入った案だけ取り込めます"
+              >
+                <input type="checkbox" checked={compare} onChange={(e) => setCompare(e.target.checked)} className="accent-violet-500" />
+                複数のモデルで比べる
+              </label>
+              {comparing && (
+                <>
+                  {MODEL_CHOICES.filter((m) => m.value).map((m) => {
+                    const v = m.value as string;
+                    const on = compareModels.includes(v);
+                    return (
+                      <button
+                        key={v}
+                        onClick={() => toggleCompareModel(v)}
+                        className={`${btn.base} !py-0.5 !px-2 !text-xs ${on ? 'bg-violet-600 text-white' : btn.ghost}`}
+                      >
+                        {m.label.replace(/（.*）$/, '')}
+                      </button>
+                    );
+                  })}
+                  <span className="text-xs text-zinc-600">
+                    {compareModels.length < 2 ? '2 つ以上選んでください' : `${compareModels.length} つの案が同時に動きます（使う量もその分増えます）`}
+                  </span>
+                </>
+              )}
+            </div>
+          )}
+          {hasGit && !comparing && (
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
               <label className="text-xs text-zinc-300 flex items-center gap-1.5 cursor-pointer select-none">
                 <input
@@ -222,7 +264,7 @@ export function NewSessionDialog({ open, onClose }: { open: boolean; onClose: ()
           <div className="flex items-center gap-3">
             <span className="text-xs text-zinc-600">Ctrl+Enter で起動</span>
             <button
-              disabled={busy || !prompt.trim() || !projectPath || !!agentUnavailable}
+              disabled={busy || !prompt.trim() || !projectPath || !!agentUnavailable || (comparing && compareModels.length < 2)}
               onClick={submit}
               className={`${btn.base} ${btn.primary} ml-auto px-5`}
             >

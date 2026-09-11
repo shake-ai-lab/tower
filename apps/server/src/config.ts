@@ -41,10 +41,14 @@ export function loadConfig(): TowerConfig {
     fs.writeFileSync(CONFIG_PATH, JSON.stringify(base, null, 2));
     return base;
   }
+  let cfg = base;
   try {
-    return { ...base, ...(JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8')) as Partial<TowerConfig>) };
+    cfg = { ...base, ...(JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8')) as Partial<TowerConfig>) };
   } catch (e) {
     console.warn(`[config] ${CONFIG_PATH} を読めません。既定値で続行します:`, e);
-    return base;
   }
+  // デスクトップ版や動作確認で、設定ファイルを触らずに待ち受けを変えたい時の逃げ道
+  if (process.env.TOWER_PORT && Number(process.env.TOWER_PORT) > 0) cfg.port = Number(process.env.TOWER_PORT);
+  if (process.env.TOWER_HOST) cfg.host = process.env.TOWER_HOST;
+  return cfg;
 }

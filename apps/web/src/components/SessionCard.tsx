@@ -1,8 +1,9 @@
 import type { Session } from '@tower/shared';
-import { OUTCOME, STATUS, fmtElapsed, fmtUsd } from '../lib';
+import { OUTCOME, STATUS, fmtElapsed, fmtUsd, verifyBadge } from '../lib';
 
 export function SessionCard({ s, selected, onClick }: { s: Session; selected: boolean; onClick: () => void }) {
   const st = STATUS[s.status];
+  const vb = verifyBadge(s);
   return (
     <button
       onClick={onClick}
@@ -23,6 +24,14 @@ export function SessionCard({ s, selected, onClick }: { s: Session; selected: bo
               className="shrink-0 text-[10px] font-normal px-1.5 py-0.5 rounded bg-fuchsia-900/70 text-fuchsia-200"
             >
               分離
+            </span>
+          )}
+          {s.compare && (
+            <span
+              title="同じ依頼を複数のモデルに投げて比べています"
+              className="shrink-0 text-[10px] font-normal px-1.5 py-0.5 rounded bg-violet-900/70 text-violet-200"
+            >
+              比較 {s.compare.label}
             </span>
           )}
           {s.origin === 'external' && (
@@ -46,28 +55,9 @@ export function SessionCard({ s, selected, onClick }: { s: Session; selected: bo
           <span className={`px-1.5 py-0.5 rounded shrink-0 ${OUTCOME[s.report.outcome].cls}`}>
             {OUTCOME[s.report.outcome].label}
           </span>
-          {s.verification && (
-            <span
-              title={`自動チェック: ${s.verification.command}`}
-              className={`px-1.5 py-0.5 rounded shrink-0 ${
-                s.verification.ok === null
-                  ? 'bg-zinc-800 text-zinc-400'
-                  : s.verification.ok
-                    ? 'bg-emerald-900/70 text-emerald-200'
-                    : 'bg-red-600 text-white font-semibold'
-              }`}
-            >
-              {s.verification.ok === null
-                ? '⏳ 確認中'
-                : s.verification.ok
-                  ? s.baseline?.ok === false
-                    ? '✔ 直った'
-                    : '✔ 裏取りOK'
-                  : s.baseline?.ok === true
-                    ? '✖ 壊れた'
-                    : s.baseline?.ok === false
-                      ? '✖ まだNG'
-                      : '✖ 裏取りNG'}
+          {vb && (
+            <span title={`自動チェック: ${s.verification?.command}`} className={`px-1.5 py-0.5 rounded shrink-0 ${vb.cls}`}>
+              {vb.text}
             </span>
           )}
           <span className="line-clamp-2">{s.report.needsDecision ?? s.report.summary[0] ?? ''}</span>

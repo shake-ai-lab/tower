@@ -36,6 +36,7 @@ npm run dogfood -- --only todo-fix     # 一部だけ
 - `apps/server/src/janitor.ts` — 動きの無い外部セッションの自動掃除
 - `apps/server/src/preview.ts` — 見た目のスクリーンショット（playwright-core + 入っている Edge/Chrome）。撮るタイミングは `manager`（起動直後と、報告が来るたび）
 - `apps/server/src/hub.ts` — 全セッションのメモリ上の状態 + WebSocket 配信 + SQLite 保存
+- `apps/desktop/` — Electron 版。`main.cjs`（サーバーが無ければ起動・トレイ常駐）、`build.mjs`（`npm run installer`: esbuild でサーバーを 1 ファイルにし、stage/ に必要な依存だけ入れて electron-builder で NSIS）。束ねた時の置き場所は `TOWER_WEB_DIST` / `TOWER_HOOK_SCRIPT` / `TOWER_PORT` の環境変数で渡す
 - `apps/server/src/index.ts` — REST ルート（操作）と WS（配信）
 - `apps/web/src/store.ts` — zustand。WS イベントをそのまま反映するだけ。フロントで状態を推測しない
 - `apps/web/src/components/` — `Inbox`（判断待ち）/ `SessionCard`（フリート）/ `SessionDetail`（報告・年表・追加指示）/ `PendingCards`（許可・質問UI）/ `NewSessionDialog` / `FileEditor`（Monaco。`monaco.ts` でローカル同梱設定、遅延読み込み）/ `UsageMenu`（使った量のまとめ。全セッションから画面側で集計）

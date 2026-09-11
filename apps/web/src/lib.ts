@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import type { ReportOutcome, RiskLevel, SessionStatus } from '@tower/shared';
+import type { ReportOutcome, RiskLevel, Session, SessionStatus } from '@tower/shared';
 
 export const STATUS: Record<SessionStatus, { label: string; dot: string; badge: string; attention?: boolean }> = {
   starting: { label: '起動中', dot: 'bg-zinc-400 animate-pulse', badge: 'bg-zinc-700 text-zinc-200' },
@@ -38,6 +38,18 @@ export const RISK: Record<RiskLevel, { label: string; cls: string }> = {
 
 export const ALIVE: SessionStatus[] = ['starting', 'running', 'waiting_permission', 'waiting_question', 'idle'];
 export const isAlive = (s: SessionStatus) => ALIVE.includes(s);
+
+/** 裏取りの一言バッジ（一覧カードと「比べる」の表で共通）。修正前の結果があれば「直った / 壊れた / まだNG」 */
+export function verifyBadge(s: Pick<Session, 'verification' | 'baseline'>): { text: string; cls: string } | null {
+  const v = s.verification;
+  if (!v) return null;
+  if (v.ok === null) return { text: '⏳ 確認中', cls: 'bg-zinc-800 text-zinc-400' };
+  if (v.ok) return { text: s.baseline?.ok === false ? '✔ 直った' : '✔ 裏取りOK', cls: 'bg-emerald-900/70 text-emerald-200' };
+  return {
+    text: s.baseline?.ok === true ? '✖ 壊れた' : s.baseline?.ok === false ? '✖ まだNG' : '✖ 裏取りNG',
+    cls: 'bg-red-600 text-white font-semibold',
+  };
+}
 
 export function fmtElapsed(from: number, to = Date.now()): string {
   const s = Math.max(0, Math.floor((to - from) / 1000));

@@ -3,14 +3,18 @@
 // - 画面はサーバーが配信する apps/web/dist（無ければ Vite の 5173）を読む
 // - 閉じるボタンはトレイに隠すだけ。トレイのメニューから「終了」で本当に終わる
 // - 通知は画面側（Web の Notification API）がそのまま Windows の通知になる（AppUserModelId が要る）
-const { app, BrowserWindow, Tray, Menu, nativeImage, shell } = require('electron');
+const { app, BrowserWindow, Tray, Menu, dialog, nativeImage, shell } = require('electron');
 const { spawn, spawnSync } = require('node:child_process');
+const fs = require('node:fs');
 const http = require('node:http');
 const path = require('node:path');
 
 const ROOT = path.resolve(__dirname, '../..');
 const PORT = Number(process.env.TOWER_PORT ?? 4800);
 const SMOKE = process.env.TOWER_DESKTOP_SMOKE === '1';
+// インストーラ版（build.mjs）では、束ねたサーバーと画面が main.cjs の隣に置かれる
+const BUNDLED_SERVER = path.join(__dirname, 'app', 'server.mjs');
+const BUNDLED = fs.existsSync(BUNDLED_SERVER);
 
 let win = null;
 let tray = null;
@@ -39,11 +43,27 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 async function ensureServer() {
   const health = `http://127.0.0.1:${PORT}/api/health`;
   if (await up(health)) return 'external';
-  serverProc = spawn('node', [path.join(ROOT, 'node_modules/tsx/dist/cli.mjs'), path.join(ROOT, 'apps/server/src/index.ts')], {
-    cwd: ROOT,
+  const nodeCheck = spawnSync('node', ['--version'], { encoding: 'utf8', shell: process.platform === 'win32' });
+  const ver = (nodeCheck.stdout ?? '').trim();
+  const [major, minor] = ver.replace(/^v/, '').split('.').map(Number);
+  if (nodeCheck.status !== 0 || !(major > 22 || (major === 22 && minor >= 13))) {
+    throw new Error(
+      `Tower のサーバーを動かすには Node.js 22.13 以上が必要です（見つかったもの: ${ver || '無し'}）。https://nodejs.org/ から入れてから、もう一度開いてください`,
+    );
+  }
+  const args = BUNDLED
+    ? [BUNDLED_SERVER]
+    : [path.join(ROOT, 'node_modules/tsx/dist/cli.mjs'), path.join(ROOT, 'apps/server/src/index.ts')];
+  const env = { ...process.env };
+  if (BUNDLED) {
+    env.TOWER_WEB_DIST = path.join(__dirname, 'web');
+    env.TOWER_HOOK_SCRIPT = path.join(__dirname, 'app', 'hooks', 'tower-hook.mjs');
+  }
+  serverProc = spawn('node', args, {
+    cwd: BUNDLED ? __dirname : ROOT,
     shell: process.platform === 'win32',
     stdio: 'inherit',
-    env: { ...process.env },
+    env,
   });
   for (let i = 0; i < 120; i++) {
     if (await up(health)) return 'spawned';
@@ -60,7 +80,7 @@ function killTree(child) {
 
 /** 開発中は Vite（5173）が動いていればそちら、無ければサーバーが配信するビルド済み画面 */
 async function pickUrl() {
-  if (await up('http://localhost:5173/')) return 'http://localhost:5173/';
+  if (!BUNDLED && (await up('http://localhost:5173/'))) return 'http://localhost:5173/';
   return `http://127.0.0.1:${PORT}/`;
 }
 
@@ -165,6 +185,7 @@ app.whenReady().then(async () => {
     }
   } catch (e) {
     console.error(e);
+    if (!SMOKE) dialog.showErrorBox('Tower を開けませんでした', e instanceof Error ? e.message : String(e));
     quitting = true;
     app.quit();
   }

@@ -119,9 +119,21 @@ starting → running ⇄ waiting_permission
 - 一覧の上に **履歴検索**（プロジェクト名・依頼文・報告の原文・モデル・ブランチ。空白区切りは AND。`/` で移動、Esc で解除）
 - Tower 自身が使うトークン: システムプロンプト追記（報告ルール 1331 字 + 撮影の注意 337 字 + 分離の注意）はキャッシュに乗るので 2 往復目以降はほぼ増えない。Haiku 整形は書式が無い時だけ。`agentProgressSummaries` はサブエージェントの進捗一言で、SDK の説明では「キャッシュを使い回すのでコストは最小」
 
+### 複数のモデルで比べる（2026-09-11）
+- `POST /api/sessions/compare`（`CompareBody`: models 2 つ以上）→ 同じ依頼をモデルごとに 1 セッションずつ、全部 `isolate: true` で作る。`Session.compare = { group, label }`。自動取り込みは強制オフ（複数の案が勝手に取り込まれるとぶつかる）
+- 画面: 起動ダイアログの「複数のモデルで比べる」（モデルのチップを 2 つ以上）。詳細に `CompareStrip`（同じ group のセッションを store から拾って対比表: 状態 / 結果 / 裏取り / 変更 / 時間 / 費用、「見る」で移動、「他の案を片付ける」= 他を DELETE）。採用は既存の「元のプロジェクトに取り込む」
+- 通し試験（todo テンプレート、Haiku 4.5 vs Sonnet 5）: 両方 40 秒で「完了・直った」、Haiku $0.05 / Sonnet $0.22。Haiku を取り込み → Sonnet を片付け → 元のフォルダで npm test 成功、worktree も 1 つに戻った
+- 判断は人がする（AI に「どちらが良いか」を採点させない）。裏取り・差分・スクリーンショット・費用が並べば十分で、余計なトークンも使わない
+
+### デスクトップ版のインストーラ（2026-09-11）
+- `npm run installer` = `apps/desktop/build.mjs`: 画面ビルド → esbuild でサーバーを `stage/app/server.mjs` に束ねる（子プロセスを起動する SDK・playwright-core は external にして stage で `npm install --omit=dev --ignore-scripts`）→ electron-builder（NSIS、oneClick、`asar: false`、`electronDist` に手元の `node_modules/electron/dist` を指定してダウンロード無し、`signAndEditExecutable: false` で winCodeSign の symlink 問題を避ける）
+- 束ねると `import.meta.url` 基準の置き場所が変わるので、`TOWER_WEB_DIST` / `TOWER_HOOK_SCRIPT` を環境変数で渡す。`TOWER_PORT` / `TOWER_HOST` も config を触らずに上書きできるようにした（main.cjs の TOWER_PORT がサーバーに効いていなかったのを修正）
+- 入れた先には Node.js 22.13 以上が要る（node:sqlite と、Claude Code の CLI を `node` で起動するため）。無ければ起動時にダイアログ
+- monorepo の node_modules は入れない（Monaco・Vite・Electron 自体が入って巨大になる）。stage に要るものだけ。それでも `@openai/codex-win32-x64`（378MB）が入って 1GB 近くになったので、`@openai/codex-sdk` は `stubs/codex-sdk.mjs` に差し替えて束ね、インストーラには入れない（サーバーは「見つからない」扱いで起動する）
+- ESM に束ねると ws などの CommonJS 側の `require('events')` が "Dynamic require is not supported" で落ちる → banner で `globalThis.require = createRequire(import.meta.url)` を入れて本物の require に流す
+
 ### フェーズ3 の残り
-- 1つの依頼を複数エージェント/モデルに投げて比較
-- デスクトップ版の配布パッケージ（インストーラ）
+- なし（全部済み）。次は使いながらの改善
 
 ## 既知の制約
 - サーバー再起動で動作中セッションは `stopped` になる

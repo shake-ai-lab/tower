@@ -11,7 +11,8 @@
     "dev": "concurrently -n server,web -c blue,green \"npm run dev -w apps/server\" \"npm run dev -w apps/web\"",
     "typecheck": "npm run typecheck -w apps/server && npm run typecheck -w apps/web && npm run typecheck -w apps/user-agent",
     "dogfood": "npm run start -w apps/user-agent --",
-    "desktop": "npm run build -w apps/web && npm run start -w apps/desktop"
+    "desktop": "npm run build -w apps/web && npm run start -w apps/desktop",
+    "installer": "node apps/desktop/build.mjs"
   },
   "devDependencies": {
     "concurrently": "^9.1.2",

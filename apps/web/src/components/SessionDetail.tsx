@@ -1,7 +1,7 @@
 import { Suspense, lazy, useEffect, useRef, useState } from 'react';
 import type { Preview, Report, Screenshot, Session, TimelineItem, Verification } from '@tower/shared';
 import { api } from '../api';
-import { OUTCOME, STATUS, btn, fmtTime, fmtTokens, fmtUsd, isAlive } from '../lib';
+import { OUTCOME, STATUS, btn, fmtElapsed, fmtTime, fmtTokens, fmtUsd, isAlive, verifyBadge } from '../lib';
 import { useStore } from '../store';
 import { PendingCard } from './PendingCards';
 import { ChangesPanel } from './ChangesPanel';
@@ -238,6 +238,110 @@ function WorkspaceStrip({ s }: { s: Session }) {
   );
 }
 
+/** 「比べる」で作った案どうしの対比表。気に入った案を取り込み、残りを片付ける */
+function CompareStrip({ s }: { s: Session }) {
+  const sessions = useStore((st) => st.sessions);
+  const select = useStore((st) => st.select);
+  const [busy, setBusy] = useState(false);
+  const c = s.compare;
+  if (!c) return null;
+  const group = Object.values(sessions)
+    .filter((x) => x.compare?.group === c.group)
+    .sort((a, b) => a.createdAt - b.createdAt);
+  const others = group.filter((x) => x.id !== s.id);
+  const merged = !!s.workspace?.lastMerge?.ok;
+
+  const discard = async () => {
+    const names = others.map((x) => x.compare?.label ?? '').join(' / ');
+    if (
+      !confirm(
+        `他の ${others.length} 案（${names}）を削除しますか？\n作業場所（コピー）とブランチも消えます。取り込んでいない変更は失われます。`,
+      )
+    )
+      return;
+    setBusy(true);
+    try {
+      for (const x of others) await api.remove(x.id).catch(() => {});
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="text-xs bg-violet-400/5 border border-violet-400/30 rounded-md p-2 leading-relaxed space-y-1.5">
+      <div className="text-violet-200/90">
+        同じ依頼を {group.length} つのモデルに投げて比べています。下の表で見比べて、気に入った案を「元のプロジェクトに取り込む」で採用し、残りは片付けてください。
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full whitespace-nowrap">
+          <thead className="text-zinc-500">
+            <tr>
+              <th className="text-left font-normal pr-2">モデル</th>
+              <th className="text-left font-normal pr-2">状態</th>
+              <th className="text-left font-normal pr-2">結果</th>
+              <th className="text-left font-normal pr-2">裏取り</th>
+              <th className="text-right font-normal pr-2">変更</th>
+              <th className="text-right font-normal pr-2">時間</th>
+              <th className="text-right font-normal pr-2">費用</th>
+              <th />
+            </tr>
+          </thead>
+          <tbody>
+            {group.map((x) => {
+              const vb = verifyBadge(x);
+              const st = STATUS[x.status];
+              const me = x.id === s.id;
+              const end = WORKING.includes(x.status) ? Date.now() : x.updatedAt;
+              return (
+                <tr key={x.id} className={`border-t border-zinc-800 ${me ? 'text-zinc-100' : 'text-zinc-300'}`}>
+                  <td className="py-1 pr-2">
+                    {x.compare?.label}
+                    {me && <span className="ml-1 text-violet-300">← いま見ている</span>}
+                    {x.workspace?.lastMerge?.ok && <span className="ml-1 text-emerald-300">採用済み</span>}
+                  </td>
+                  <td className="pr-2">
+                    <span className={`px-1.5 py-0.5 rounded ${st.badge}`}>{st.label}</span>
+                  </td>
+                  <td className="pr-2">
+                    {x.report ? (
+                      <span className={`px-1.5 py-0.5 rounded ${OUTCOME[x.report.outcome].cls}`}>{OUTCOME[x.report.outcome].label}</span>
+                    ) : (
+                      <span className="text-zinc-600">—</span>
+                    )}
+                  </td>
+                  <td className="pr-2">
+                    {vb ? <span className={`px-1.5 py-0.5 rounded ${vb.cls}`}>{vb.text}</span> : <span className="text-zinc-600">—</span>}
+                  </td>
+                  <td className="text-right pr-2">{x.changedFiles.length} 件</td>
+                  <td className="text-right pr-2">{fmtElapsed(x.createdAt, end)}</td>
+                  <td className="text-right pr-2">{fmtUsd(x.costUsd)}</td>
+                  <td className="text-right">
+                    {!me && (
+                      <button onClick={() => select(x.id)} className="underline text-sky-300 hover:text-sky-200">
+                        見る
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      {others.length > 0 && (
+        <div className="flex items-center gap-2 flex-wrap">
+          <button disabled={busy} onClick={discard} className={`${btn.base} ${btn.ghost} !py-1 !text-xs`}>
+            {busy ? '片付け中…' : `この案を残して、他の ${others.length} 案を片付ける`}
+          </button>
+          <span className="text-zinc-500">
+            {merged ? '取り込み済みなので、他の案は片付けて構いません' : '取り込む前に片付けることもできますが、後で見比べられなくなります'}
+          </span>
+        </div>
+      )}
+    </div>
+  );
+}
+
 /** 使った量（トークン）と費用の目安、会話の大きさ */
 function UsageStrip({ s }: { s: Session }) {
   const u = s.usage;
@@ -449,6 +553,11 @@ export function SessionDetail({ id }: { id: string }) {
               分離
             </span>
           )}
+          {s.compare && (
+            <span title="同じ依頼を複数のモデルに投げて比べています" className="text-[10px] px-1.5 py-0.5 rounded bg-violet-900/70 text-violet-200">
+              比較 {s.compare.label}
+            </span>
+          )}
           <span className={`text-xs px-2 py-0.5 rounded-full ${st.badge}`}>{st.label}</span>
           {s.model && <span className="hidden sm:inline text-xs text-zinc-500">{s.model}</span>}
           <div className="ml-auto flex gap-1.5">
@@ -483,6 +592,7 @@ export function SessionDetail({ id }: { id: string }) {
         )}
         {s.pending && <PendingCard session={s} />}
         {s.report && <ReportCard r={s.report} onFileClick={() => setShowChanges(true)} />}
+        {s.compare && <CompareStrip s={s} />}
         {s.workspace && <WorkspaceStrip s={s} />}
         {s.verification ? (
           <VerificationStrip v={s.verification} baseline={s.baseline} reportOutcome={s.report?.outcome ?? null} />

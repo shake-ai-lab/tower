@@ -34,7 +34,9 @@ export interface HookInput {
 
 type Decision = { behavior: 'allow' } | { behavior: 'deny'; message: string };
 
-const HOOK_SCRIPT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../hooks/tower-hook.mjs');
+// デスクトップ版（1 ファイルに束ねたサーバー）では置き場所が変わるので、環境変数で指せる
+const HOOK_SCRIPT =
+  process.env.TOWER_HOOK_SCRIPT || path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../hooks/tower-hook.mjs');
 const SETTINGS_PATH = path.join(os.homedir(), '.claude', 'settings.json');
 const MARK = 'tower-hook.mjs';
 const OBSERVE_EVENTS = ['SessionStart', 'UserPromptSubmit', 'PreToolUse', 'Stop', 'SessionEnd'];

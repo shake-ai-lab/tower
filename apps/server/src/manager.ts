@@ -5,6 +5,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { createRequire } from 'node:module';
 import {
+  type CompareBody,
+  modelLabel,
   workDir,
   type AgentAvailability,
   type AgentKind,
@@ -127,7 +129,9 @@ export class SessionManager {
       agent,
       agentSessionId: null,
       project: { path: projectPath, name: path.basename(projectPath) },
-      workspace: isolated ? { ...isolated.workspace, autoMerge: body.autoMerge === true } : null,
+      // 「比べる」の時は自動取り込みをしない（複数の案が勝手に取り込まれるとぶつかる）
+      workspace: isolated ? { ...isolated.workspace, autoMerge: body.autoMerge === true && !body.compare } : null,
+      compare: body.compare ?? null,
       preview: previewTarget ? { target: targetLabel(previewTarget), before: null, after: null, taking: false, error: null } : null,
       title: prompt.split(/\r?\n/)[0].slice(0, 60),
       prompt,
@@ -164,6 +168,41 @@ export class SessionManager {
     this.runners.set(session.id, runner);
     runner.start(prompt);
     return session;
+  }
+
+  /** 同じ依頼を複数のモデルに投げて比べる。全部「別の作業場所」で動かし、気に入った案だけ取り込める */
+  createCompare(body: CompareBody): Session[] {
+    const models = [...new Set((body.models ?? []).map((m) => m || null))];
+    if (models.length < 2) throw new Error('比べるには、違うモデルを 2 つ以上選んでください');
+    const group = randomUUID();
+    const made: Session[] = [];
+    try {
+      for (const model of models) {
+        made.push(
+          this.create({
+            projectPath: body.projectPath,
+            prompt: body.prompt,
+            permissionMode: body.permissionMode,
+            model,
+            isolate: true,
+            compare: { group, label: modelLabel(model) },
+          }),
+        );
+      }
+    } catch (e) {
+      // 途中で失敗したら、作りかけの分は片付けてからエラーにする
+      for (const s of made) void this.remove(s.id);
+      throw e;
+    }
+    const labels = models.map(modelLabel).join(' / ');
+    for (const s of made) {
+      this.note(
+        s.id,
+        'system',
+        `比較: 同じ依頼を ${models.length} つのモデルに投げています（${labels}）。それぞれ別の作業場所で作業するので、気に入った案だけ取り込めます`,
+      );
+    }
+    return made;
   }
 
   /** 見た目の撮影（修正前 / 修正後）。失敗しても例外は出さず、preview.error に日本語で残す */

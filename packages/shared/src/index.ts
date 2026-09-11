@@ -150,6 +150,12 @@ export interface Workspace {
   autoMerge?: boolean;
 }
 
+/** 「比べる」のグループ。label はモデルの表示名（「Haiku 4.5」など） */
+export interface CompareRef {
+  group: string;
+  label: string;
+}
+
 /**
  * 使ったトークン量（目安）。エージェントが返す集計を Tower が足し合わせたもの。
  * 再開（サーバー再起動後の続き）をまたいでも積み上がる
@@ -210,6 +216,8 @@ export interface Session {
   costUsd: number;
   /** 使ったトークン量（目安）。外部セッションは省略 */
   usage?: Usage | null;
+  /** 同じ依頼を複数のモデルに投げて比べている時の印。同じ group のセッションが「他の案」 */
+  compare?: CompareRef | null;
   toolCalls: number;
   /** このセッションで触ったファイル（Edit/Write から機械的に集計） */
   changedFiles: string[];
@@ -257,6 +265,17 @@ export interface CreateSessionBody {
   isolate?: boolean;
   /** isolate の時: 報告が「完了」で裏取りも通ったら自動で取り込む */
   autoMerge?: boolean;
+  /** 内部用: 「比べる」で作る時のグループ。API から直接指定しない */
+  compare?: CompareRef;
+}
+
+/** 同じ依頼を複数のモデルに投げて比べる（POST /api/sessions/compare）。全部「別の作業場所」で動く */
+export interface CompareBody {
+  projectPath: string;
+  prompt: string;
+  permissionMode?: PermissionChoice;
+  /** 2 つ以上。null = 既定のモデル */
+  models: (string | null)[];
 }
 
 /** 「元のプロジェクトに取り込む」の結果 */
@@ -358,3 +377,9 @@ export const MODEL_CHOICES: { value: string | null; label: string }[] = [
   { value: 'sonnet', label: 'Sonnet 5' },
   { value: 'haiku', label: 'Haiku 4.5（速い・軽い）' },
 ];
+
+/** モデル指定の表示名（「Haiku 4.5」のように括弧の補足を外したもの） */
+export const modelLabel = (value: string | null | undefined): string => {
+  const hit = MODEL_CHOICES.find((m) => m.value === (value ?? null));
+  return hit ? hit.label.replace(/（.*）$/, '') : (value ?? '既定');
+};

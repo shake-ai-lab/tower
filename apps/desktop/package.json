@@ -5,9 +5,11 @@
   "description": "Tower をデスクトップアプリとして起動する（トレイ常駐・ネイティブ通知）",
   "main": "main.cjs",
   "scripts": {
-    "start": "electron ."
+    "start": "electron .",
+    "installer": "node build.mjs"
   },
   "devDependencies": {
-    "electron": "^44.3.0"
+    "electron": "^44.3.0",
+    "electron-builder": "^26.0.0"
   }
 }
