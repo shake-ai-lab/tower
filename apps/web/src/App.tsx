@@ -210,7 +210,8 @@ export default function App() {
           {!connected && <span className="text-red-300">接続が切れました。つなぎ直しています…</span>}
         </div>
         <div className="hidden sm:block text-xs text-zinc-400">
-          作業中 <b className="text-zinc-200">{working}</b> · 判断待ち{' '}
+          {working > 0 && <span aria-hidden="true" className="working-spinner mr-1 align-[-1px] text-sky-400" />}
+          作業中 <b className={working ? 'text-sky-300' : 'text-zinc-200'}>{working}</b> · 判断待ち{' '}
           <b className={waiting ? 'text-amber-300' : 'text-zinc-200'}>{waiting}</b> · 全 {list.length}
         </div>
         <div className="ml-auto flex items-center gap-2">

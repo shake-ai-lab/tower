@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import type { Preview, Report, Screenshot, Session, TimelineItem, Verification } from '@tower/shared';
 import { PERMISSION_CHOICES, type PermissionChoice } from '@tower/shared';
 import { api } from '../api';
@@ -6,6 +7,7 @@ import { OUTCOME, STATUS, btn, fmtElapsed, fmtTime, fmtTokens, fmtUsd, isAlive, 
 import { useStore } from '../store';
 import { PendingCard } from './PendingCards';
 import { ChangesPanel } from './ChangesPanel';
+import { StatusBadge } from './SessionCard';
 
 // Monaco は重いので、「直す」を押した時に初めて読み込む
 import { useEditorWorkspace } from '../editor-workspace';
@@ -466,7 +468,7 @@ function ReportCard({ r, onFileClick }: { r: Report; onFileClick?: () => void })
   );
 }
 
-function TimelineRow({ t }: { t: TimelineItem }) {
+function TimelineRow({ t, showImages }: { t: TimelineItem; showImages: boolean }) {
   const cls =
     t.kind === 'user'
       ? 'text-sky-200'
@@ -484,8 +486,9 @@ function TimelineRow({ t }: { t: TimelineItem }) {
       <span className="ml-auto shrink-0 text-[11px] text-zinc-600">{fmtTime(t.ts)}</span>
     </div>
   );
-  const image = t.imagePath ? <TimelineImage t={t} /> : null;
-  if (!t.detail) return <div className="px-1 py-0.5">{body}{image}</div>;
+  // 画像を読んだ行は、押すと画像を画面の上に大きく出す（詳細は画像の場所だけなので畳まない）
+  if (t.imagePath) return <TimelineImageRow t={t} body={body} showAll={showImages} />;
+  if (!t.detail) return <div className="px-1 py-0.5">{body}</div>;
   return (
     <div className="px-1 py-0.5">
       <details className="group">
@@ -494,27 +497,74 @@ function TimelineRow({ t }: { t: TimelineItem }) {
           {t.detail}
         </pre>
       </details>
-      {image}
     </div>
   );
 }
 
-/** エージェントが読んだ画像。畳んだままでも見えるように小さく出し、押すと大きくする */
-function TimelineImage({ t }: { t: TimelineItem }) {
-  const [big, setBig] = useState(false);
+const GONE_TEXT = 'この画像はもう残っていません（一時的な場所に置かれていた、など）';
+
+/** エージェントが読んだ画像の行。行か小さい画像を押すと大きく出す。小さい画像は「画像を表示」で出し入れする */
+function TimelineImageRow({ t, body, showAll }: { t: TimelineItem; body: ReactNode; showAll: boolean }) {
+  const [own, setOwn] = useState<boolean | null>(null);
+  const [popup, setPopup] = useState(false);
   const [gone, setGone] = useState(false);
+  // 「まとめて表示／隠す」を押したら、行ごとの出し入れはそれに合わせ直す
+  useEffect(() => setOwn(null), [showAll]);
+  const shown = own ?? showAll;
   const name = t.imagePath?.split(/[\\/]/).pop() ?? '';
-  if (gone) return <p className="ml-7 mt-1 text-xs text-zinc-500">この画像はもう残っていません（一時的な場所に置かれていた、など）</p>;
+  const url = api.timelineImageUrl(t.sessionId, t.id);
   return (
-    <button type="button" onClick={() => setBig((v) => !v)} title={big ? '押すと小さくします' : '押すと大きくします'} className="ml-7 mt-1 block max-w-[calc(100%-1.75rem)] text-left">
-      <img
-        src={api.timelineImageUrl(t.sessionId, t.id)}
-        alt={name}
-        loading="lazy"
-        onError={() => setGone(true)}
-        className={`${big ? 'max-h-[70vh]' : 'max-h-32'} max-w-full rounded border border-zinc-700 bg-black/40 object-contain`}
-      />
-    </button>
+    <div className="px-1 py-0.5">
+      <button type="button" onClick={() => setPopup(true)} title="押すと画像を大きく表示します" className="block w-full text-left rounded hover:bg-zinc-800/60 cursor-zoom-in">
+        {body}
+      </button>
+      <div className="ml-7 mt-0.5">
+        {gone ? (
+          <p className="text-xs text-zinc-500">{GONE_TEXT}</p>
+        ) : (
+          <button type="button" onClick={() => setOwn(!shown)} aria-pressed={shown} className="text-[11px] px-2 py-0.5 rounded border border-zinc-700 text-zinc-300 hover:bg-zinc-800">
+            {shown ? '画像を隠す' : '🖼 画像を表示'}
+          </button>
+        )}
+        {shown && !gone && (
+          <button type="button" onClick={() => setPopup(true)} title="押すと大きく表示します" className="mt-1 block max-w-full cursor-zoom-in">
+            <img src={url} alt={name} loading="lazy" onError={() => setGone(true)} className="max-h-32 max-w-full rounded border border-zinc-700 bg-black/40 object-contain" />
+          </button>
+        )}
+      </div>
+      {popup && <ImagePopup url={url} caption={t.imagePath ?? name} onClose={() => setPopup(false)} />}
+    </div>
+  );
+}
+
+/** 画像を画面いっぱいに出す。外側・「閉じる」・Esc で閉じる。親の枠に縛られないよう body 直下に出す */
+function ImagePopup({ url, caption, onClose }: { url: string; caption: string; onClose: () => void }) {
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    // 画面全体の Esc（詳細を閉じる）より先に受け取って、ここだけ閉じる
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      e.preventDefault();
+      e.stopPropagation();
+      onClose();
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, [onClose]);
+  return createPortal(
+    <div role="dialog" aria-modal="true" aria-label="画像" onClick={onClose} className="fixed inset-0 z-[100] bg-black/85 flex flex-col items-center justify-center gap-3 p-6 cursor-zoom-out">
+      <div className="flex items-center gap-3 max-w-full text-xs text-zinc-300">
+        <span className="mono truncate min-w-0" title={caption}>{caption}</span>
+        <span className="shrink-0 text-zinc-500">外側を押すか Esc でも閉じます</span>
+        <button type="button" autoFocus onClick={onClose} className="shrink-0 px-2 py-1 rounded bg-zinc-800 hover:bg-zinc-700">閉じる</button>
+      </div>
+      {failed ? (
+        <p className="text-sm text-zinc-400">{GONE_TEXT}</p>
+      ) : (
+        <img src={url} alt={caption} onClick={(e) => e.stopPropagation()} onError={() => setFailed(true)} className="max-w-[92vw] max-h-[85vh] object-contain rounded shadow-2xl bg-black/40 cursor-default" />
+      )}
+    </div>,
+    document.body,
   );
 }
 
@@ -533,6 +583,12 @@ export function SessionDetail({ id, onShowWorkspace, embedded = false, onClose, 
   const openFile = useEditorWorkspace((s) => s.open);
   const setEditing = (path: string) => openFile(id, path, () => setEditVersion((v) => v + 1));
   const [editVersion, setEditVersion] = useState(0);
+  // 経過の画像は最初は畳んでおく（場所を取るので）。まとめて出したかどうかは覚えておく
+  const [showImages, setShowImages] = useState(() => localStorage.getItem('tower.timeline-images') === '1');
+  const toggleImages = () => setShowImages((v) => {
+    localStorage.setItem('tower.timeline-images', v ? '0' : '1');
+    return !v;
+  });
   const bottom = useRef<HTMLDivElement>(null);
   const scroller = useRef<HTMLDivElement>(null);
 
@@ -585,7 +641,7 @@ export function SessionDetail({ id, onShowWorkspace, embedded = false, onClose, 
   return (
     <section ref={resize.ref} data-resizable-panel={embedded ? undefined : true} aria-label="タスク詳細" style={{ ...(desktop && !embedded ? { width: resize.width, minWidth: 300, flexShrink: 1 } : {}), ...(hidden ? { display: 'none' } : {}) }} className={`w-full border-zinc-800 flex flex-col overflow-hidden bg-[#0c0e12] ${embedded ? 'relative h-full min-h-0 min-w-0' : desktop ? 'relative border-l' : 'fixed inset-0 z-40'}`}>
       {desktop && !embedded && <div role="separator" aria-label="タスク詳細の幅" aria-orientation="vertical" aria-valuemin={300} aria-valuemax={1000} aria-valuenow={resize.actualWidth} tabIndex={0} onMouseDown={resize.onMouseDown} onDoubleClick={resize.reset} onKeyDown={resize.onKeyDown} className="absolute left-0 top-0 bottom-0 w-1.5 z-10 cursor-col-resize hover:bg-sky-500/60 focus:bg-sky-500/60" />}
-      <header className="p-3 border-b border-zinc-800 space-y-1">
+      <header className="relative p-3 border-b border-zinc-800 space-y-1">
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
           <span className="font-semibold">{s.project.name}</span>
           {external && (
@@ -601,7 +657,7 @@ export function SessionDetail({ id, onShowWorkspace, embedded = false, onClose, 
               比較 {s.compare.label}
             </span>
           )}
-          <span className={`text-xs px-2 py-0.5 rounded-full ${st.badge}`}>{st.label}</span>
+          <StatusBadge status={s.status} />
           {s.model && <span className="hidden sm:inline text-xs text-zinc-500">{s.model}</span>}
           <div className="ml-auto flex gap-1.5">
             {alive && (
@@ -628,13 +684,14 @@ export function SessionDetail({ id, onShowWorkspace, embedded = false, onClose, 
           }}>{PERMISSION_CHOICES.map((p) => <option key={p.value} value={p.value}>{p.label}</option>)}</select>
           {!embedded && <span className="block mt-1">{PERMISSION_CHOICES.find((p) => p.value === s.permissionMode)?.hint}</span>}
         </label>}
-        <div className="text-xs text-zinc-500 flex items-center gap-2">
+        <div className={`text-xs flex items-center gap-2 ${st.working ? 'text-sky-200' : 'text-zinc-500'}`}>
           <span className={`inline-block w-2 h-2 rounded-full ${st.dot}`} />
           <span className="truncate min-w-0" title={s.activity}>{s.activity}</span>
-          <span className="ml-auto whitespace-nowrap">
+          <span className="ml-auto whitespace-nowrap text-zinc-500">
             {s.turns}往復 · {s.toolCalls}操作
           </span>
         </div>
+        {st.working && <span aria-hidden="true" className="working-bar absolute bottom-0 inset-x-0" />}
       </header>
 
       <div ref={scroller} className="flex-1 overflow-y-auto p-2 space-y-2">
@@ -681,10 +738,17 @@ export function SessionDetail({ id, onShowWorkspace, embedded = false, onClose, 
         </div>
 
         <div>
-          <div className="text-[11px] text-zinc-500 mb-1 px-1">経過（クリックで詳細）</div>
+          <div className="flex items-center gap-2 text-[11px] text-zinc-500 mb-1 px-1">
+            <span>経過（クリックで詳細）</span>
+            {timeline?.some((t) => t.imagePath) && (
+              <button type="button" onClick={toggleImages} aria-pressed={showImages} className="ml-auto underline hover:text-zinc-300">
+                {showImages ? '画像をまとめて隠す' : '画像をまとめて表示'}
+              </button>
+            )}
+          </div>
           <div className="space-y-0.5">
             {(timeline ?? []).map((t) => (
-              <TimelineRow key={t.id} t={t} />
+              <TimelineRow key={t.id} t={t} showImages={showImages} />
             ))}
             {!timeline && <div className="text-xs text-zinc-500 px-1">読み込み中…</div>}
           </div>

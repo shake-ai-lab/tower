@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import type { Session } from '@tower/shared';
 import { useStore } from '../store';
 import { SessionDetail } from './SessionDetail';
+import { StatusBadge } from './SessionCard';
 
 export function MultiSessionView({ sessions, single = false }: { sessions: Session[]; single?: boolean }) {
   const selectedId = useStore((s) => s.selectedId);
@@ -31,6 +32,7 @@ export function MultiSessionView({ sessions, single = false }: { sessions: Sessi
             {!single && <option value="">タスクを選択</option>}
             {sessions.map((s) => <option key={s.id} value={s.id}>{s.project.name} / {s.title}</option>)}
           </select>
+          {id && <StatusBadge status={sessions.find((s) => s.id === id)!.status} className="text-[10px] shrink-0" />}
         </div>
         <div className="flex-1 min-h-0 min-w-0">{id ? <SessionDetail key={id} id={id} embedded /> : <div className="h-full flex items-center justify-center p-4 text-xs text-zinc-500">上のメニューから表示するタスクを選択</div>}</div>
       </div>;

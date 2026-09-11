@@ -21,6 +21,18 @@ html, body, #root {
 }
 .attention { animation: pulse-ring 1.6s infinite; }
 
+/* 作業中: 青く光る枠 + 上端を流れる帯。動きを減らす設定でも枠の色で分かる */
+@keyframes working-glow {
+  0%, 100% { box-shadow: 0 0 0 1px #38bdf840, 0 0 8px #38bdf81a; }
+  50% { box-shadow: 0 0 0 1px #38bdf8a0, 0 0 18px #38bdf850; }
+}
+.working-card { border-color: #38bdf8b0; background-color: #142031; animation: working-glow 2.2s ease-in-out infinite; }
+@keyframes working-sweep { from { transform: translateX(-100%); } to { transform: translateX(260%); } }
+.working-bar { height: 3px; overflow: hidden; background: #0c4a6e99; pointer-events: none; }
+.working-bar::after { content: ''; display: block; height: 100%; width: 40%; background: linear-gradient(90deg, transparent, #7dd3fc, transparent); animation: working-sweep 1.4s ease-in-out infinite; }
+.working-spinner { display: inline-block; width: 10px; height: 10px; flex-shrink: 0; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: working-spin .8s linear infinite; }
+@keyframes working-spin { to { transform: rotate(360deg); } }
+
 * { scrollbar-width: thin; scrollbar-color: #414b5b transparent; }
 ::-webkit-scrollbar { width: 9px; height: 9px; }
 ::-webkit-scrollbar-track { background: transparent; }
