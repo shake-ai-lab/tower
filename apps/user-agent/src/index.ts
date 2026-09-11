@@ -375,11 +375,13 @@ async function main() {
   }
 
   console.log('\n全シナリオ終了。検証と評価を行います…');
-  // Tower 側の裏取り（テスト実行）は報告の後に非同期で走るので、少し待って結果を拾う
-  for (let i = 0; i < 20; i++) {
+  // Tower 側の裏取り（テスト実行）と見た目の撮影は報告の後に非同期で走るので、少し待って結果を拾う
+  const settled = (s: Session | undefined) =>
+    (!s?.verification || s.verification.ok !== null) && (!s?.preview || (!s.preview.taking && (!!s.preview.after || !!s.preview.error)));
+  for (let i = 0; i < 30; i++) {
     const sessions = await api<Session[]>('/sessions');
     for (const t of tracks) t.session = sessions.find((x) => x.id === t.sessionId) ?? t.session;
-    if (tracks.every((t) => !t.session?.verification || t.session.verification.ok !== null)) break;
+    if (tracks.every((t) => settled(t.session))) break;
     await sleep(1000);
   }
   for (const t of tracks) {
