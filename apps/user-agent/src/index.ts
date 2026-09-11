@@ -10,7 +10,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { MergeResult, PendingPermission, PendingQuestion, Report, Session, TimelineItem } from '@tower/shared';
+import type { ChangesResponse, MergeResult, PendingPermission, PendingQuestion, Report, Session, TimelineItem } from '@tower/shared';
 import { llmJson } from './llm.ts';
 import { SCENARIOS, type Scenario } from './scenarios.ts';
 
@@ -54,6 +54,8 @@ interface Track {
   /** isolate シナリオの「取り込む」結果 */
   merge?: MergeResult;
   judge?: Judge;
+  /** 採点前に取った差分（画面の「差分を見る」相当）。採点役が成果物の中身を見られるように */
+  changes?: string;
   timeline: TimelineItem[];
   session?: Session;
 }
@@ -217,9 +219,15 @@ async function judge(tr: Track): Promise<Judge> {
     s.verification
       ? `## アプリが画面に出した自動チェック（${s.verification.command}）: ${s.verification.ok === null ? '実行中' : s.verification.ok ? '裏取りOK' : '裏取りNG'}${s.verification.summary ? `（${s.verification.summary}）` : ''}` +
         (s.baseline
-          ? `\n修正前（エージェントが手を付ける前にアプリが実行）: ${s.baseline.ok ? '成功' : '失敗'}${s.baseline.summary ? `（${s.baseline.summary}）` : ''} → 修正後: ${s.verification.ok ? '成功' : '失敗'}${s.verification.summary ? `（${s.verification.summary}）` : ''}`
+          ? `\n修正前（エージェントが手を付ける前にアプリが実行）: ${s.baseline.ok ? '成功' : '失敗'}${s.baseline.summary ? `（${s.baseline.summary}）` : ''}${s.baseline.failed?.length ? ` 失敗していたテスト: ${s.baseline.failed.join('、')}` : ''} → 修正後: ${s.verification.ok ? '成功' : '失敗'}${s.verification.summary ? `（${s.verification.summary}）` : ''}${s.verification.failed?.length ? ` 失敗したテスト: ${s.verification.failed.join('、')}` : ''}` +
+            (s.baseline.ok === false && s.verification.ok === false && (s.verification.failed ?? []).every((n) => (s.baseline!.failed ?? []).includes(n))
+              ? '\n（画面の表示: 修正前からの失敗が残っています。新しく壊れたものは無し）'
+              : '')
           : '')
       : '## アプリの自動チェック: 表示なし',
+    tr.changes
+      ? `## 変更の中身（画面の「差分を見る」。長いものは先頭だけ）\n${tr.changes}`
+      : '',
     `## 終了理由: ${tr.finishReason}、所要 ${fmt((tr.finishedAt ?? now()) - tr.startedAt)}、状態 ${s.status}`,
     '',
     '上の画面表示だけを見て、利用者として評価してください。',
@@ -370,6 +378,20 @@ async function main() {
     }
     runVerify(t);
     try {
+      try {
+        const ch = await api<ChangesResponse>(`/sessions/${t.sessionId}/changes`);
+        let budget = 6000;
+        const parts: string[] = [];
+        for (const f of ch.files) {
+          const body = f.diff.slice(0, Math.min(1500, budget));
+          budget -= body.length;
+          parts.push(`### ${f.status} ${f.path}\n${body}${f.diff.length > body.length ? '\n…（省略）' : ''}`);
+          if (budget <= 0) break;
+        }
+        t.changes = parts.join('\n\n') || '(変更なし)';
+      } catch {
+        /* 差分が取れなくても採点はする */
+      }
       t.judge = await judge(t);
     } catch (e) {
       console.warn(`  [${t.sc.key}] 評価LLM失敗:`, (e as Error).message);

@@ -29,6 +29,9 @@ export const REPORT_INSTRUCTIONS = [
   '- 見た目の確認など、あなたには確認できず利用者の目が必要なことが残っているなら「結果」は「一部完了」にして、「判断が必要」に何をどう確認してほしいかを書く。「完了」と書いて「次の一手」で確認を頼む、はしない',
   '- 質問して利用者に決めてもらったことがあれば、「やったこと」の先頭に「決めたこと: 〜」として1行でまとめる',
   '- 頼まれていない変更（ついでに直したバグ等）をしたら、「やったこと」に「（依頼外）」と付けて区別する',
+  '- 「結果」が一部完了・失敗の時は、「やったこと」の最後に「残り: 〜」を1行書いて、何ができていないか・なぜかを言う',
+  '- テストが落ちた時は、自分の変更が原因かどうかを必ず書く。作業前から落ちていたもの（Tower の補足で知らされる、または自分で気づいた）なら「前からの失敗で、今回の変更とは無関係」と明記する',
+  '- 依頼の範囲外のバグを見つけたら、コードの話ではなく「何ができないか」で1行説明して直すか聞く。例: 「完了マークが1つずれる不具合が前からあります。ついでに直しますか？」。「complete メソッドも修正すべきか」のような聞き方はしない',
   '- どうしても必要な専門用語には、括弧で短い説明を添える。例: 「ISO 8601 形式（2026-09-15 のような日付の書き方）」',
 ].join('\n');
 
@@ -51,6 +54,9 @@ function section(body: string, label: string): string {
 
 const isNone = (s: string) => !s || /^[（(]?(なし|特になし)[）)]?$/.test(s.trim());
 
+/** 「〜を確認してください」「ブラウザで開いて見てください」のような、利用者の目視を頼む文 */
+export const ASKS_CHECK = /(確認|見て|開いて|試して|チェック)(して|し|を)?(みて)?(ください|下さい|ほしい|欲しい|いただけ|もらえ)/;
+
 function bullets(block: string): string[] {
   return block
     .split(/\r?\n/)
@@ -67,10 +73,14 @@ export function parseReport(finalText: string, fallbackRequest: string): Report 
   const outcomeRaw = section(body, '結果').split(/[\s（(]/)[0] ?? '';
   const needs = section(body, '判断が必要');
   const next = section(body, '次の一手');
+  let outcome = OUTCOME_MAP[outcomeRaw] ?? 'unknown';
+  // 「完了」なのに利用者に目視確認を頼んでいる = 実際は一部完了。ルールで禁じているが守られない時の保険
+  const asksCheck = (s: string) => !isNone(s) && ASKS_CHECK.test(s);
+  if (outcome === 'done' && (asksCheck(needs) || asksCheck(next))) outcome = 'partial';
 
   return {
     request: section(body, '依頼') || fallbackRequest,
-    outcome: OUTCOME_MAP[outcomeRaw] ?? 'unknown',
+    outcome,
     summary: bullets(section(body, 'やったこと')),
     changedFiles: bullets(section(body, '変更ファイル')),
     needsDecision: isNone(needs) ? null : needs,

@@ -125,7 +125,7 @@ export class SessionManager {
     const at = Date.now();
     const r = await runVerify(dir, cmd, 90_000);
     if (!this.hub.get(s.id)) return; // その間に消された
-    this.hub.update(s.id, { baseline: { command: cmd, ok: r.ok, output: r.output, summary: r.summary, at, durationMs: r.durationMs } });
+    this.hub.update(s.id, { baseline: { command: cmd, ok: r.ok, output: r.output, summary: r.summary, failed: r.failed, at, durationMs: r.durationMs } });
     this.note(
       s.id,
       'system',
@@ -138,12 +138,19 @@ export class SessionManager {
   send(id: string, text: string): void {
     const s = this.hub.get(id);
     if (!s) throw new Error('セッションが見つかりません');
-    // 画面から直接編集したファイルがあれば、エージェントに伝えてから空にする
+    // エージェントに伝えるべき補足があれば指示の末尾に足す（画面からの直接編集、作業前から落ちていたテスト）
     let message = text;
+    const patch: Partial<Session> = {};
     if (s.manualEdits?.length) {
-      message = `${text}\n\n（補足: 利用者が Tower の画面から次のファイルを直接編集しました。作業の前に内容を確認してください: ${s.manualEdits.join(', ')}）`;
-      this.hub.update(id, { manualEdits: [] });
+      message += `\n\n（補足: 利用者が Tower の画面から次のファイルを直接編集しました。作業の前に内容を確認してください: ${s.manualEdits.join(', ')}）`;
+      patch.manualEdits = [];
     }
+    if (s.baseline && s.baseline.ok === false && !s.baselineNoted) {
+      const names = s.baseline.failed?.length ? `（失敗していたテスト: ${s.baseline.failed.slice(0, 5).join('、')}）` : '';
+      message += `\n\n（補足: このプロジェクトは作業前の時点で自動チェック「${s.baseline.command}」が失敗していました${names}。あなたの変更が原因でない失敗は、報告でそう書いてください。依頼の範囲外なら、直すかどうかを平易な言葉で一言だけ聞いてください）`;
+      patch.baselineNoted = true;
+    }
+    if (Object.keys(patch).length) this.hub.update(id, patch);
     const running = this.runners.get(id);
     if (running) {
       running.send(message);
@@ -205,7 +212,7 @@ export class SessionManager {
     this.hub.update(id, { verification: { command: cmd, ok: null, output: '', at, durationMs: 0 } });
     try {
       const r = await runVerify(dir, cmd);
-      this.hub.update(id, { verification: { command: cmd, ok: r.ok, output: r.output, summary: r.summary, at, durationMs: r.durationMs } });
+      this.hub.update(id, { verification: { command: cmd, ok: r.ok, output: r.output, summary: r.summary, failed: r.failed, at, durationMs: r.durationMs } });
       this.note(id, 'system', r.ok ? `自動チェック 成功: ${cmd}` : `自動チェック 失敗: ${cmd}`, r.output);
     } finally {
       this.verifying.delete(id);

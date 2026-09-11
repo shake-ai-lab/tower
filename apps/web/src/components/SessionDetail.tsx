@@ -47,8 +47,14 @@ const okText = (v: Verification) => v.summary ?? (v.ok ? '成功' : '失敗');
 export function compareVerdict(b: Verification | null | undefined, v: Verification): { text: string; tone: 'good' | 'bad' | 'warn' } | null {
   if (!b || b.ok === null || v.ok === null) return null;
   if (!b.ok && v.ok) return { text: '直りました', tone: 'good' };
-  if (b.ok && !v.ok) return { text: '修正で壊れました（修正前は通っていました）', tone: 'bad' };
-  if (!b.ok && !v.ok) return { text: 'まだ直っていません（修正前から失敗）', tone: 'warn' };
+  const before = new Set(b.failed ?? []);
+  const newly = (v.failed ?? []).filter((n) => !before.has(n));
+  const names = (xs: string[]) => (xs.length ? `: ${xs.slice(0, 3).join('、')}${xs.length > 3 ? ' など' : ''}` : '');
+  if (b.ok && !v.ok) return { text: `修正で壊れました（修正前は通っていました${names(newly)}）`, tone: 'bad' };
+  if (!b.ok && !v.ok) {
+    if (newly.length) return { text: `新しく失敗が増えました${names(newly)}`, tone: 'bad' };
+    return { text: '修正前からの失敗が残っています（新しく壊れたものは無し）', tone: 'warn' };
+  }
   return null;
 }
 
@@ -105,6 +111,11 @@ function VerificationStrip({ v, baseline, reportOutcome }: { v: Verification; ba
               {verdict.text}
             </span>
           )}
+        </div>
+      )}
+      {v.ok === false && (v.failed?.length ?? 0) > 0 && (
+        <div className="mt-1 text-xs text-zinc-400">
+          失敗したテスト: <span className="text-red-200">{v.failed!.slice(0, 5).join('、')}{v.failed!.length > 5 ? ' など' : ''}</span>
         </div>
       )}
       {conflict && (

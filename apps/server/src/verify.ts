@@ -87,11 +87,36 @@ export function summarizeTestOutput(output: string, ok: boolean): string | null 
   return `失敗 ${fail} 件${pass ? `・成功 ${pass} 件` : ''}`;
 }
 
+// 失敗したテストの名前を拾うパターン（ランナーごと）
+const FAIL_PATTERNS: RegExp[] = [
+  /^\s*not ok \d+ - (.+?)\s*$/gm, // node:test（TAP）
+  /^\s*[✕×✗] (.+?)(?: \(\d+ ?ms\))?\s*$/gm, // jest / vitest
+  /^FAILED (\S+?)(?: - .*)?$/gm, // pytest
+  /^\s*\d+\) (.+?)\s*$/gm, // mocha
+  /^test (\S+) \.\.\. FAILED$/gm, // cargo
+  /^--- FAIL: (\S+)/gm, // go
+];
+
+/** 失敗したテスト名（最大 20 件）。「修正前から落ちていた」と「新しく壊れた」を見分けるのに使う */
+export function failedTests(output: string): string[] {
+  const out = new Set<string>();
+  for (const re of FAIL_PATTERNS) {
+    for (const m of output.matchAll(re)) {
+      const name = m[1].trim();
+      // ファイル単位の行（node:test はファイルごとにも not ok を出す）は除く
+      if (!name || /\.(m?[jt]s|py)$/.test(name)) continue;
+      out.add(name);
+      if (out.size >= 20) return [...out];
+    }
+  }
+  return [...out];
+}
+
 export function runVerify(
   projectPath: string,
   command: string,
   timeoutMs = 120_000,
-): Promise<{ ok: boolean; output: string; summary: string | null; durationMs: number }> {
+): Promise<{ ok: boolean; output: string; summary: string | null; failed: string[]; durationMs: number }> {
   return new Promise((resolve) => {
     const t0 = Date.now();
     const chunks: string[] = [];
@@ -111,6 +136,7 @@ export function runVerify(
         ok,
         output: output.length > 4000 ? `…${output.slice(-4000)}` : output,
         summary: summarizeTestOutput(output, ok),
+        failed: ok ? [] : failedTests(output),
         durationMs: Date.now() - t0,
       });
     });

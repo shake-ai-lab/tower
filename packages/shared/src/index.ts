@@ -95,6 +95,8 @@ export interface Verification {
   output: string;
   /** 件数の要約（例: 「失敗 2 件・成功 3 件」「全部成功（5 件）」）。拾えなければ省略 */
   summary?: string | null;
+  /** 失敗したテストの名前（拾えた分だけ）。修正前との比較で「新しく壊れた」を見分ける */
+  failed?: string[];
   at: number;
   durationMs: number;
 }
@@ -155,6 +157,8 @@ export interface Session {
   verification?: Verification | null;
   /** 起動直後（エージェントが手を付ける前）の自動チェック。「修正前 → 修正後」の対比用 */
   baseline?: Verification | null;
+  /** 修正前の失敗をエージェントに伝えたか（追加指示の補足として一度だけ伝える） */
+  baselineNoted?: boolean;
   turns: number;
   costUsd: number;
   toolCalls: number;
