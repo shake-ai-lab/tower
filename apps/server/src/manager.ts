@@ -4,12 +4,25 @@ import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { createRequire } from 'node:module';
-import type { AgentAvailability, AgentKind, CreateSessionBody, MergeResult, Session, TimelineKind } from '@tower/shared';
+import {
+  workDir,
+  type AgentAvailability,
+  type AgentKind,
+  type CreateSessionBody,
+  type MergeResult,
+  type Session,
+  type SessionStatus,
+  type TimelineKind,
+} from '@tower/shared';
 import { ClaudeRunner } from './agents/claude.ts';
 import { CodexRunner } from './agents/codex.ts';
 import type { AgentRunner } from './agents/types.ts';
 import type { Hub } from './hub.ts';
+import { detectVerifyCommand, runVerify } from './verify.ts';
 import { createWorktree, mergeWorktree, removeWorktree } from './worktree.ts';
+
+/** エージェントが手を動かしている最中（取り込み・直接編集はこの間できない） */
+const WORKING: SessionStatus[] = ['starting', 'running', 'waiting_permission', 'waiting_question'];
 
 const require = createRequire(import.meta.url);
 
@@ -105,13 +118,19 @@ export class SessionManager {
 
   /** 追加指示。動いていなければ会話IDで再開する（外部セッションはここで Tower が引き継ぐ） */
   send(id: string, text: string): void {
-    const running = this.runners.get(id);
-    if (running) {
-      running.send(text);
-      return;
-    }
     const s = this.hub.get(id);
     if (!s) throw new Error('セッションが見つかりません');
+    // 画面から直接編集したファイルがあれば、エージェントに伝えてから空にする
+    let message = text;
+    if (s.manualEdits?.length) {
+      message = `${text}\n\n（補足: 利用者が Tower の画面から次のファイルを直接編集しました。作業の前に内容を確認してください: ${s.manualEdits.join(', ')}）`;
+      this.hub.update(id, { manualEdits: [] });
+    }
+    const running = this.runners.get(id);
+    if (running) {
+      running.send(message);
+      return;
+    }
     if (!s.agentSessionId) throw new Error('このセッションは再開できません（会話IDが記録される前に終わっています）');
     if (s.workspace && !fs.existsSync(s.workspace.path)) {
       throw new Error('分離した作業場所のフォルダが見つかりません（消された可能性があります）。新しいタスクとして起動してください');
@@ -126,7 +145,53 @@ export class SessionManager {
     });
     const runner = this.makeRunner(s);
     this.runners.set(id, runner);
-    runner.start(text, s.agentSessionId);
+    runner.start(message, s.agentSessionId);
+  }
+
+  /** 画面から直接編集してよい状態なら、作業フォルダを返す */
+  editableDir(id: string): string {
+    const s = this.hub.get(id);
+    if (!s) throw new Error('セッションが見つかりません');
+    if (WORKING.includes(s.status)) {
+      throw new Error('エージェントが作業中はファイルを編集できません。報告が来るか、停止してから編集してください');
+    }
+    if (s.workspace && !fs.existsSync(s.workspace.path)) throw new Error('分離した作業場所のフォルダが見つかりません');
+    return workDir(s);
+  }
+
+  /** 直接編集の後始末: 年表に残し、次の指示でエージェントに伝えるために覚え、裏取りも走らせる */
+  manualEdit(id: string, rel: string) {
+    const s = this.hub.get(id);
+    if (!s) return;
+    const abs = path.resolve(workDir(s), rel);
+    const already = s.changedFiles.some((f) => f === rel || path.resolve(workDir(s), f) === abs);
+    this.hub.update(id, {
+      manualEdits: [...new Set([...(s.manualEdits ?? []), rel])],
+      changedFiles: already ? s.changedFiles : [...s.changedFiles, abs],
+    });
+    this.note(id, 'system', `画面から直接編集しました: ${rel}`, '次に指示を送る時、このファイルを手で直したことをエージェントに自動で伝えます');
+    void this.verifyNow(id);
+  }
+
+  private verifying = new Set<string>();
+
+  /** 裏取り（テスト実行）をエージェントの外から走らせる。直接編集の後などに使う */
+  private async verifyNow(id: string) {
+    const s = this.hub.get(id);
+    if (!s) return;
+    const dir = workDir(s);
+    const cmd = detectVerifyCommand(dir);
+    if (!cmd || this.verifying.has(id)) return;
+    this.verifying.add(id);
+    const at = Date.now();
+    this.hub.update(id, { verification: { command: cmd, ok: null, output: '', at, durationMs: 0 } });
+    try {
+      const r = await runVerify(dir, cmd);
+      this.hub.update(id, { verification: { command: cmd, ok: r.ok, output: r.output, at, durationMs: r.durationMs } });
+      this.note(id, 'system', r.ok ? `自動チェック 成功: ${cmd}` : `自動チェック 失敗: ${cmd}`, r.output);
+    } finally {
+      this.verifying.delete(id);
+    }
   }
 
   runner(id: string): AgentRunner | undefined {
@@ -157,7 +222,7 @@ export class SessionManager {
     const s = this.hub.get(id);
     if (!s) throw new Error('セッションが見つかりません');
     if (!s.workspace) throw new Error('このセッションは別の作業場所を使っていません（プロジェクトのフォルダで直接作業しています）');
-    if (['starting', 'running', 'waiting_permission', 'waiting_question'].includes(s.status)) {
+    if (WORKING.includes(s.status)) {
       throw new Error('作業中は取り込めません。報告が来るまで待つか、停止してから取り込んでください');
     }
     const r = mergeWorktree(s.project.path, s.workspace, s.title);

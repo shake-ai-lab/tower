@@ -9,10 +9,12 @@ export function BridgeMenu() {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [keepHours, setKeepHours] = useState<number | null>(null);
 
   const load = () => api.bridge().then(setSt).catch((e) => setErr(String(e)));
   useEffect(() => {
     void load();
+    api.config().then((c) => setKeepHours(c.externalKeepHours ?? 0)).catch(() => {});
   }, []);
 
   const apply = async (enabled: boolean, permissions: boolean) => {
@@ -78,6 +80,13 @@ export function BridgeMenu() {
           </label>
           <p className="text-xs text-zinc-500 leading-relaxed">
             外のセッションに Tower から指示を送ると、Tower が会話を引き継いで続きを動かします。元の画面で同時に動かさないでください。
+          </p>
+          <p className="text-xs text-zinc-500 leading-relaxed">
+            外のセッションの報告は決まった書式が無いので、Tower が AI で読みやすく整形します（カードに「Tower が整形」と付きます）。
+            {keepHours !== null &&
+              (keepHours > 0
+                ? ` 最後の動きから ${keepHours} 時間たったものは一覧から自動で消えます（また動けば戻ります）。`
+                : ' 自動では消えません（設定の externalKeepHours で変えられます）。')}
           </p>
           {err && <div className="text-xs text-red-400">{err}</div>}
           <div className="flex justify-end">

@@ -28,6 +28,7 @@ import {
   toolDetail,
   touchedFile,
 } from '../humanize.ts';
+import { scheduleReformat } from '../reformat.ts';
 import { REPORT_INSTRUCTIONS, fallbackReport, parseReport } from '../report.ts';
 import { detectVerifyCommand, runVerify } from '../verify.ts';
 import { workspaceNote } from '../worktree.ts';
@@ -412,6 +413,7 @@ export class ClaudeRunner implements AgentRunner {
         });
         if (isError && errors) this.timeline('error', errors);
         if (!isError && changed.size > 0) void this.verify();
+        scheduleReformat(this.hub, this.id, report);
         break;
       }
       default:

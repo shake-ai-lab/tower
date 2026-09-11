@@ -32,7 +32,18 @@ function DiffBody({ diff }: { diff: string }) {
   );
 }
 
-export function ChangesPanel({ sessionId, refreshKey }: { sessionId: string; refreshKey: number }) {
+export function ChangesPanel({
+  sessionId,
+  refreshKey,
+  onEdit,
+  editHint,
+}: {
+  sessionId: string;
+  refreshKey: number;
+  /** 「直す」を押した時。渡さなければボタンは押せない（editHint に理由を出す） */
+  onEdit?: (path: string) => void;
+  editHint?: string;
+}) {
   const [data, setData] = useState<ChangesResponse | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [open, setOpen] = useState<Record<string, boolean>>({});
@@ -67,14 +78,26 @@ export function ChangesPanel({ sessionId, refreshKey }: { sessionId: string; ref
         const isOpen = open[f.path] ?? data.files.length <= 3;
         return (
           <div key={f.path} className="rounded-md border border-zinc-800">
-            <button
-              onClick={() => setOpen((o) => ({ ...o, [f.path]: !isOpen }))}
-              className="w-full flex items-center gap-2 px-2 py-1.5 text-left text-xs hover:bg-zinc-800/60"
-            >
-              <span className={`px-1.5 py-0.5 rounded ${st.cls}`}>{st.text}</span>
-              <span className="mono text-zinc-200 truncate">{f.path}</span>
-              <span className="ml-auto text-zinc-600">{isOpen ? '▾' : '▸'}</span>
-            </button>
+            <div className="flex items-center gap-2 px-2 py-1.5 text-xs hover:bg-zinc-800/60">
+              <button
+                onClick={() => setOpen((o) => ({ ...o, [f.path]: !isOpen }))}
+                className="flex-1 min-w-0 flex items-center gap-2 text-left"
+              >
+                <span className={`px-1.5 py-0.5 rounded ${st.cls}`}>{st.text}</span>
+                <span className="mono text-zinc-200 truncate">{f.path}</span>
+                <span className="ml-auto text-zinc-600">{isOpen ? '▾' : '▸'}</span>
+              </button>
+              {f.status !== 'D' && (
+                <button
+                  disabled={!onEdit}
+                  onClick={() => onEdit?.(f.path)}
+                  title={onEdit ? 'このファイルを画面で開いて自分で直す' : editHint}
+                  className="shrink-0 px-2 py-0.5 rounded bg-zinc-800 text-zinc-300 hover:bg-zinc-700 disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  直す
+                </button>
+              )}
+            </div>
             {isOpen && (
               <div className="px-2 pb-2">
                 <DiffBody diff={f.diff} />

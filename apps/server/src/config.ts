@@ -13,6 +13,10 @@ export interface TowerConfig {
   autoVerify: boolean;
   /** VS Code 連携で許可を Tower で答える時、何秒待ってから元の画面に任せるか */
   bridgeWaitSeconds: number;
+  /** 報告に決まった書式が無かった時、Haiku で読みやすく整形し直す */
+  reformatReports: boolean;
+  /** VS Code / ターミナルのセッションを、最後の動きから何時間で一覧から自動で消すか（0 = 消さない） */
+  externalKeepHours: number;
 }
 
 export const DATA_DIR = path.join(os.homedir(), '.tower');
@@ -30,6 +34,8 @@ export function loadConfig(): TowerConfig {
     projectRoots: defaultRoots(),
     autoVerify: true,
     bridgeWaitSeconds: 90,
+    reformatReports: true,
+    externalKeepHours: 24,
   };
   if (!fs.existsSync(CONFIG_PATH)) {
     fs.writeFileSync(CONFIG_PATH, JSON.stringify(base, null, 2));

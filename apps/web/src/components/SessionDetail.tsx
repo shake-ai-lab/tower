@@ -1,10 +1,15 @@
-import { useEffect, useRef, useState } from 'react';
+import { Suspense, lazy, useEffect, useRef, useState } from 'react';
 import type { Report, Session, TimelineItem, Verification } from '@tower/shared';
 import { api } from '../api';
 import { OUTCOME, STATUS, btn, fmtTime, isAlive } from '../lib';
 import { useStore } from '../store';
 import { PendingCard } from './PendingCards';
 import { ChangesPanel } from './ChangesPanel';
+
+// Monaco は重いので、「直す」を押した時に初めて読み込む
+const FileEditor = lazy(() => import('./FileEditor').then((m) => ({ default: m.FileEditor })));
+
+const WORKING: Session['status'][] = ['starting', 'running', 'waiting_permission', 'waiting_question'];
 
 const ICON: Record<TimelineItem['kind'], string> = {
   user: '🧑',
@@ -138,6 +143,14 @@ function ReportCard({ r, onFileClick }: { r: Report; onFileClick?: () => void })
       <div className="flex items-center gap-2">
         <span className="text-xs text-zinc-500">報告</span>
         <span className={`text-xs px-2 py-0.5 rounded ${o.cls}`}>{o.label}</span>
+        {r.reformatted && (
+          <span
+            title="エージェントの出力に決まった書式が無かったので、Tower が AI で読みやすく整形しました。原文は「原文を見る」で確認できます"
+            className="text-[10px] px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-400"
+          >
+            Tower が整形
+          </span>
+        )}
         <span className="text-xs text-zinc-500 ml-auto">{fmtTime(r.generatedAt)}</span>
       </div>
       <Row label="依頼"><Linkify text={r.request} /></Row>
@@ -223,6 +236,8 @@ export function SessionDetail({ id }: { id: string }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [showChanges, setShowChanges] = useState(false);
+  const [editing, setEditing] = useState<string | null>(null);
+  const [editVersion, setEditVersion] = useState(0);
   const bottom = useRef<HTMLDivElement>(null);
   const scroller = useRef<HTMLDivElement>(null);
 
@@ -243,6 +258,7 @@ export function SessionDetail({ id }: { id: string }) {
   const external = s.origin === 'external';
   const alive = isAlive(s.status) && !external;
   const canSend = alive || !!s.agentSessionId;
+  const working = WORKING.includes(s.status);
 
   const send = async () => {
     const t = text.trim();
@@ -336,7 +352,12 @@ export function SessionDetail({ id }: { id: string }) {
           </button>
           {showChanges && (
             <div className="mt-3">
-              <ChangesPanel sessionId={id} refreshKey={s.turns + s.toolCalls} />
+              <ChangesPanel
+                sessionId={id}
+                refreshKey={s.turns + s.toolCalls + editVersion}
+                onEdit={working ? undefined : setEditing}
+                editHint="エージェントが作業中は編集できません。報告が来るか、停止してから直してください"
+              />
             </div>
           )}
         </div>
@@ -380,6 +401,23 @@ export function SessionDetail({ id }: { id: string }) {
           {err && <span className="text-xs text-red-400">{err}</span>}
         </div>
       </footer>
+
+      {editing && (
+        <Suspense
+          fallback={
+            <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center text-sm text-zinc-300">
+              エディタを読み込み中…
+            </div>
+          }
+        >
+          <FileEditor
+            sessionId={id}
+            path={editing}
+            onClose={() => setEditing(null)}
+            onSaved={() => setEditVersion((v) => v + 1)}
+          />
+        </Suspense>
+      )}
     </section>
   );
 }

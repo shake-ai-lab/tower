@@ -82,6 +82,8 @@ export interface Report {
   /** 整形前の原文 */
   raw: string;
   generatedAt: number;
+  /** true = 決まった書式が無かったので Tower が AI（Haiku）で原文から整形した */
+  reformatted?: boolean;
 }
 
 /** Tower が自分で走らせたチェック（テスト等）の結果。報告の裏取り用 */
@@ -132,6 +134,8 @@ export interface Session {
   project: ProjectRef;
   /** 分離した作業場所。null/省略 = プロジェクトのフォルダで直接作業 */
   workspace?: Workspace | null;
+  /** 利用者が画面から直接編集したファイル（前回の指示以降）。次の指示でエージェントに伝えて空にする */
+  manualEdits?: string[];
   /** 一覧に出す短い題名（最初の指示の先頭） */
   title: string;
   prompt: string;
@@ -246,6 +250,19 @@ export interface ChangesResponse {
   files: ChangedFile[];
   /** 分離した作業場所の時: 差分の比較先の説明（例: 「元のブランチ main」） */
   against?: string;
+}
+
+/** 画面から直接編集するためのファイル内容 */
+export interface FileContent {
+  /** 作業フォルダからの相対パス（区切りは /） */
+  path: string;
+  content: string;
+  size: number;
+}
+
+export interface SaveFileBody {
+  path: string;
+  content: string;
 }
 
 export interface ProjectInfo extends ProjectRef {

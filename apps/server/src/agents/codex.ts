@@ -11,6 +11,7 @@ import { Codex, type Thread, type ThreadEvent, type ThreadItem } from '@openai/c
 import { workDir, type Session, type TimelineKind } from '@tower/shared';
 import type { Hub } from '../hub.ts';
 import { firstLine } from '../humanize.ts';
+import { scheduleReformat } from '../reformat.ts';
 import { REPORT_INSTRUCTIONS, fallbackReport, parseReport } from '../report.ts';
 import { detectVerifyCommand, runVerify } from '../verify.ts';
 import { workspaceNote } from '../worktree.ts';
@@ -144,6 +145,7 @@ export class CodexRunner implements AgentRunner {
       lastError: null,
     });
     if (changed.size > 0) void this.verify();
+    scheduleReformat(this.hub, this.id, report);
 
     const next = this.queued.shift();
     if (next) void this.runTurn(next);

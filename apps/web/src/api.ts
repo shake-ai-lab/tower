@@ -5,10 +5,12 @@ import type {
   BridgeStatus,
   ChangesResponse,
   CreateSessionBody,
+  FileContent,
   MergeResult,
   MessageBody,
   PermissionDecisionBody,
   ProjectInfo,
+  SaveFileBody,
   Session,
   TimelineItem,
 } from '@tower/shared';
@@ -35,6 +37,10 @@ export const api = {
     req<{ ok: true }>(`/api/sessions/${id}/answer`, { method: 'POST', body: JSON.stringify(body) }),
   stop: (id: string) => req<{ ok: boolean }>(`/api/sessions/${id}/stop`, { method: 'POST' }),
   merge: (id: string) => req<MergeResult>(`/api/sessions/${id}/merge`, { method: 'POST' }),
+  file: (id: string, path: string) => req<FileContent>(`/api/sessions/${id}/file?path=${encodeURIComponent(path)}`),
+  saveFile: (id: string, body: SaveFileBody) =>
+    req<{ ok: true; path: string }>(`/api/sessions/${id}/file`, { method: 'PUT', body: JSON.stringify(body) }),
+  config: () => req<{ externalKeepHours?: number; reformatReports?: boolean }>('/api/config'),
   bridge: () => req<BridgeStatus>('/api/bridge'),
   setBridge: (body: { enabled: boolean; permissions: boolean }) =>
     req<BridgeStatus>('/api/bridge', { method: 'POST', body: JSON.stringify(body) }),

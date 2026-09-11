@@ -13,22 +13,28 @@ import {
   type MessageBody,
   type PermissionDecisionBody,
   type ProjectInfo,
+  type SaveFileBody,
 } from '@tower/shared';
 import { Bridge, type HookInput } from './bridge.ts';
 import { loadConfig } from './config.ts';
 import { Db } from './db.ts';
 import { collectChanges } from './diff.ts';
+import { readFileContent, writeFileContent } from './files.ts';
 import { Hub } from './hub.ts';
+import { startJanitor } from './janitor.ts';
 import { SessionManager, agentAvailability } from './manager.ts';
+import { setReformatEnabled } from './reformat.ts';
 import { setVerifyEnabled } from './verify.ts';
 import { diffBase } from './worktree.ts';
 
 const config = loadConfig();
 setVerifyEnabled(config.autoVerify);
+setReformatEnabled(config.reformatReports);
 const db = new Db();
 const hub = new Hub(db);
 const manager = new SessionManager(hub);
 const bridge = new Bridge(hub, { port: config.port, waitSeconds: config.bridgeWaitSeconds });
+startJanitor(hub, config.externalKeepHours);
 
 function listProjects(): ProjectInfo[] {
   const out: ProjectInfo[] = [];
@@ -86,6 +92,33 @@ app.get('/api/sessions/:id/changes', (c) => {
     return c.json(collectChanges(s.project.path, s.changedFiles));
   } catch (e) {
     return c.json({ error: e instanceof Error ? e.message : String(e) }, 500);
+  }
+});
+
+// ---- 画面からの直接編集（Monaco） ----
+app.get('/api/sessions/:id/file', (c) => {
+  const s = hub.get(c.req.param('id'));
+  if (!s) return c.json({ error: 'セッションが見つかりません' }, 404);
+  const rel = c.req.query('path') ?? '';
+  if (!rel) return c.json({ error: 'path がありません' }, 400);
+  try {
+    return c.json(readFileContent(workDir(s), rel));
+  } catch (e) {
+    return c.json({ error: e instanceof Error ? e.message : String(e) }, 400);
+  }
+});
+
+app.put('/api/sessions/:id/file', async (c) => {
+  const id = c.req.param('id');
+  const body = (await c.req.json()) as SaveFileBody;
+  if (!body.path || typeof body.content !== 'string') return c.json({ error: 'path と content が必要です' }, 400);
+  try {
+    const dir = manager.editableDir(id);
+    const rel = writeFileContent(dir, body.path, body.content);
+    manager.manualEdit(id, rel);
+    return c.json({ ok: true, path: rel });
+  } catch (e) {
+    return c.json({ error: e instanceof Error ? e.message : String(e) }, 409);
   }
 });
 

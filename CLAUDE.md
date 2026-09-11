@@ -31,11 +31,13 @@ npm run dogfood -- --only todo-fix     # 一部だけ
 - `apps/server/src/verify.ts` — 報告の裏取り（テスト実行）。`apps/server/src/diff.ts` — 差分
 - `apps/server/src/worktree.ts` — 別の作業場所（git worktree）の作成・取り込み（merge）・後片付け。cwd は必ず `workDir(session)` で取る
 - `apps/server/src/humanize.ts` — ツール呼び出し → 日本語の「今やってること」「許可の見出し」「危険度」
-- `apps/server/src/report.ts` — 【報告】書式（システムプロンプト追記）と、その解析
+- `apps/server/src/report.ts` — 【報告】書式（システムプロンプト追記）と、その解析。`apps/server/src/reformat.ts` — 書式が無かった時に Haiku で整形し直す（裏で走らせて差し替え）
+- `apps/server/src/files.ts` — 画面からの直接編集（Monaco）の読み書き。作業フォルダの外は拒否。保存後の後始末は `manager.manualEdit`（次の指示に補足を付ける）
+- `apps/server/src/janitor.ts` — 動きの無い外部セッションの自動掃除
 - `apps/server/src/hub.ts` — 全セッションのメモリ上の状態 + WebSocket 配信 + SQLite 保存
 - `apps/server/src/index.ts` — REST ルート（操作）と WS（配信）
 - `apps/web/src/store.ts` — zustand。WS イベントをそのまま反映するだけ。フロントで状態を推測しない
-- `apps/web/src/components/` — `Inbox`（判断待ち）/ `SessionCard`（フリート）/ `SessionDetail`（報告・年表・追加指示）/ `PendingCards`（許可・質問UI）/ `NewSessionDialog`
+- `apps/web/src/components/` — `Inbox`（判断待ち）/ `SessionCard`（フリート）/ `SessionDetail`（報告・年表・追加指示）/ `PendingCards`（許可・質問UI）/ `NewSessionDialog` / `FileEditor`（Monaco。`monaco.ts` でローカル同梱設定、遅延読み込み）
 
 ## 設計原則
 

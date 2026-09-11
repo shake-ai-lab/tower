@@ -10,6 +10,7 @@ import { fileURLToPath } from 'node:url';
 import type { BridgeStatus, PendingPermission, PermissionChoice, Session, TimelineKind } from '@tower/shared';
 import type { Hub } from './hub.ts';
 import { assessRisk, describeActivity, describePermission, firstLine, toolDetail, touchedFile } from './humanize.ts';
+import { scheduleReformat } from './reformat.ts';
 import { fallbackReport, parseReport } from './report.ts';
 
 export interface HookInput {
@@ -293,6 +294,8 @@ export class Bridge {
           pending: null,
           pendingCount: 0,
         });
+        // 外のセッションは報告のルールを知らないので、ほぼ毎回ここで整形する
+        scheduleReformat(this.hub, id, report);
         break;
       }
 
