@@ -1,7 +1,7 @@
 import { Suspense, lazy, useEffect, useRef, useState } from 'react';
 import type { Preview, Report, Screenshot, Session, TimelineItem, Verification } from '@tower/shared';
 import { api } from '../api';
-import { OUTCOME, STATUS, btn, fmtTime, isAlive } from '../lib';
+import { OUTCOME, STATUS, btn, fmtTime, fmtTokens, fmtUsd, isAlive } from '../lib';
 import { useStore } from '../store';
 import { PendingCard } from './PendingCards';
 import { ChangesPanel } from './ChangesPanel';
@@ -238,6 +238,43 @@ function WorkspaceStrip({ s }: { s: Session }) {
   );
 }
 
+/** 使った量（トークン）と費用の目安、会話の大きさ */
+function UsageStrip({ s }: { s: Session }) {
+  const u = s.usage;
+  if (!u || (u.input === 0 && u.output === 0)) return null;
+  const ratio = u.context && u.contextWindow ? u.context / u.contextWindow : null;
+  const heavy = ratio !== null && ratio >= 0.7;
+  return (
+    <div className="rounded-md border border-zinc-800 bg-zinc-900/40 p-2 text-xs text-zinc-400 space-y-1">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5">
+        <span className="text-zinc-300">使った量（目安）</span>
+        <span title="AI に読ませた量。「使い回し」は前回までの会話をそのまま読み直した分で、新しく読ませたわけではありません">
+          読んだ {fmtTokens(u.input)}
+          {u.cacheRead > 0 && <span className="text-zinc-500">（うち使い回し {fmtTokens(u.cacheRead)}）</span>}
+        </span>
+        <span title="AI が書いた量（考えた分も含む）">書いた {fmtTokens(u.output)}</span>
+        {s.costUsd > 0 && (
+          <span title="API 料金で換算した目安。Max/Pro の定額で使っているなら請求はされません">費用の目安 {fmtUsd(s.costUsd)}</span>
+        )}
+      </div>
+      {ratio !== null && (
+        <div className="flex items-center gap-2" title="AI が一度に覚えていられる量に対して、いまの会話がどれだけ占めているか">
+          <span className="whitespace-nowrap">会話の大きさ {fmtTokens(u.context!)} / {fmtTokens(u.contextWindow!)}</span>
+          <div className="flex-1 h-1.5 rounded bg-zinc-800 overflow-hidden max-w-[160px]">
+            <div className={`h-full ${heavy ? 'bg-amber-400' : 'bg-sky-500'}`} style={{ width: `${Math.min(100, Math.round(ratio * 100))}%` }} />
+          </div>
+          <span className={heavy ? 'text-amber-300' : ''}>{Math.round(ratio * 100)}%</span>
+        </div>
+      )}
+      {heavy && (
+        <div className="text-amber-200/90">
+          会話が大きくなってきました。この先も続けるなら、区切りの良いところで「新しいタスク」として仕切り直すと、AI が忘れにくくなります。
+        </div>
+      )}
+    </div>
+  );
+}
+
 function Row({ label, children, highlight }: { label: string; children: React.ReactNode; highlight?: boolean }) {
   return (
     <div className={highlight ? 'rounded-md bg-amber-400/10 border border-amber-400/40 p-2' : ''}>
@@ -402,7 +439,7 @@ export function SessionDetail({ id }: { id: string }) {
   return (
     <section className="fixed inset-0 z-40 w-full md:static md:z-auto md:w-[600px] shrink-0 md:border-l border-zinc-800 flex flex-col overflow-hidden bg-[#0c0e12]">
       <header className="p-3 border-b border-zinc-800 space-y-1">
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
           <span className="font-semibold">{s.project.name}</span>
           {external && (
             <span className="text-[10px] px-1.5 py-0.5 rounded bg-indigo-900/70 text-indigo-200">{s.externalHint ?? '外部'}</span>
@@ -413,7 +450,7 @@ export function SessionDetail({ id }: { id: string }) {
             </span>
           )}
           <span className={`text-xs px-2 py-0.5 rounded-full ${st.badge}`}>{st.label}</span>
-          {s.model && <span className="text-xs text-zinc-500">{s.model}</span>}
+          {s.model && <span className="hidden sm:inline text-xs text-zinc-500">{s.model}</span>}
           <div className="ml-auto flex gap-1.5">
             {alive && (
               <button onClick={stop} className={`${btn.base} ${btn.danger} !py-1 !text-xs`}>
@@ -432,8 +469,8 @@ export function SessionDetail({ id }: { id: string }) {
         <div className="text-xs text-zinc-500 flex items-center gap-2">
           <span className={`inline-block w-2 h-2 rounded-full ${st.dot}`} />
           {s.activity}
-          <span className="ml-auto">
-            {s.turns}往復 · {s.toolCalls}操作 · ${s.costUsd.toFixed(2)}
+          <span className="ml-auto whitespace-nowrap">
+            {s.turns}往復 · {s.toolCalls}操作
           </span>
         </div>
       </header>
@@ -453,6 +490,7 @@ export function SessionDetail({ id }: { id: string }) {
           s.baseline && <BaselineStrip b={s.baseline} />
         )}
         {s.preview && <PreviewStrip p={s.preview} />}
+        <UsageStrip s={s} />
         {s.lastError && (
           <div className="rounded-md border border-red-500/50 bg-red-500/10 p-2 text-xs text-red-200 whitespace-pre-wrap">
             {s.lastError}

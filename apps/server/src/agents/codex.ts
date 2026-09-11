@@ -172,8 +172,21 @@ export class CodexRunner implements AgentRunner {
         return { error: ev.error.message };
       case 'error':
         return { error: ev.message };
-      case 'turn.completed':
+      case 'turn.completed': {
+        // 使った量: 1 ターン分の集計が来るので足し込む（Codex の input_tokens はキャッシュ分を含む）
+        const u = ev.usage;
+        if (u) {
+          const b = cur.usage ?? { input: 0, cacheRead: 0, output: 0 };
+          this.hub.update(this.id, {
+            usage: {
+              input: b.input + (u.input_tokens ?? 0),
+              cacheRead: b.cacheRead + (u.cached_input_tokens ?? 0),
+              output: b.output + (u.output_tokens ?? 0),
+            },
+          });
+        }
         return {};
+      }
       default:
         return {};
     }

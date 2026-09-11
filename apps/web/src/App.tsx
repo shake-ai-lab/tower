@@ -5,6 +5,7 @@ import { Inbox } from './components/Inbox';
 import { NewSessionDialog } from './components/NewSessionDialog';
 import { SessionCard } from './components/SessionCard';
 import { SessionDetail } from './components/SessionDetail';
+import { UsageMenu } from './components/UsageMenu';
 import { btn, useTick } from './lib';
 import { useStore } from './store';
 
@@ -52,6 +53,22 @@ export default function App() {
   const waiting = list.filter((s) => s.pending).length;
   const working = list.filter((s) => s.status === 'running' || s.status === 'starting').length;
 
+  // 履歴検索: プロジェクト名・依頼文・報告の言葉で絞り込む（空白区切りは AND）
+  const [q, setQ] = useState('');
+  const searchRef = useRef<HTMLInputElement>(null);
+  const shown = useMemo(() => {
+    const words = q.trim().toLowerCase().split(/\s+/).filter(Boolean);
+    if (words.length === 0) return list;
+    const text = (s: Session) =>
+      [s.project.name, s.title, s.prompt, s.model ?? '', s.agent, s.workspace?.branch ?? '', s.report?.raw ?? '', s.report?.summary.join(' ') ?? '']
+        .join('\n')
+        .toLowerCase();
+    return list.filter((s) => {
+      const t = text(s);
+      return words.every((w) => t.includes(w));
+    });
+  }, [list, q]);
+
   useEffect(() => {
     document.title = waiting ? `(${waiting}) Tower` : 'Tower';
   }, [waiting]);
@@ -84,6 +101,11 @@ export default function App() {
       const tag = (e.target as HTMLElement | null)?.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
       if (e.key === 'n' && !dialog) setDialog(true);
+      if (e.key === '/' && !dialog) {
+        e.preventDefault();
+        setTab('list');
+        searchRef.current?.focus();
+      }
       if (e.key === 'Escape') select(null);
     };
     window.addEventListener('keydown', onKey);
@@ -103,7 +125,8 @@ export default function App() {
           <b className={waiting ? 'text-amber-300' : 'text-zinc-200'}>{waiting}</b> · 全 {list.length}
         </div>
         <div className="ml-auto flex items-center gap-2">
-          <div className="hidden sm:block">
+          <div className="hidden sm:flex items-center gap-2">
+            <UsageMenu sessions={list} />
             <BridgeMenu />
           </div>
           {notifPerm === 'default' && (
@@ -133,11 +156,40 @@ export default function App() {
               </button>
             </div>
           ) : (
-            <div className="grid gap-3 grid-cols-[repeat(auto-fill,minmax(300px,1fr))]">
-              {list.map((s) => (
-                <SessionCard key={s.id} s={s} selected={s.id === selectedId} onClick={() => select(s.id)} />
-              ))}
-            </div>
+            <>
+              <div className="mb-3 flex items-center gap-2">
+                <input
+                  ref={searchRef}
+                  value={q}
+                  onChange={(e) => setQ(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Escape') {
+                      setQ('');
+                      (e.target as HTMLInputElement).blur();
+                    }
+                  }}
+                  placeholder="履歴を検索（プロジェクト名・依頼・報告の言葉。/ で移動）"
+                  className="flex-1 max-w-[520px] bg-zinc-900 border border-zinc-800 rounded-md px-3 py-1.5 text-sm placeholder:text-zinc-600 focus:outline-none focus:border-sky-600"
+                />
+                {q && (
+                  <span className="text-xs text-zinc-500 whitespace-nowrap">
+                    {shown.length} 件
+                    <button onClick={() => setQ('')} className="ml-2 underline hover:text-zinc-300">
+                      解除
+                    </button>
+                  </span>
+                )}
+              </div>
+              {shown.length === 0 ? (
+                <div className="text-sm text-zinc-500 px-1">「{q}」に一致するセッションはありません</div>
+              ) : (
+                <div className="grid gap-3 grid-cols-[repeat(auto-fill,minmax(300px,1fr))]">
+                  {shown.map((s) => (
+                    <SessionCard key={s.id} s={s} selected={s.id === selectedId} onClick={() => select(s.id)} />
+                  ))}
+                </div>
+              )}
+            </>
           )}
         </main>
 

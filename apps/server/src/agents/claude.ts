@@ -17,6 +17,7 @@ import {
   type Question,
   type Session,
   type TimelineKind,
+  type Usage,
 } from '@tower/shared';
 import type { Hub } from '../hub.ts';
 import {
@@ -102,6 +103,11 @@ export class ClaudeRunner implements AgentRunner {
   private lastAssistantText = '';
   private stoppedByUser = false;
   private verifying = false;
+  /** 直近の応答が使った文脈の大きさ（トークン）。会話の容量に対する割合を出す */
+  private lastContext = 0;
+  /** query() は再開のたびに集計がゼロから始まるので、開始時点の値を土台にして足す */
+  private usageBase: Usage = { input: 0, cacheRead: 0, output: 0 };
+  private costBase = 0;
 
   constructor(
     private session: Session,
@@ -118,6 +124,9 @@ export class ClaudeRunner implements AgentRunner {
    */
   start(firstMessage: string, resumeFrom?: string) {
     const s = this.session;
+    const live = this.hub.get(s.id) ?? s;
+    this.usageBase = live.usage ?? { input: 0, cacheRead: 0, output: 0 };
+    this.costBase = live.costUsd ?? 0;
     // 自分自身が Claude Code の中から起動された場合の「入れ子」判定を避ける
     const env = { ...process.env };
     delete env.CLAUDECODE;
@@ -212,6 +221,38 @@ export class ClaudeRunner implements AgentRunner {
   }
 
   // ---- 内部 ----
+
+  /**
+   * 使った量の集計。modelUsage（サブエージェントや内部の呼び出しも含む全モデル分）は
+   * この query() の中で累積なので、開始時点の土台に「今回の query() の累計」を足す
+   */
+  private sumUsage(m: Extract<SDKMessage, { type: 'result' }>): Usage {
+    const models = Object.values(m.modelUsage ?? {});
+    let input = 0;
+    let cacheRead = 0;
+    let output = 0;
+    let contextWindow = 0;
+    let main = 0;
+    for (const u of models) {
+      input += (u.inputTokens ?? 0) + (u.cacheReadInputTokens ?? 0) + (u.cacheCreationInputTokens ?? 0);
+      cacheRead += u.cacheReadInputTokens ?? 0;
+      output += u.outputTokens ?? 0;
+      // 一番たくさん読んだモデルを「本体」とみなして、その容量を使う
+      const total = (u.inputTokens ?? 0) + (u.cacheReadInputTokens ?? 0);
+      if (total >= main && u.contextWindow) {
+        main = total;
+        contextWindow = u.contextWindow;
+      }
+    }
+    const b = this.usageBase;
+    return {
+      input: b.input + input,
+      cacheRead: b.cacheRead + cacheRead,
+      output: b.output + output,
+      context: this.lastContext || b.context,
+      contextWindow: contextWindow || b.contextWindow,
+    };
+  }
 
   /** 報告の裏取り: プロジェクトのテストを Tower 側で走らせ、結果をセッションに載せる */
   private async verify() {
@@ -346,6 +387,11 @@ export class ClaudeRunner implements AgentRunner {
       }
       case 'assistant': {
         if (m.parent_tool_use_id) break; // サブエージェントの中身は年表に出さない
+        {
+          // 1 回の応答の入力トークン = その時点の会話の大きさ
+          const u = m.message.usage as { input_tokens?: number | null; cache_read_input_tokens?: number | null; cache_creation_input_tokens?: number | null } | undefined;
+          if (u) this.lastContext = (u.input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0);
+        }
         let toolCalls = cur.toolCalls;
         const changed = new Set(cur.changedFiles);
         let activity: string | null = null;
@@ -407,7 +453,8 @@ export class ClaudeRunner implements AgentRunner {
               : '指示待ち',
           report,
           turns: cur.turns + 1,
-          costUsd: m.total_cost_usd ?? cur.costUsd,
+          costUsd: this.costBase + (m.total_cost_usd ?? 0),
+          usage: this.sumUsage(m),
           changedFiles: [...changed],
           lastError: isError ? errors || text || 'unknown error' : null,
           pending: null,

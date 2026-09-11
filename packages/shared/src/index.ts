@@ -150,6 +150,23 @@ export interface Workspace {
   autoMerge?: boolean;
 }
 
+/**
+ * 使ったトークン量（目安）。エージェントが返す集計を Tower が足し合わせたもの。
+ * 再開（サーバー再起動後の続き）をまたいでも積み上がる
+ */
+export interface Usage {
+  /** 入力トークンの合計（キャッシュから読んだ分も含む） */
+  input: number;
+  /** 入力のうち、キャッシュ（前回までの会話の使い回し）から読んだ分 */
+  cacheRead: number;
+  /** 出力トークンの合計 */
+  output: number;
+  /** 直近の応答時点で会話が占めていた大きさ（トークン）。会話の容量に対する割合を出す */
+  context?: number;
+  /** モデルの会話の容量（トークン） */
+  contextWindow?: number;
+}
+
 /** セッションが実際に作業しているフォルダ */
 export const workDir = (s: Pick<Session, 'project' | 'workspace'>): string => s.workspace?.path ?? s.project.path;
 
@@ -189,7 +206,10 @@ export interface Session {
   /** 見た目の撮影。null/省略 = 撮る対象が無い */
   preview?: Preview | null;
   turns: number;
+  /** 費用の目安（USD）。Max/Pro の定額なら請求はされない。Codex は 0 のまま */
   costUsd: number;
+  /** 使ったトークン量（目安）。外部セッションは省略 */
+  usage?: Usage | null;
   toolCalls: number;
   /** このセッションで触ったファイル（Edit/Write から機械的に集計） */
   changedFiles: string[];

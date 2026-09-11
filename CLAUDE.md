@@ -38,7 +38,7 @@ npm run dogfood -- --only todo-fix     # 一部だけ
 - `apps/server/src/hub.ts` — 全セッションのメモリ上の状態 + WebSocket 配信 + SQLite 保存
 - `apps/server/src/index.ts` — REST ルート（操作）と WS（配信）
 - `apps/web/src/store.ts` — zustand。WS イベントをそのまま反映するだけ。フロントで状態を推測しない
-- `apps/web/src/components/` — `Inbox`（判断待ち）/ `SessionCard`（フリート）/ `SessionDetail`（報告・年表・追加指示）/ `PendingCards`（許可・質問UI）/ `NewSessionDialog` / `FileEditor`（Monaco。`monaco.ts` でローカル同梱設定、遅延読み込み）
+- `apps/web/src/components/` — `Inbox`（判断待ち）/ `SessionCard`（フリート）/ `SessionDetail`（報告・年表・追加指示）/ `PendingCards`（許可・質問UI）/ `NewSessionDialog` / `FileEditor`（Monaco。`monaco.ts` でローカル同梱設定、遅延読み込み）/ `UsageMenu`（使った量のまとめ。全セッションから画面側で集計）
 
 ## 設計原則
 

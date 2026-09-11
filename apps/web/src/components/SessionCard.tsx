@@ -1,5 +1,5 @@
 import type { Session } from '@tower/shared';
-import { OUTCOME, STATUS, fmtElapsed } from '../lib';
+import { OUTCOME, STATUS, fmtElapsed, fmtUsd } from '../lib';
 
 export function SessionCard({ s, selected, onClick }: { s: Session; selected: boolean; onClick: () => void }) {
   const st = STATUS[s.status];
@@ -76,8 +76,9 @@ export function SessionCard({ s, selected, onClick }: { s: Session; selected: bo
 
       <div className="mt-auto pt-1 flex justify-between text-[11px] text-zinc-500">
         <span>{fmtElapsed(s.createdAt)}経過</span>
-        <span>
+        <span title={s.costUsd > 0 ? '費用の目安（定額プランなら請求されません）' : undefined}>
           {s.turns}往復 · {s.toolCalls}操作 · {s.changedFiles.length}ファイル
+          {s.costUsd > 0 && ` · ${fmtUsd(s.costUsd)}`}
         </span>
       </div>
     </button>

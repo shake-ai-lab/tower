@@ -53,6 +53,21 @@ export function fmtTime(ts: number): string {
   return new Date(ts).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' });
 }
 
+/** トークン数を「1.2万」「3.4千」のように短く */
+export function fmtTokens(n: number): string {
+  if (n < 1000) return String(Math.round(n));
+  if (n < 10000) return `${(n / 1000).toFixed(1)}千`;
+  if (n < 100000) return `${(n / 10000).toFixed(1)}万`;
+  return `${Math.round(n / 10000)}万`;
+}
+
+/** 費用の目安。1 セント未満は「$0.01 未満」 */
+export function fmtUsd(x: number): string {
+  if (x <= 0) return '$0';
+  if (x < 0.005) return '$0.01 未満';
+  return `$${x.toFixed(2)}`;
+}
+
 /** 経過時間表示のために定期的に再描画する */
 export function useTick(ms = 15000) {
   const [, set] = useState(0);
