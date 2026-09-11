@@ -210,7 +210,9 @@ function WorkspaceStrip({ s }: { s: Session }) {
   return (
     <div className="text-xs bg-fuchsia-400/5 border border-fuchsia-400/30 rounded-md p-2 leading-relaxed space-y-1.5">
       <div className="text-fuchsia-200/90">
-        別の作業場所（コピー）で作業しています。変更は「取り込む」を押すまで元のプロジェクトには反映されません。
+        {ws.autoMerge
+          ? '別の作業場所（コピー）で作業しています。報告が「完了」で裏取りが通れば、Tower が自動で元のプロジェクトに取り込みます（手で押すこともできます）。'
+          : '別の作業場所（コピー）で作業しています。変更は「取り込む」を押すまで元のプロジェクトには反映されません。'}
       </div>
       <div className="flex items-center gap-2 flex-wrap">
         <button

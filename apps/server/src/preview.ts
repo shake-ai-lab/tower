@@ -1,5 +1,6 @@
 // 見た目の確認: サイトのスクリーンショットを Tower が撮って報告に添える（「ブラウザで確認してください」を減らす）。
 // PC に入っている Edge / Chrome を playwright-core から起動するので、ブラウザのダウンロードは要らない。
+import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import fs from 'node:fs';
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
@@ -11,7 +12,16 @@ import { readJson } from './verify.ts';
 
 export const SHOTS_DIR = path.join(DATA_DIR, 'shots');
 
-export type PreviewTarget = { kind: 'static'; dir: string } | { kind: 'url'; url: string };
+export type PreviewTarget =
+  | { kind: 'static'; dir: string }
+  | {
+      kind: 'url';
+      url: string;
+      /** 開発サーバーの起動コマンド（URL に繋がらない時だけ Tower が起動し、撮ったら止める） */
+      command?: string;
+      /** 起動を待つ秒数（既定 60） */
+      readySeconds?: number;
+    };
 
 const MIME: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
@@ -32,7 +42,9 @@ const MIME: Record<string, string> = {
 };
 
 /**
- * 何を撮るか。.tower.json の "preview"（URL の文字列、または { "url": "..." }）があればそれ（null なら撮らない）。
+ * 何を撮るか。.tower.json の "preview" があればそれ（null なら撮らない）:
+ *   "preview": "http://localhost:3000"
+ *   "preview": { "url": "http://localhost:3000", "command": "npm run dev", "readySeconds": 60 }
  * 無ければ、フォルダ直下に index.html があれば Tower が静的に配信して撮る。どちらも無ければ null
  */
 export function detectPreview(dir: string): PreviewTarget | null {
@@ -40,8 +52,16 @@ export function detectPreview(dir: string): PreviewTarget | null {
   if (local && 'preview' in local) {
     const p = local.preview as unknown;
     if (typeof p === 'string' && /^https?:\/\//.test(p)) return { kind: 'url', url: p };
-    if (p && typeof p === 'object' && typeof (p as { url?: unknown }).url === 'string') {
-      return { kind: 'url', url: (p as { url: string }).url };
+    if (p && typeof p === 'object') {
+      const o = p as { url?: unknown; command?: unknown; readySeconds?: unknown };
+      if (typeof o.url === 'string' && /^https?:\/\//.test(o.url)) {
+        return {
+          kind: 'url',
+          url: o.url,
+          command: typeof o.command === 'string' && o.command.trim() ? o.command.trim() : undefined,
+          readySeconds: typeof o.readySeconds === 'number' && o.readySeconds > 0 ? o.readySeconds : undefined,
+        };
+      }
     }
     return null;
   }
@@ -120,6 +140,72 @@ function serveStatic(dir: string): Promise<{ url: string; close: () => void }> {
   });
 }
 
+/** URL が応答するか（何かしらの HTTP 応答があれば「起動している」とみなす） */
+async function isUp(url: string, timeoutMs = 1500): Promise<boolean> {
+  const ac = new AbortController();
+  const timer = setTimeout(() => ac.abort(), timeoutMs);
+  try {
+    await fetch(url, { signal: ac.signal, redirect: 'manual' });
+    return true;
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** 子プロセスをぶら下がりごと止める（Windows は taskkill /T、他は プロセスグループ） */
+function killTree(child: ChildProcess) {
+  if (!child.pid) return;
+  if (process.platform === 'win32') {
+    spawnSync('taskkill', ['/pid', String(child.pid), '/t', '/f'], { stdio: 'ignore' });
+  } else {
+    try {
+      process.kill(-child.pid, 'SIGTERM');
+    } catch {
+      child.kill('SIGTERM');
+    }
+  }
+}
+
+/**
+ * 開発サーバーが起動していなければ command で起動して、URL が応答するまで待つ。
+ * 起動したのが Tower なら、撮り終わった後に止めるための stop を返す（元から動いていたなら null）
+ */
+async function ensureServer(target: Extract<PreviewTarget, { kind: 'url' }>, dir: string): Promise<(() => void) | null> {
+  if (await isUp(target.url)) return null;
+  if (!target.command) {
+    throw new Error(`${target.url} に繋がりません（開発サーバーは起動していますか？ .tower.json の preview に "command" を書けば Tower が起動します）`);
+  }
+  const tail: string[] = [];
+  const child = spawn(target.command, {
+    cwd: dir,
+    shell: true,
+    detached: process.platform !== 'win32',
+    stdio: ['ignore', 'pipe', 'pipe'],
+    env: { ...process.env, BROWSER: 'none', CI: '1', FORCE_COLOR: '0' },
+  });
+  const keep = (d: Buffer) => {
+    tail.push(d.toString());
+    while (tail.length > 40) tail.shift();
+  };
+  child.stdout?.on('data', keep);
+  child.stderr?.on('data', keep);
+  let exited: number | null = null;
+  child.on('exit', (code) => (exited = code ?? -1));
+  const stop = () => killTree(child);
+  const deadline = Date.now() + (target.readySeconds ?? 60) * 1000;
+  while (Date.now() < deadline) {
+    if (exited !== null) {
+      throw new Error(`開発サーバー「${target.command}」がすぐ終了しました（終了コード ${exited}）:\n${tail.join('').trim().slice(-600)}`);
+    }
+    if (await isUp(target.url)) return stop;
+    await new Promise((r) => setTimeout(r, 500));
+  }
+  stop();
+  throw new Error(`開発サーバー「${target.command}」を起動しましたが、${target.readySeconds ?? 60} 秒たっても ${target.url} が応答しません:\n${tail.join('').trim().slice(-600)}`);
+}
+
 async function launch(): Promise<Browser> {
   let lastErr = '';
   for (const channel of ['msedge', 'chrome'] as const) {
@@ -157,7 +243,9 @@ export async function capture(sessionId: string, dir: string, target: PreviewTar
   const shots: Screenshot[] = [];
   const at = Date.now();
   let browser: Browser | null = null;
+  let stopServer: (() => void) | null = null;
   try {
+    if (target.kind === 'url') stopServer = await ensureServer(target, dir);
     browser = await launch();
     for (const scheme of schemes) {
       const page = await browser.newPage({ viewport: { width: 1000, height: 640 }, colorScheme: scheme });
@@ -166,11 +254,7 @@ export async function capture(sessionId: string, dir: string, target: PreviewTar
           await page.goto(url, { waitUntil: 'load', timeout: 15_000 });
         } catch (e) {
           const why = (e instanceof Error ? e.message : String(e)).split('\n')[0];
-          throw new Error(
-            target.kind === 'url'
-              ? `${url} を開けませんでした（開発サーバーは起動していますか？）: ${why}`
-              : `ページを開けませんでした: ${why}`,
-          );
+          throw new Error(target.kind === 'url' ? `${url} を開けませんでした: ${why}` : `ページを開けませんでした: ${why}`);
         }
         await page.waitForTimeout(300); // フォントや遅延描画を少し待つ
         const file = `${label}-${scheme}-${at}.png`;
@@ -185,6 +269,7 @@ export async function capture(sessionId: string, dir: string, target: PreviewTar
   } finally {
     await browser?.close().catch(() => {});
     served?.close();
+    stopServer?.();
   }
   return shots;
 }

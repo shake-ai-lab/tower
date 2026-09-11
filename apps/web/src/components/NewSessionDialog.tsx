@@ -24,6 +24,7 @@ export function NewSessionDialog({ open, onClose }: { open: boolean; onClose: ()
   const [model, setModel] = useState<string>('');
   const [perm, setPerm] = useState<PermissionChoice>('acceptEdits');
   const [isolate, setIsolate] = useState(false);
+  const [autoMerge, setAutoMerge] = useState(false);
   /** 利用者が自分でチェックを触ったら、自動の切り替えをやめる */
   const [isolateTouched, setIsolateTouched] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -62,7 +63,7 @@ export function NewSessionDialog({ open, onClose }: { open: boolean; onClose: ()
     setBusy(true);
     setErr(null);
     try {
-      const s = await api.create({ projectPath, prompt, agent, model: model || null, permissionMode: perm, isolate });
+      const s = await api.create({ projectPath, prompt, agent, model: model || null, permissionMode: perm, isolate, autoMerge: isolate && autoMerge });
       select(s.id);
       setPrompt('');
       setIsolateTouched(false);
@@ -205,6 +206,12 @@ export function NewSessionDialog({ open, onClose }: { open: boolean; onClose: ()
                 />
                 別の作業場所で動かす
               </label>
+              {isolate && (
+                <label className="text-xs text-zinc-300 flex items-center gap-1.5 cursor-pointer select-none" title="報告が「完了」でテスト（裏取り）も通った時だけ、Tower が自動で元のプロジェクトに取り込みます">
+                  <input type="checkbox" checked={autoMerge} onChange={(e) => setAutoMerge(e.target.checked)} className="accent-fuchsia-500" />
+                  裏取りが通ったら自動で取り込む
+                </label>
+              )}
               <span className="text-xs text-zinc-600">
                 {busyInProject
                   ? 'このプロジェクトでは他のタスクが動いているので、ぶつからないようにコピーで作業するのがおすすめです。終わったら「取り込む」で反映します'

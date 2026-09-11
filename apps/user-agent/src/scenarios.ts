@@ -16,6 +16,8 @@ export interface Scenario {
   preference?: string;
   /** 別の作業場所（git worktree）で動かす。終了後に「取り込む」を呼んでから verify する */
   isolate?: boolean;
+  /** isolate の時: 裏取りが通ったら Tower が自動で取り込む（利用者役は「取り込む」を押さず、結果を待つ） */
+  autoMerge?: boolean;
   /** 最後に実行して成否を機械的に判定するコマンド（作業フォルダで実行） */
   verify?: string;
   /** 何が達成できていれば成功か（判定AIに渡す） */
@@ -90,7 +92,8 @@ export const SCENARIOS: Scenario[] = [
       'テストが落ちているので原因を調べて直して。直したらテストを実行して通ることを確認して。',
     permissionMode: 'acceptEdits',
     isolate: true,
+    autoMerge: true,
     verify: 'npm test',
-    goal: '別の作業場所で直した内容を「取り込む」で元のプロジェクトに反映でき、元のプロジェクトで npm test が通る',
+    goal: '別の作業場所で直した内容が、裏取りが通った後に自動で元のプロジェクトに取り込まれ、元のプロジェクトで npm test が通る',
   },
 ];

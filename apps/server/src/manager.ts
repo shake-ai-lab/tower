@@ -64,10 +64,39 @@ export class SessionManager {
       if (ev.type !== 'session') return;
       const s = ev.session;
       const at = s.report?.generatedAt ?? 0;
-      if (!at || at === (this.lastReportAt.get(s.id) ?? 0)) return;
-      this.lastReportAt.set(s.id, at);
-      if (s.preview) void this.capturePreview(s.id, 'after');
+      if (at && at !== (this.lastReportAt.get(s.id) ?? 0)) {
+        this.lastReportAt.set(s.id, at);
+        if (s.preview) void this.capturePreview(s.id, 'after');
+      }
+      this.maybeAutoMerge(s);
     });
+  }
+
+  private autoMerged = new Map<string, number>();
+
+  /** 自動取り込み: 報告が「完了」で、裏取りが（あれば）通った時に一度だけ取り込む */
+  private maybeAutoMerge(s: Session) {
+    if (!s.workspace?.autoMerge || s.status !== 'idle' || s.report?.outcome !== 'done') return;
+    const at = s.report.generatedAt;
+    if (this.autoMerged.get(s.id) === at) return;
+    if (s.changedFiles.length === 0) return; // 何も変えていないなら取り込むものが無い
+    const needsVerify = detectVerifyCommand(workDir(s)) !== null;
+    if (needsVerify) {
+      // 裏取りは報告の後に走る。この報告に対する結果が出るまで待つ
+      if (!s.verification || s.verification.at < at || s.verification.ok === null) return;
+      if (!s.verification.ok) {
+        this.autoMerged.set(s.id, at);
+        this.note(s.id, 'system', '裏取りが通らなかったので、自動では取り込みませんでした。直してから「取り込む」を押してください');
+        return;
+      }
+    }
+    this.autoMerged.set(s.id, at);
+    try {
+      const r = this.merge(s.id, true);
+      if (!r.ok) console.warn(`[automerge] ${s.id.slice(0, 8)}: ${r.message.split('\n')[0]}`);
+    } catch (e) {
+      console.warn(`[automerge] ${s.id.slice(0, 8)}:`, e instanceof Error ? e.message : e);
+    }
   }
 
   private makeRunner(session: Session): AgentRunner {
@@ -98,7 +127,7 @@ export class SessionManager {
       agent,
       agentSessionId: null,
       project: { path: projectPath, name: path.basename(projectPath) },
-      workspace: isolated?.workspace ?? null,
+      workspace: isolated ? { ...isolated.workspace, autoMerge: body.autoMerge === true } : null,
       preview: previewTarget ? { target: targetLabel(previewTarget), before: null, after: null, taking: false, error: null } : null,
       title: prompt.split(/\r?\n/)[0].slice(0, 60),
       prompt,
@@ -120,10 +149,11 @@ export class SessionManager {
     this.hub.add(session);
     if (isolated) {
       const shared = isolated.linked.length ? `。依存パッケージ（node_modules）は元のプロジェクトと共有` : '';
+      const auto = body.autoMerge ? '。報告が「完了」で裏取りが通れば自動で取り込みます' : '';
       this.note(
         id,
         'system',
-        `別の作業場所を作りました（ブランチ ${isolated.workspace.branch}）${shared}`,
+        `別の作業場所を作りました（ブランチ ${isolated.workspace.branch}）${shared}${auto}`,
         `${isolated.workspace.path}\n元のプロジェクト: ${projectPath}`,
       );
     }
@@ -288,8 +318,8 @@ export class SessionManager {
     }
   }
 
-  /** 分離した作業場所の変更を、元のプロジェクトに取り込む */
-  merge(id: string): MergeResult {
+  /** 分離した作業場所の変更を、元のプロジェクトに取り込む。auto = Tower が自動で（裏取りが通った時） */
+  merge(id: string, auto = false): MergeResult {
     const s = this.hub.get(id);
     if (!s) throw new Error('セッションが見つかりません');
     if (!s.workspace) throw new Error('このセッションは別の作業場所を使っていません（プロジェクトのフォルダで直接作業しています）');
@@ -298,7 +328,8 @@ export class SessionManager {
     }
     const r = mergeWorktree(s.project.path, s.workspace, s.title);
     this.hub.update(id, { workspace: { ...s.workspace, lastMerge: { at: Date.now(), ok: r.ok, message: r.message } } });
-    this.note(id, r.ok ? 'system' : 'error', r.ok ? `取り込み: ${r.message}` : `取り込み失敗: ${r.message.split('\n')[0]}`, r.ok ? undefined : r.message);
+    const head = auto ? (r.ok ? '裏取りが通ったので自動で取り込みました' : '自動取り込みに失敗') : r.ok ? '取り込み' : '取り込み失敗';
+    this.note(id, r.ok ? 'system' : 'error', `${head}: ${r.message.split('\n')[0]}`, r.ok ? undefined : r.message);
     return r;
   }
 

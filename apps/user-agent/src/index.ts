@@ -339,6 +339,7 @@ async function main() {
         model: modelOverride ?? sc.model ?? 'haiku',
         permissionMode: sc.permissionMode,
         isolate: sc.isolate === true,
+        autoMerge: sc.autoMerge === true,
       }),
     });
     tracks.push({
@@ -386,7 +387,18 @@ async function main() {
   }
   for (const t of tracks) {
     t.timeline = await api<TimelineItem[]>(`/sessions/${t.sessionId}/timeline`);
-    if (t.sc.isolate) {
+    if (t.sc.isolate && t.sc.autoMerge) {
+      // 自動取り込み: Tower が裏取りの後に取り込むはずなので、押さずに結果を待つ
+      let lm: { ok: boolean; message: string } | null = null;
+      for (let i = 0; i < 30 && !lm; i++) {
+        const s = await api<Session[]>('/sessions').then((xs) => xs.find((x) => x.id === t.sessionId));
+        lm = s?.workspace?.lastMerge ?? null;
+        if (s) t.session = s;
+        if (!lm) await sleep(1000);
+      }
+      t.merge = lm ? { ok: lm.ok, message: `（自動）${lm.message}`, files: 0 } : { ok: false, message: '自動取り込みが 30 秒待っても起きなかった', files: 0 };
+      console.log(`  [${t.sc.key}] 自動取り込み: ${t.merge.ok ? '成功' : '失敗'} ${t.merge.message.split('\n')[0]}`);
+    } else if (t.sc.isolate) {
       // 分離した作業場所の成果は「取り込む」までプロジェクトに入らない。利用者がボタンを押すのと同じ操作をする
       try {
         t.merge = await api<MergeResult>(`/sessions/${t.sessionId}/merge`, { method: 'POST' });

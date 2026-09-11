@@ -146,6 +146,8 @@ export interface Workspace {
   baseCommit: string;
   /** 最後に「元のプロジェクトに取り込む」を押した結果 */
   lastMerge: { at: number; ok: boolean; message: string } | null;
+  /** true = 報告が「完了」で裏取りも通ったら、Tower が自動で取り込む */
+  autoMerge?: boolean;
 }
 
 /** セッションが実際に作業しているフォルダ */
@@ -233,6 +235,8 @@ export interface CreateSessionBody {
   permissionMode?: PermissionChoice;
   /** true = 別の作業場所（git worktree）で動かす。git 管理のプロジェクトのみ */
   isolate?: boolean;
+  /** isolate の時: 報告が「完了」で裏取りも通ったら自動で取り込む */
+  autoMerge?: boolean;
 }
 
 /** 「元のプロジェクトに取り込む」の結果 */
