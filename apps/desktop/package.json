@@ -1,0 +1,13 @@
+{
+  "name": "@tower/desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Tower をデスクトップアプリとして起動する（トレイ常駐・ネイティブ通知）",
+  "main": "main.cjs",
+  "scripts": {
+    "start": "electron ."
+  },
+  "devDependencies": {
+    "electron": "^44.3.0"
+  }
+}

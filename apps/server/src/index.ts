@@ -2,7 +2,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import type { Server as HttpServer } from 'node:http';
+import { fileURLToPath } from 'node:url';
 import { serve } from '@hono/node-server';
+import { serveStatic } from '@hono/node-server/serve-static';
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { WebSocketServer } from 'ws';
@@ -208,6 +210,15 @@ app.delete('/api/sessions/:id', async (c) => {
   await manager.remove(c.req.param('id'));
   return c.json({ ok: true });
 });
+
+// ---- 画面（ビルド済み）の配信。`npm run build -w apps/web` の後なら、このポートだけで全部動く（デスクトップ版・スマホ用） ----
+const WEB_DIST = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../web/dist');
+if (fs.existsSync(path.join(WEB_DIST, 'index.html'))) {
+  const root = path.relative(process.cwd(), WEB_DIST).split(path.sep).join('/') || '.';
+  app.use('/*', serveStatic({ root }));
+  // SPA: それ以外のパスは index.html
+  app.get('*', (c) => (c.req.path.startsWith('/api/') ? c.notFound() : c.html(fs.readFileSync(path.join(WEB_DIST, 'index.html'), 'utf8'))));
+}
 
 const server = serve({ fetch: app.fetch, hostname: config.host, port: config.port }, (info) => {
   console.log(

@@ -87,8 +87,8 @@ starting → running ⇄ waiting_permission
 - **開発サーバーの起動**（2026-09-11）: `.tower.json` の `preview.command`。URL に繋がらない時だけ起動し（`BROWSER=none`、`CI=1`）、応答するまで `readySeconds`（既定 60）待って撮り、`taskkill /T`（Windows）かプロセスグループで止める。すぐ落ちたら出力の末尾を添えて失敗
 - **自動取り込み**（2026-09-11）: 起動時の「裏取りが通ったら自動で取り込む」（`Workspace.autoMerge`）。`manager` の hub 購読で「報告が完了・裏取りがこの報告に対して OK（テストが無いプロジェクトなら完了だけ）」を見て一度だけ `merge(id, true)`。裏取り NG なら取り込まず年表に理由を残す。ドッグフーディングの todo-isolated はこの方式で採点
 
-残り:
-- （なし。次はスマホ画面 / Electron）
+- **スマホ向け画面**（2026-09-11）: Tailwind の `md`（768px）未満で、判断インボックスとセッション一覧を下のタブで切り替え、詳細は全画面の重ね表示。起動ダイアログは縦積み。サーバーが `apps/web/dist` を配信するようになった（`npm run build -w apps/web` 後）ので、`host: 0.0.0.0` にすればスマホから 4800 だけで開ける。Playwright（Edge）で 390px 幅の画面を撮って確認
+- **デスクトップ版（Electron）**（2026-09-11）: `apps/desktop/main.cjs`。サーバーが無ければ `node tsx apps/server/src/index.ts` を起動し、Vite が動いていれば 5173、無ければ 4800 の配信画面を読む。閉じるとトレイに隠れ、トレイの WebSocket 購読で「判断待ち N 件」をツールチップに出す。通知は画面側の Notification API がそのまま Windows 通知になる（`setAppUserModelId`）。配布用のパッケージ（electron-builder）は未着手。アイコンは Playwright で HTML から描いた PNG。npm の allow-scripts で postinstall が止まるので、初回は `node node_modules/electron/install.js` が要る
 
 ### ドッグフーディングで分かったこと（ラウンド1, 2026-09-09）
 - 並列ツール呼び出しで2件目の許可要求が消えるバグ → 修正
@@ -110,11 +110,10 @@ starting → running ⇄ waiting_permission
 - **notes-readme が unknown**: 文書系の成果は採点役が中身を見られなかった → 採点役に差分（先頭 1500 文字/ファイル）を渡す
 - 未対応の提案: 裏取りが通ったら自動で取り込む（todo-isolated）、報告カードに裏取り結果を統合（別枠を見に行く手間）、失敗テストを赤で目立たせる（対応済み）
 
-### フェーズ3
-- Electron 化（トレイ常駐・ネイティブ通知）
-- スマホ最適化レイアウト（インボックス専用画面）
+### フェーズ3 の残り
 - 履歴検索、コストダッシュボード
 - 1つの依頼を複数エージェント/モデルに投げて比較
+- デスクトップ版の配布パッケージ（インストーラ）
 
 ## 既知の制約
 - サーバー再起動で動作中セッションは `stopped` になる
