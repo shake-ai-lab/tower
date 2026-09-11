@@ -11,6 +11,7 @@ import { Codex, type Thread, type ThreadEvent, type ThreadItem } from '@openai/c
 import { workDir, type Session, type TimelineKind } from '@tower/shared';
 import type { Hub } from '../hub.ts';
 import { firstLine } from '../humanize.ts';
+import { previewNote } from '../preview.ts';
 import { scheduleReformat } from '../reformat.ts';
 import { REPORT_INSTRUCTIONS, fallbackReport, parseReport } from '../report.ts';
 import { detectVerifyCommand, runVerify } from '../verify.ts';
@@ -21,8 +22,10 @@ const REMINDER = '\n\n（前と同じ【報告】書式で報告してくださ�
 
 /** 最初の指示の前置き。分離した作業場所ならその注意書きも付ける */
 function preamble(s: Session): string {
-  const note = s.workspace ? `\n\n${workspaceNote(s.workspace, s.project.path)}` : '';
-  return `${REPORT_INSTRUCTIONS}${note}\n\n---\n以下が依頼です。\n\n`;
+  const parts = [REPORT_INSTRUCTIONS];
+  if (s.workspace) parts.push(workspaceNote(s.workspace, s.project.path));
+  if (s.preview) parts.push(previewNote(s.preview.target));
+  return `${parts.join('\n\n')}\n\n---\n以下が依頼です。\n\n`;
 }
 
 /** Codex の失敗メッセージを、利用者が次に何をすればいいか分かる文にする */

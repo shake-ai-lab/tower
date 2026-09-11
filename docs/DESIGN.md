@@ -80,8 +80,10 @@ starting → running ⇄ waiting_permission
 できたもの:
 - **修正前 → 修正後の対比**: 起動直後（エージェントが手を付ける前）にも自動チェックを走らせて `Session.baseline` に持つ（`manager.runBaseline`。起動は待たせない）。報告後の裏取りと並べて「修正前: 失敗 2 件 → 修正後: 全部成功（3 件）」と出し、**直った / 修正で壊れた / まだ直っていない** を一言で示す。件数は `summarizeTestOutput` が node:test / jest / vitest / pytest / mocha / cargo の集計行から拾う（拾えなければ OK/NG だけ）。カードの印も「✔ 直った」「✖ 壊れた」「✖ まだNG」に
 
+- **見た目の確認（スクリーンショット）**（2026-09-11）: `preview.ts`。PC に入っている Edge / Chrome を `playwright-core` の `channel` 指定で起動する（ブラウザのダウンロード不要。Edge 起動 0.2 秒、2 枚で 1.4 秒）。対象は `.tower.json` の `preview`（URL）か、フォルダ直下の `index.html`（Tower が空きポートで静的配信）。CSS/HTML に `prefers-color-scheme` があればダークも撮る。起動直後（修正前）と、報告が来るたび（修正後。`manager` が hub の購読で `report.generatedAt` の変化を見る）に撮って `Session.preview` に持ち、画面に「修正前 → 修正後」のサムネイルと拡大表示。エージェントには system prompt で「Tower が撮るのでブラウザを開かなくてよい」と伝える（site-dark で Playwright を入れ始めて 10 回許可を求めた対策）。採点役にも画像を渡す（Haiku の画像入力）
+
 残り:
-- 画面の見た目確認をスクリーンショットで自動化して報告に添付（プロジェクトの開発サーバーと headless ブラウザが要るので環境依存。要検討）
+- 開発サーバーを Tower が起動する（`.tower.json` の `preview.command`）。今は起動済みの URL を撮るだけ
 
 ### ドッグフーディングで分かったこと（ラウンド1, 2026-09-09）
 - 並列ツール呼び出しで2件目の許可要求が消えるバグ → 修正

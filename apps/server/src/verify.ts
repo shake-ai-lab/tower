@@ -8,7 +8,7 @@ export function setVerifyEnabled(v: boolean) {
   enabled = v;
 }
 
-function readJson(file: string): Record<string, unknown> | null {
+export function readJson(file: string): Record<string, unknown> | null {
   try {
     return JSON.parse(fs.readFileSync(file, 'utf8')) as Record<string, unknown>;
   } catch {

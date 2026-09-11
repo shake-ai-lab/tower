@@ -11,7 +11,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { ChangesResponse, MergeResult, PendingPermission, PendingQuestion, Report, Session, TimelineItem } from '@tower/shared';
-import { llmJson } from './llm.ts';
+import { llmJson, type LlmImage } from './llm.ts';
 import { SCENARIOS, type Scenario } from './scenarios.ts';
 
 const API = process.env.TOWER_API ?? 'http://127.0.0.1:4800/api';
@@ -202,6 +202,18 @@ function runVerify(tr: Track) {
 
 async function judge(tr: Track): Promise<Judge> {
   const s = tr.session!;
+  // Tower が撮ったスクリーンショットを採点役にも見せる（修正前ライト 1 枚 + 修正後 全部、最大 3 枚）
+  const shots = [...(s.preview?.before ?? []).filter((x) => x.scheme === 'light').slice(0, 1), ...(s.preview?.after ?? [])].slice(0, 3);
+  const images: LlmImage[] = [];
+  for (const sh of shots) {
+    try {
+      const r = await fetch(API.replace(/\/api$/, '') + sh.url);
+      if (r.ok) images.push({ data: Buffer.from(await r.arrayBuffer()).toString('base64'), mediaType: 'image/png' });
+    } catch {
+      /* 画像が取れなくても採点はする */
+    }
+  }
+  const shotLabel = (x: { label: string; scheme: string }) => `${x.label === 'before' ? '修正前' : '修正後'}/${x.scheme === 'dark' ? 'ダーク' : 'ライト'}`;
   const prompt = [
     `## あなたの依頼\n${tr.sc.prompt}`,
     `## 成功の条件（アプリには見えていない、あなたの頭の中）\n${tr.sc.goal}`,
@@ -228,16 +240,21 @@ async function judge(tr: Track): Promise<Judge> {
     tr.changes
       ? `## 変更の中身（画面の「差分を見る」。長いものは先頭だけ）\n${tr.changes}`
       : '',
+    s.preview
+      ? `## 見た目のスクリーンショット（Tower が ${s.preview.target} を自動で撮って画面に表示）: 修正前 ${s.preview.before?.length ?? 0} 枚、修正後 ${s.preview.after?.length ?? 0} 枚` +
+        (images.length ? `。添付画像の順: ${shots.map(shotLabel).join('、')}` : '') +
+        (s.preview.error ? `。撮影エラー: ${s.preview.error}` : '')
+      : '',
     `## 終了理由: ${tr.finishReason}、所要 ${fmt((tr.finishedAt ?? now()) - tr.startedAt)}、状態 ${s.status}`,
     '',
-    '上の画面表示だけを見て、利用者として評価してください。',
+    '上の画面表示だけを見て、利用者として評価してください（スクリーンショットが添付されていれば、それも画面で見えているものとして扱い、見た目の確認ができたかを判断に含める）。',
     '- reportClarity: 報告を読んで「何が起きて、次に何をすべきか」が分かるか（1=全く分からない〜5=完璧）',
     '- goalAchieved: 成功の条件を満たせたか',
     '- reportIssues / activityIssues / permissionIssues: 分かりにくかった点、足りない情報（具体的に。無ければ空配列）',
     '- appSuggestions: アプリ側（Tower）で直せる改善案。エージェントの性能の話ではなく、表示や導線の話',
     '- verdict: 一言の総評',
   ].join('\n\n');
-  return llmJson<Judge>(USER_PERSONA, prompt, JUDGE_SCHEMA);
+  return llmJson<Judge>(USER_PERSONA, prompt, JUDGE_SCHEMA, 'haiku', images);
 }
 
 // ---- レポート ----

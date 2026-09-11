@@ -28,6 +28,7 @@ import {
   toolDetail,
   touchedFile,
 } from '../humanize.ts';
+import { previewNote } from '../preview.ts';
 import { scheduleReformat } from '../reformat.ts';
 import { REPORT_INSTRUCTIONS, fallbackReport, parseReport } from '../report.ts';
 import { detectVerifyCommand, runVerify } from '../verify.ts';
@@ -124,9 +125,10 @@ export class ClaudeRunner implements AgentRunner {
     // hooks 連携（bridge）に「これは Tower 自身のセッション」と伝えて二重取り込みを防ぐ
     env.TOWER_MANAGED = '1';
 
-    const append = s.workspace
-      ? `${REPORT_INSTRUCTIONS}\n\n${workspaceNote(s.workspace, s.project.path)}`
-      : REPORT_INSTRUCTIONS;
+    const parts = [REPORT_INSTRUCTIONS];
+    if (s.workspace) parts.push(workspaceNote(s.workspace, s.project.path));
+    if (s.preview) parts.push(previewNote(s.preview.target));
+    const append = parts.join('\n\n');
     const options: Options = {
       cwd: workDir(s),
       model: s.model ?? undefined,

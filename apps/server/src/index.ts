@@ -23,6 +23,7 @@ import { readFileContent, writeFileContent } from './files.ts';
 import { Hub } from './hub.ts';
 import { startJanitor } from './janitor.ts';
 import { SessionManager, agentAvailability } from './manager.ts';
+import { SHOTS_DIR } from './preview.ts';
 import { setReformatEnabled } from './reformat.ts';
 import { setVerifyEnabled } from './verify.ts';
 import { diffBase } from './worktree.ts';
@@ -93,6 +94,16 @@ app.get('/api/sessions/:id/changes', (c) => {
   } catch (e) {
     return c.json({ error: e instanceof Error ? e.message : String(e) }, 500);
   }
+});
+
+// ---- 見た目のスクリーンショット ----
+app.get('/api/sessions/:id/shots/:file', (c) => {
+  const id = c.req.param('id');
+  const file = c.req.param('file');
+  if (!/^[\w-]+$/.test(id) || !/^[\w.-]+\.png$/.test(file)) return c.text('bad request', 400);
+  const p = path.join(SHOTS_DIR, id, file);
+  if (!fs.existsSync(p)) return c.text('not found', 404);
+  return c.body(new Uint8Array(fs.readFileSync(p)), 200, { 'content-type': 'image/png', 'cache-control': 'private, max-age=86400' });
 });
 
 // ---- 画面からの直接編集（Monaco） ----

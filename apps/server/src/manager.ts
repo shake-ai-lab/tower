@@ -18,6 +18,7 @@ import { ClaudeRunner } from './agents/claude.ts';
 import { CodexRunner } from './agents/codex.ts';
 import type { AgentRunner } from './agents/types.ts';
 import type { Hub } from './hub.ts';
+import { SHOTS_DIR, capture, detectPreview, targetLabel } from './preview.ts';
 import { detectVerifyCommand, runVerify } from './verify.ts';
 import { createWorktree, mergeWorktree, removeWorktree } from './worktree.ts';
 
@@ -52,8 +53,22 @@ export function agentAvailability(): Record<AgentKind, AgentAvailability> {
 
 export class SessionManager {
   private runners = new Map<string, AgentRunner>();
+  /** 直近に見た報告の時刻。新しい報告が来た時だけ「報告後の仕事」（見た目の撮影）を走らせる */
+  private lastReportAt = new Map<string, number>();
+  private capturing = new Set<string>();
 
-  constructor(private hub: Hub) {}
+  constructor(private hub: Hub) {
+    for (const s of hub.sessions.values()) this.lastReportAt.set(s.id, s.report?.generatedAt ?? 0);
+    // ランナーに手を入れずに「報告が来た」を拾う（外部セッションの報告にも効く）
+    hub.subscribe((ev) => {
+      if (ev.type !== 'session') return;
+      const s = ev.session;
+      const at = s.report?.generatedAt ?? 0;
+      if (!at || at === (this.lastReportAt.get(s.id) ?? 0)) return;
+      this.lastReportAt.set(s.id, at);
+      if (s.preview) void this.capturePreview(s.id, 'after');
+    });
+  }
 
   private makeRunner(session: Session): AgentRunner {
     return session.agent === 'codex' ? new CodexRunner(session, this.hub) : new ClaudeRunner(session, this.hub);
@@ -77,12 +92,14 @@ export class SessionManager {
     const isolated = body.isolate ? createWorktree(projectPath, id) : null;
 
     const now = Date.now();
+    const previewTarget = detectPreview(isolated?.workspace.path ?? projectPath);
     const session: Session = {
       id,
       agent,
       agentSessionId: null,
       project: { path: projectPath, name: path.basename(projectPath) },
       workspace: isolated?.workspace ?? null,
+      preview: previewTarget ? { target: targetLabel(previewTarget), before: null, after: null, taking: false, error: null } : null,
       title: prompt.split(/\r?\n/)[0].slice(0, 60),
       prompt,
       model: body.model ?? null,
@@ -112,10 +129,37 @@ export class SessionManager {
     }
     // エージェントが手を付ける前の状態を測っておく（「修正前 → 修正後」の対比用）。起動は待たせない
     void this.runBaseline(session);
+    if (previewTarget) void this.capturePreview(id, 'before');
     const runner = this.makeRunner(session);
     this.runners.set(session.id, runner);
     runner.start(prompt);
     return session;
+  }
+
+  /** 見た目の撮影（修正前 / 修正後）。失敗しても例外は出さず、preview.error に日本語で残す */
+  private async capturePreview(id: string, which: 'before' | 'after') {
+    const s = this.hub.get(id);
+    if (!s?.preview || this.capturing.has(id)) return;
+    const dir = workDir(s);
+    const target = detectPreview(dir);
+    if (!target) return;
+    this.capturing.add(id);
+    this.hub.update(id, { preview: { ...s.preview, taking: true } });
+    try {
+      const shots = await capture(id, dir, target, which);
+      const cur = this.hub.get(id);
+      if (!cur?.preview) return;
+      this.hub.update(id, { preview: { ...cur.preview, [which]: shots, taking: false, error: null } });
+      const kinds = shots.map((x) => (x.scheme === 'dark' ? 'ダーク' : 'ライト')).join(' / ');
+      this.note(id, 'system', `${which === 'before' ? '修正前' : '修正後'}の見た目を撮りました（${kinds}）`);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      const cur = this.hub.get(id);
+      if (cur?.preview) this.hub.update(id, { preview: { ...cur.preview, taking: false, error: msg } });
+      this.note(id, 'error', `見た目の撮影に失敗: ${msg}`);
+    } finally {
+      this.capturing.delete(id);
+    }
   }
 
   private async runBaseline(s: Session) {
@@ -236,6 +280,8 @@ export class SessionManager {
     const s = this.hub.get(id);
     // 一覧からは先に消す（後片付けはプロセス終了待ちで数秒かかることがある）
     this.hub.remove(id);
+    this.lastReportAt.delete(id);
+    fs.rmSync(path.join(SHOTS_DIR, id), { recursive: true, force: true });
     if (s?.workspace) {
       const warn = await removeWorktree(s.project.path, s.workspace);
       if (warn) console.warn(`[worktree] ${id.slice(0, 8)} の後片付けで問題:`, warn);

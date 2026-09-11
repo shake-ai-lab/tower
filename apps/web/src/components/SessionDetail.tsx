@@ -1,5 +1,5 @@
 import { Suspense, lazy, useEffect, useRef, useState } from 'react';
-import type { Report, Session, TimelineItem, Verification } from '@tower/shared';
+import type { Preview, Report, Screenshot, Session, TimelineItem, Verification } from '@tower/shared';
 import { api } from '../api';
 import { OUTCOME, STATUS, btn, fmtTime, isAlive } from '../lib';
 import { useStore } from '../store';
@@ -127,6 +127,60 @@ function VerificationStrip({ v, baseline, reportOutcome }: { v: Verification; ba
         <pre className="mono mt-2 text-xs whitespace-pre-wrap break-all bg-black/40 rounded p-2 max-h-72 overflow-auto text-zinc-300">
           {v.output || '(出力なし)'}
         </pre>
+      )}
+    </div>
+  );
+}
+
+function ShotThumb({ shot, onOpen }: { shot: Screenshot; onOpen: () => void }) {
+  return (
+    <button onClick={onOpen} className="block rounded border border-zinc-700 overflow-hidden hover:border-sky-500" title="クリックで拡大">
+      <img src={shot.url} alt={shot.scheme} className="w-[150px] h-[96px] object-cover object-top bg-black" />
+      <div className="text-[10px] text-center text-zinc-400 bg-zinc-900 py-0.5">{shot.scheme === 'dark' ? 'ダーク' : 'ライト'}</div>
+    </button>
+  );
+}
+
+/** Tower が撮った見た目（修正前 → 修正後） */
+function PreviewStrip({ p }: { p: Preview }) {
+  const [open, setOpen] = useState<Screenshot | null>(null);
+  const group = (label: string, shots: Screenshot[]) => (
+    <div>
+      <div className="text-[11px] text-zinc-500 mb-1">{label}</div>
+      <div className="flex gap-1.5">
+        {shots.map((s) => (
+          <ShotThumb key={s.file} shot={s} onOpen={() => setOpen(s)} />
+        ))}
+      </div>
+    </div>
+  );
+  return (
+    <div className="rounded-lg border border-zinc-700 bg-zinc-800/30 p-2.5 text-sm">
+      <div className="flex items-center gap-2 text-xs">
+        <span className="text-zinc-300">📷 見た目</span>
+        <span className="text-zinc-500">
+          — Tower が <span className="mono">{p.target}</span> を撮影
+        </span>
+        {p.taking && <span className="text-zinc-400">撮影中…</span>}
+      </div>
+      {(p.before || p.after) && (
+        <div className="mt-2 flex items-start gap-3 flex-wrap">
+          {p.before && group('修正前', p.before)}
+          {p.before && p.after && <div className="self-center text-zinc-600">→</div>}
+          {p.after && group('修正後', p.after)}
+        </div>
+      )}
+      {!p.before && !p.after && !p.taking && !p.error && <div className="mt-1 text-xs text-zinc-500">まだ撮っていません</div>}
+      {p.error && <div className="mt-1 text-xs text-red-300">{p.error}</div>}
+      {open && (
+        <div className="fixed inset-0 z-50 bg-black/85 flex items-center justify-center p-6 cursor-zoom-out" onClick={() => setOpen(null)}>
+          <div className="max-w-full max-h-full overflow-auto rounded shadow-2xl">
+            <img src={open.url} alt={open.scheme} className="max-w-[92vw]" />
+          </div>
+          <div className="absolute top-3 left-4 text-xs text-zinc-300">
+            {open.label === 'before' ? '修正前' : '修正後'} / {open.scheme === 'dark' ? 'ダーク' : 'ライト'} / {open.width}×{open.height} — クリックで閉じる
+          </div>
+        </div>
       )}
     </div>
   );
@@ -396,6 +450,7 @@ export function SessionDetail({ id }: { id: string }) {
         ) : (
           s.baseline && <BaselineStrip b={s.baseline} />
         )}
+        {s.preview && <PreviewStrip p={s.preview} />}
         {s.lastError && (
           <div className="rounded-md border border-red-500/50 bg-red-500/10 p-2 text-xs text-red-200 whitespace-pre-wrap">
             {s.lastError}

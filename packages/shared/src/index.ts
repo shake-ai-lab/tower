@@ -101,6 +101,31 @@ export interface Verification {
   durationMs: number;
 }
 
+/** Tower が撮ったサイトのスクリーンショット */
+export interface Screenshot {
+  /** 'before'（修正前）| 'after'（修正後） */
+  label: string;
+  scheme: 'light' | 'dark';
+  file: string;
+  /** 画像の API パス（/api/sessions/:id/shots/:file） */
+  url: string;
+  at: number;
+  width: number;
+  height: number;
+}
+
+/** 見た目の確認（撮影）の状態 */
+export interface Preview {
+  /** 何を撮っているか（'index.html' か URL） */
+  target: string;
+  /** 起動直後（修正前） */
+  before: Screenshot[] | null;
+  /** 直近の報告後（修正後） */
+  after: Screenshot[] | null;
+  taking: boolean;
+  error: string | null;
+}
+
 /** セッションの出どころ。external = VS Code 拡張やターミナルで動いているものを hooks で観測 */
 export type SessionOrigin = 'tower' | 'external';
 
@@ -159,6 +184,8 @@ export interface Session {
   baseline?: Verification | null;
   /** 修正前の失敗をエージェントに伝えたか（追加指示の補足として一度だけ伝える） */
   baselineNoted?: boolean;
+  /** 見た目の撮影。null/省略 = 撮る対象が無い */
+  preview?: Preview | null;
   turns: number;
   costUsd: number;
   toolCalls: number;

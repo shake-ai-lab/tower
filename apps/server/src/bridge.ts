@@ -10,6 +10,7 @@ import { fileURLToPath } from 'node:url';
 import type { BridgeStatus, PendingPermission, PermissionChoice, Session, TimelineKind } from '@tower/shared';
 import type { Hub } from './hub.ts';
 import { assessRisk, describeActivity, describePermission, firstLine, toolDetail, touchedFile } from './humanize.ts';
+import { detectPreview, targetLabel } from './preview.ts';
 import { scheduleReformat } from './reformat.ts';
 import { fallbackReport, parseReport } from './report.ts';
 
@@ -163,6 +164,7 @@ export class Bridge {
     if (cur) return cur;
     const cwd = input.cwd || process.cwd();
     const now = Date.now();
+    const previewTarget = detectPreview(cwd);
     const s: Session = {
       id,
       agent: 'claude',
@@ -170,6 +172,7 @@ export class Bridge {
       externalHint: detectEntrypoint(input.transcript_path),
       agentSessionId: input.session_id,
       project: { path: cwd, name: path.basename(cwd) },
+      preview: previewTarget ? { target: targetLabel(previewTarget), before: null, after: null, taking: false, error: null } : null,
       title: PLACEHOLDER_TITLE,
       prompt: '',
       model: null,

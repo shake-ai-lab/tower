@@ -34,6 +34,7 @@ npm run dogfood -- --only todo-fix     # 一部だけ
 - `apps/server/src/report.ts` — 【報告】書式（システムプロンプト追記）と、その解析。`apps/server/src/reformat.ts` — 書式が無かった時に Haiku で整形し直す（裏で走らせて差し替え）
 - `apps/server/src/files.ts` — 画面からの直接編集（Monaco）の読み書き。作業フォルダの外は拒否。保存後の後始末は `manager.manualEdit`（次の指示に補足を付ける）
 - `apps/server/src/janitor.ts` — 動きの無い外部セッションの自動掃除
+- `apps/server/src/preview.ts` — 見た目のスクリーンショット（playwright-core + 入っている Edge/Chrome）。撮るタイミングは `manager`（起動直後と、報告が来るたび）
 - `apps/server/src/hub.ts` — 全セッションのメモリ上の状態 + WebSocket 配信 + SQLite 保存
 - `apps/server/src/index.ts` — REST ルート（操作）と WS（配信）
 - `apps/web/src/store.ts` — zustand。WS イベントをそのまま反映するだけ。フロントで状態を推測しない
