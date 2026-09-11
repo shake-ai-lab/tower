@@ -74,14 +74,19 @@ export function parseReport(finalText: string, fallbackRequest: string): Report 
   const needs = section(body, '判断が必要');
   const next = section(body, '次の一手');
   let outcome = OUTCOME_MAP[outcomeRaw] ?? 'unknown';
-  // 「完了」なのに利用者に目視確認を頼んでいる = 実際は一部完了。ルールで禁じているが守られない時の保険
-  const asksCheck = (s: string) => !isNone(s) && ASKS_CHECK.test(s);
-  if (outcome === 'done' && (asksCheck(needs) || asksCheck(next))) outcome = 'partial';
+  const summary = bullets(section(body, 'やったこと'));
+  // 「完了」なのに利用者にブラウザ等での目視確認を頼んでいる = 実際は一部完了。ルールで禁じているが守られない時の保険。
+  // Tower の画面に添付されたスクリーンショットを見てもらうだけなら、その場で済むので完了のまま
+  const asksCheck = (s: string) => !isNone(s) && ASKS_CHECK.test(s) && !/スクリーンショット|添付/.test(s);
+  if (outcome === 'done' && (asksCheck(needs) || asksCheck(next))) {
+    outcome = 'partial';
+    summary.push('残り: あなたの確認（エージェントは「完了」と書きましたが、確認を頼んでいるので Tower が「一部完了」にしました）');
+  }
 
   return {
     request: section(body, '依頼') || fallbackRequest,
     outcome,
-    summary: bullets(section(body, 'やったこと')),
+    summary,
     changedFiles: bullets(section(body, '変更ファイル')),
     needsDecision: isNone(needs) ? null : needs,
     nextStep: isNone(next) ? null : next,

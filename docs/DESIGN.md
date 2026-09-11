@@ -82,6 +82,8 @@ starting → running ⇄ waiting_permission
 
 - **見た目の確認（スクリーンショット）**（2026-09-11）: `preview.ts`。PC に入っている Edge / Chrome を `playwright-core` の `channel` 指定で起動する（ブラウザのダウンロード不要。Edge 起動 0.2 秒、2 枚で 1.4 秒）。対象は `.tower.json` の `preview`（URL）か、フォルダ直下の `index.html`（Tower が空きポートで静的配信）。CSS/HTML に `prefers-color-scheme` があればダークも撮る。起動直後（修正前）と、報告が来るたび（修正後。`manager` が hub の購読で `report.generatedAt` の変化を見る）に撮って `Session.preview` に持ち、画面に「修正前 → 修正後」のサムネイルと拡大表示。エージェントには system prompt で「Tower が撮るのでブラウザを開かなくてよい」と伝える（site-dark で Playwright を入れ始めて 10 回許可を求めた対策）。採点役にも画像を渡す（Haiku の画像入力）
 
+  - 効果（site-dark）: 許可 10 回・207 秒 → **0〜1 回・30 秒**、達成 partial → **yes**（採点役が画像でダークモードを確認）。「完了」+「添付のスクリーンショットで確認して」は完了のまま（保険の対象外）、落とす時は「残り: あなたの確認（…Tower が一部完了にしました）」をやったことに足して理由を見せる
+
 残り:
 - 開発サーバーを Tower が起動する（`.tower.json` の `preview.command`）。今は起動済みの URL を撮るだけ
 
