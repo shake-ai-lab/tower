@@ -1,0 +1,177 @@
+{
+  "runId": "2026-09-12T04-16-51-909Z",
+  "url": "http://127.0.0.1:5178",
+  "mode": "isolated-browser-journeys",
+  "results": [
+    {
+      "id": "search-return",
+      "goal": "ファイルを確認して検索へ戻っても、探していた内容を失わない",
+      "steps": [
+        "Ctrl+Shift+F → apple を検索",
+        "大文字と小文字を区別するをオン",
+        "ファイルへ移動",
+        "検索へ戻る"
+      ],
+      "ok": true,
+      "error": "",
+      "durationMs": 2086,
+      "screenshot": "search-return.png",
+      "snapshot": "search-return.yml",
+      "trace": "search-return.zip"
+    },
+    {
+      "id": "search-error",
+      "goal": "検索に失敗したとき、前の検索結果を現在の結果と取り違えない",
+      "steps": [
+        "apple を検索",
+        "次の検索通信を失敗させる",
+        "banana を検索",
+        "エラーと結果一覧を読む"
+      ],
+      "ok": true,
+      "error": "",
+      "durationMs": 2662,
+      "screenshot": "search-error.png",
+      "snapshot": "search-error.yml",
+      "trace": "search-error.zip"
+    },
+    {
+      "id": "search-pending",
+      "goal": "通信待ちの間も、いま検索している条件を誤解しない",
+      "steps": [
+        "apple を検索",
+        "検索通信を1秒遅くする",
+        "banana を検索",
+        "待機中の表示と最終結果を確認"
+      ],
+      "ok": true,
+      "error": "",
+      "durationMs": 2881,
+      "screenshot": "search-pending.png",
+      "snapshot": "search-pending.yml",
+      "trace": "search-pending.zip"
+    },
+    {
+      "id": "quick-open-type",
+      "goal": "名前でファイルを開き、そのままキーボードで編集する",
+      "steps": [
+        "Ctrl+P → notes.txt → Enter",
+        "マウスで本文を押さずに typing-check と入力",
+        "未保存表示を確認"
+      ],
+      "ok": true,
+      "error": "",
+      "durationMs": 2303,
+      "screenshot": "quick-open-type.png",
+      "snapshot": "quick-open-type.yml",
+      "trace": "quick-open-type.zip"
+    },
+    {
+      "id": "quick-open-reopen",
+      "goal": "すでに開いているファイルも名前で選び直して入力できる",
+      "steps": [
+        "notes.txt を開く",
+        "もう一度 Ctrl+P → notes.txt → Enter",
+        "マウスを使わず再入力"
+      ],
+      "ok": true,
+      "error": "",
+      "durationMs": 2580,
+      "screenshot": "quick-open-reopen.png",
+      "snapshot": "quick-open-reopen.yml",
+      "trace": "quick-open-reopen.zip"
+    },
+    {
+      "id": "quick-open-loading",
+      "goal": "ファイル一覧の読込中に矢印を押しても Enter で開ける",
+      "steps": [
+        "一覧の読込を1秒遅くする",
+        "Ctrl+P → 読込中に↓",
+        "候補の読込完了後 Enter"
+      ],
+      "ok": true,
+      "error": "",
+      "durationMs": 2116,
+      "screenshot": "quick-open-loading.png",
+      "snapshot": "quick-open-loading.yml",
+      "trace": "quick-open-loading.zip"
+    },
+    {
+      "id": "quick-open-cancel",
+      "goal": "名前で開くのを取り消したら、直前の本文で編集を続ける",
+      "steps": [
+        "notes.txt の本文をクリック",
+        "Ctrl+P → Esc",
+        "そのまま文字を入力"
+      ],
+      "ok": true,
+      "error": "",
+      "durationMs": 2299,
+      "screenshot": "quick-open-cancel.png",
+      "snapshot": "quick-open-cancel.yml",
+      "trace": "quick-open-cancel.zip"
+    },
+    {
+      "id": "quick-open-tab",
+      "goal": "ファイル選択中のTab操作で背面の画面に迷い込まない",
+      "steps": [
+        "Ctrl+P",
+        "Tab と Shift+Tab",
+        "ファイル名入力のフォーカスを確認"
+      ],
+      "ok": true,
+      "error": "",
+      "durationMs": 621,
+      "screenshot": "quick-open-tab.png",
+      "snapshot": "quick-open-tab.yml",
+      "trace": "quick-open-tab.zip"
+    },
+    {
+      "id": "quick-open-keyboard",
+      "goal": "Ctrl+Pの直後、入力欄をクリックせずファイル名を打てる",
+      "steps": [
+        "notes.txt の本文へフォーカス",
+        "Ctrl+P",
+        "そのまま notes と入力"
+      ],
+      "ok": true,
+      "error": "",
+      "durationMs": 1778,
+      "screenshot": "quick-open-keyboard.png",
+      "snapshot": "quick-open-keyboard.yml",
+      "trace": "quick-open-keyboard.zip"
+    },
+    {
+      "id": "edit-save",
+      "goal": "編集を保存し、閉じて開き直したときも内容が残る",
+      "steps": [
+        "notes.txt を開く",
+        "本文をクリックして編集",
+        "Ctrl+S",
+        "閉じて開き直す"
+      ],
+      "ok": true,
+      "error": "",
+      "durationMs": 2490,
+      "screenshot": "edit-save.png",
+      "snapshot": "edit-save.yml",
+      "trace": "edit-save.zip"
+    },
+    {
+      "id": "dirty-close",
+      "goal": "未保存ファイルを閉じるのを取り消して、編集を続ける",
+      "steps": [
+        "notes.txt を編集",
+        "Ctrl+W",
+        "破棄確認をキャンセル",
+        "未保存表示を確認"
+      ],
+      "ok": true,
+      "error": "",
+      "durationMs": 2097,
+      "screenshot": "dirty-close.png",
+      "snapshot": "dirty-close.yml",
+      "trace": "dirty-close.zip"
+    }
+  ]
+}

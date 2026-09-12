@@ -1,0 +1,132 @@
+{
+  "runId": "2026-09-12T04-06-01-409Z",
+  "url": "http://127.0.0.1:5173",
+  "mode": "isolated-browser-journeys",
+  "results": [
+    {
+      "id": "search-return",
+      "goal": "ファイルを確認して検索へ戻っても、探していた内容を失わない",
+      "steps": [
+        "Ctrl+Shift+F → apple を検索",
+        "大文字と小文字を区別するをオン",
+        "ファイルへ移動",
+        "検索へ戻る"
+      ],
+      "ok": false,
+      "error": "検索へ戻ると入力した apple が消えた",
+      "durationMs": 1573,
+      "screenshot": "search-return.png",
+      "snapshot": "search-return.yml",
+      "trace": "search-return.zip"
+    },
+    {
+      "id": "search-error",
+      "goal": "検索に失敗したとき、前の検索結果を現在の結果と取り違えない",
+      "steps": [
+        "apple を検索",
+        "次の検索通信を失敗させる",
+        "banana を検索",
+        "エラーと結果一覧を読む"
+      ],
+      "ok": false,
+      "error": "banana の検索失敗後に apple の古い結果が残る",
+      "durationMs": 2308,
+      "screenshot": "search-error.png",
+      "snapshot": "search-error.yml",
+      "trace": "search-error.zip"
+    },
+    {
+      "id": "search-pending",
+      "goal": "通信待ちの間も、いま検索している条件を誤解しない",
+      "steps": [
+        "apple を検索",
+        "検索通信を1秒遅くする",
+        "banana を検索",
+        "待機中の表示と最終結果を確認"
+      ],
+      "ok": false,
+      "error": "banana を探している間に apple の結果をクリックできてしまう",
+      "durationMs": 1861,
+      "screenshot": "search-pending.png",
+      "snapshot": "search-pending.yml",
+      "trace": "search-pending.zip"
+    },
+    {
+      "id": "quick-open-type",
+      "goal": "名前でファイルを開き、そのままキーボードで編集する",
+      "steps": [
+        "Ctrl+P → notes.txt → Enter",
+        "マウスで本文を押さずに typing-check と入力",
+        "未保存表示を確認"
+      ],
+      "ok": false,
+      "error": "名前で開いた直後の文字入力がエディタに届かない",
+      "durationMs": 7180,
+      "screenshot": "quick-open-type.png",
+      "snapshot": "quick-open-type.yml",
+      "trace": "quick-open-type.zip"
+    },
+    {
+      "id": "quick-open-reopen",
+      "goal": "すでに開いているファイルも名前で選び直して入力できる",
+      "steps": [
+        "notes.txt を開く",
+        "もう一度 Ctrl+P → notes.txt → Enter",
+        "マウスを使わず再入力"
+      ],
+      "ok": false,
+      "error": "開いていたファイルを再選択しても入力先が戻らない",
+      "durationMs": 7377,
+      "screenshot": "quick-open-reopen.png",
+      "snapshot": "quick-open-reopen.yml",
+      "trace": "quick-open-reopen.zip"
+    },
+    {
+      "id": "quick-open-loading",
+      "goal": "ファイル一覧の読込中に矢印を押しても Enter で開ける",
+      "steps": [
+        "一覧の読込を1秒遅くする",
+        "Ctrl+P → 読込中に↓",
+        "候補の読込完了後 Enter"
+      ],
+      "ok": false,
+      "error": "読込中に↓を押すと候補が選択されず Enter で開けない",
+      "durationMs": 7000,
+      "screenshot": "quick-open-loading.png",
+      "snapshot": "quick-open-loading.yml",
+      "trace": "quick-open-loading.zip"
+    },
+    {
+      "id": "edit-save",
+      "goal": "編集を保存し、閉じて開き直したときも内容が残る",
+      "steps": [
+        "notes.txt を開く",
+        "本文をクリックして編集",
+        "Ctrl+S",
+        "閉じて開き直す"
+      ],
+      "ok": true,
+      "error": "",
+      "durationMs": 2423,
+      "screenshot": "edit-save.png",
+      "snapshot": "edit-save.yml",
+      "trace": "edit-save.zip"
+    },
+    {
+      "id": "dirty-close",
+      "goal": "未保存ファイルを閉じるのを取り消して、編集を続ける",
+      "steps": [
+        "notes.txt を編集",
+        "Ctrl+W",
+        "破棄確認をキャンセル",
+        "未保存表示を確認"
+      ],
+      "ok": true,
+      "error": "",
+      "durationMs": 2092,
+      "screenshot": "dirty-close.png",
+      "snapshot": "dirty-close.yml",
+      "trace": "dirty-close.zip"
+    }
+  ]
+}

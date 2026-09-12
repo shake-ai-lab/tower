@@ -1,0 +1,22 @@
+{
+  "runId": "2026-09-12T04-15-49-718Z",
+  "url": "http://127.0.0.1:5178",
+  "mode": "isolated-browser-journeys",
+  "results": [
+    {
+      "id": "quick-open-keyboard",
+      "goal": "Ctrl+Pの直後、入力欄をクリックせずファイル名を打てる",
+      "steps": [
+        "notes.txt の本文へフォーカス",
+        "Ctrl+P",
+        "そのまま notes と入力"
+      ],
+      "ok": false,
+      "error": "Ctrl+P直後の文字がファイル名入力欄に届かない",
+      "durationMs": 2336,
+      "screenshot": "quick-open-keyboard.png",
+      "snapshot": "quick-open-keyboard.yml",
+      "trace": "quick-open-keyboard.zip"
+    }
+  ]
+}

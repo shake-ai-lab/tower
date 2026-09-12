@@ -1,0 +1,70 @@
+- banner:
+  - text: Tower 作業中 0 · 判断待ち 0 · 全 1
+  - button "使った量"
+  - 'button "VS Code 連携: オフ"'
+  - button "気づいたこと"
+  - button "通知を有効にする"
+  - button "＋ 新しいタスク n"
+- navigation "表示パターン":
+  - button "ファイル＋チャット" [pressed]
+  - button "カード"
+  - button "コンパクト"
+  - button "集中"
+  - button "4分割"
+- paragraph: 左にエクスプローラー、中央にファイル、右にチャット。狭い画面では上下に並びます。
+- complementary:
+  - navigation "ワークスペース":
+    - button "判断待ち 0": 判断待ち
+    - button "ファイル"
+    - button "検索" [pressed]
+    - button "Git"
+    - button "設定"
+  - text: 検索
+  - paragraph: 操作検証プロジェクト の中を探します
+  - textbox "プロジェクト全体から探す文字":
+    - /placeholder: 探す文字（Ctrl+Shift+F）
+    - text: banana
+  - checkbox "大文字と小文字を区別する"
+  - text: 大文字と小文字を区別する
+  - status: 1 件（1 ファイル）
+  - list "検索結果":
+    - listitem:
+      - button "notes.txt 1" [expanded]
+      - list:
+        - listitem:
+          - button "2apple と banana を買う":
+            - text: 2apple と
+            - mark: banana
+            - text: を買う
+  - separator "左パネルの幅"
+- region "ファイルエディタ":
+  - text: ファイル · 0 件
+  - button "分割なし" [pressed]
+  - button "左右に分割"
+  - button "上下に分割"
+  - button "自由に配置"
+  - group: キー操作
+  - button "タスクに戻る"
+  - tablist "グループ1"
+  - button "このグループを選んで、左のエクスプローラーからファイルを開いてください。"
+  - paragraph: 左のエクスプローラーでファイルを選んでください。
+- complementary "ファイルと並べるチャット":
+  - separator "チャットの幅"
+  - text: チャット
+  - combobox "チャットのタスク":
+    - option "操作検証プロジェクト / メモを読み、探して編集する" [selected]
+  - region "タスク詳細":
+    - text: 操作検証プロジェクト 停止
+    - button "削除"
+    - text: メモを読み、探して編集する 許可方針
+    - combobox "タスクの許可方針":
+      - option "編集は自動"
+      - option "毎回確認" [selected]
+      - option "おまかせ"
+      - option "全自動"
+    - text: 操作検証用 0往復 · 0操作
+    - button "変更されたファイル 0 差分を見る"
+    - text: 経過（クリックで詳細）
+    - textbox "このセッションは再開できません" [disabled]
+    - button "再開して送信" [disabled]
+    - button "📎 ファイルを添える" [disabled]

@@ -1,0 +1,37 @@
+{
+  "runId": "2026-09-12T04-10-36-015Z",
+  "url": "http://127.0.0.1:5173",
+  "mode": "isolated-browser-journeys",
+  "results": [
+    {
+      "id": "quick-open-cancel",
+      "goal": "名前で開くのを取り消したら、直前の本文で編集を続ける",
+      "steps": [
+        "notes.txt の本文をクリック",
+        "Ctrl+P → Esc",
+        "そのまま文字を入力"
+      ],
+      "ok": true,
+      "error": "",
+      "durationMs": 3211,
+      "screenshot": "quick-open-cancel.png",
+      "snapshot": "quick-open-cancel.yml",
+      "trace": "quick-open-cancel.zip"
+    },
+    {
+      "id": "quick-open-tab",
+      "goal": "ファイル選択中のTab操作で背面の画面に迷い込まない",
+      "steps": [
+        "Ctrl+P",
+        "Tab と Shift+Tab",
+        "ファイル名入力のフォーカスを確認"
+      ],
+      "ok": true,
+      "error": "",
+      "durationMs": 673,
+      "screenshot": "quick-open-tab.png",
+      "snapshot": "quick-open-tab.yml",
+      "trace": "quick-open-tab.zip"
+    }
+  ]
+}
