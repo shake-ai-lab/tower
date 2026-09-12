@@ -29,12 +29,14 @@ export async function llmJson<T>(
   schema: Record<string, unknown>,
   model = 'haiku',
   images: LlmImage[] = [],
+  abortController?: AbortController,
 ): Promise<T> {
   let out: unknown;
   const q = query({
     prompt: images.length ? withImages(prompt, images) : prompt,
     options: {
       model,
+      abortController,
       tools: [],
       settingSources: [],
       persistSession: false,

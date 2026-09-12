@@ -6,3 +6,4 @@ data/
 .DS_Store
 playground/runs/
 apps/desktop/stage/
+docs/dogfood/**/*.zip

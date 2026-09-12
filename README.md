@@ -129,6 +129,16 @@ Claude との違い: Codex（`codex exec`）は作業中に許可を都度聞け
 
 ## 使い込んで良くする（ドッグフーディング）
 
+エディターを実際の画面から使う利用者役もあります。詳しくは [ブラウザ利用者役エージェント](docs/BROWSER-USER-AGENT.md) を参照してください。
+
+```bash
+npm run dev -w apps/web           # 別ターミナルで画面を起動（実サーバーは不要）
+npm run dogfood:ui                # クリック・入力・ショートカットの操作検証
+npm run dogfood:ui -- --explore   # AIが画面を見て次の操作を選ぶ自由探索
+```
+
+画面と Monaco は実物を使い、保存先・検索通信・タスクは検証用データに置き換えます。既存のタスクやファイルは変更しません。レポート・画面・操作トレースを保存します。自由探索では既存のClaudeログインを使用し、モデル利用量が発生します。
+
 ```bash
 npm run dogfood                     # 利用者役AIが8本のシナリオを並列で投げ、許可や質問に答え、報告を採点する
 npm run dogfood -- --only todo-fix  # 一部だけ
