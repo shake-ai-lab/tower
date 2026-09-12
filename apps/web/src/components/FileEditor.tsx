@@ -10,6 +10,7 @@ import { btn, fmtTime } from '../lib';
 import { resolveLink } from '../editor-tools';
 import { renderMarkdown } from '../markdown';
 import { useEditorWorkspace, type Reveal } from '../editor-workspace';
+import { clearDraft, fileKey, fingerprint, readDraft, writeDraft } from '../editor-persist';
 
 const LANG: Record<string, string> = {
   ts: 'typescript',
@@ -52,6 +53,12 @@ function langOf(p: string): string {
 
 const MARK_COLOR = { added: '#3fb950', modified: '#388bfd', deleted: '#f85149' } as const;
 
+/** 書きかけを取った時刻。今日なら時刻だけ、前の日なら日付も */
+const draftTime = (ts: number) =>
+  new Date(ts).toDateString() === new Date().toDateString()
+    ? fmtTime(ts)
+    : new Date(ts).toLocaleString('ja-JP', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+
 export function FileEditor({
   sessionId,
   path,
@@ -93,19 +100,35 @@ export function FileEditor({
   const decorations = useRef<monaco.editor.IEditorDecorationsCollection | null>(null);
   const revealed = useRef(0);
   const [ready, setReady] = useState(false);
+  const key = fileKey(sessionId, path);
+  // 前回保存していなかった書きかけ（editor-persist）: restored＝戻した / changed＝その後ファイルが変わった / busy＝作業中で閲覧のみ
+  const [draftNote, setDraftNote] = useState<{ kind: 'restored' | 'changed' | 'busy'; value: string; at: number } | null>(null);
+  const readOnlyRef = useRef(readOnly);
+  readOnlyRef.current = readOnly;
 
   useEffect(() => {
     let alive = true;
     setOrig(null);
     setErr(null);
     setSavedAt(null);
+    setDraftNote(null);
     if (isImage) return;
     api
       .file(sessionId, path)
       .then((f) => {
         if (!alive) return;
+        const id = fileKey(sessionId, path);
+        const d = readDraft(id);
         setOrig(f.content);
-        setValue(f.content);
+        if (!d || d.value === f.content) {
+          setValue(f.content);
+          if (d) clearDraft(id);
+          return;
+        }
+        // 読み込んだ時の中身から変わっていなければそのまま戻す。変わっていた・作業中で閲覧のみなら、戻すかどうかを選んでもらう
+        const kind = d.base !== fingerprint(f.content) ? 'changed' : readOnlyRef.current ? 'busy' : 'restored';
+        setValue(kind === 'restored' ? d.value : f.content);
+        setDraftNote({ kind, value: d.value, at: d.at });
       })
       .catch((e) => alive && setErr(e instanceof Error ? e.message : String(e)));
     return () => {
@@ -170,6 +193,26 @@ export function FileEditor({
 
   useEffect(() => onDirty(dirty), [dirty, onDirty]);
 
+  // 保存していない書きかけを端末に残す（再起動・入れ直しのあとに戻せるように）。前回の書きかけを戻すか決まるまでは触らない
+  const undecided = draftNote !== null && draftNote.kind !== 'restored';
+  useEffect(() => {
+    if (orig === null || isImage || undecided) return;
+    if (value === orig) {
+      clearDraft(key);
+      return;
+    }
+    const t = setTimeout(() => writeDraft(key, orig, value), 300);
+    const flush = () => {
+      clearTimeout(t);
+      writeDraft(key, orig, value);
+    };
+    window.addEventListener('pagehide', flush);
+    return () => {
+      clearTimeout(t);
+      window.removeEventListener('pagehide', flush);
+    };
+  }, [key, orig, value, isImage, undecided]);
+
   const save = useCallback(async () => {
     if (readOnly || isImage || orig === null || busy || value === orig) return;
     setBusy(true);
@@ -178,6 +221,7 @@ export function FileEditor({
       await api.saveFile(sessionId, { path, content: value });
       setOrig(value);
       setSavedAt(Date.now());
+      setDraftNote((n) => (n?.kind === 'restored' ? null : n));
       onSaved?.();
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
@@ -281,6 +325,30 @@ export function FileEditor({
             </button>}
           </div>
         </header>
+        {draftNote && (
+          <div role="status" className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-1.5 border-b border-amber-900/60 bg-amber-950/40 text-xs text-amber-200">
+            <span>
+              {draftNote.kind === 'restored'
+                ? `前回保存していなかった変更（${draftTime(draftNote.at)}）を戻しました。まだ保存していません。`
+                : draftNote.kind === 'changed'
+                  ? `前回保存していなかった変更（${draftTime(draftNote.at)}）があります。その後ファイルが変わったので、自動では戻していません。戻すと、今の中身がその時の書きかけに置き換わります（保存するまでファイルは変わりません）。`
+                  : `前回保存していなかった変更（${draftTime(draftNote.at)}）があります。タスクが作業中で今は閲覧のみなので、終わったら戻せます。`}
+            </span>
+            <div className="ml-auto flex gap-3">
+              {draftNote.kind === 'restored' ? (
+                <>
+                  <button className="hover:underline" onClick={() => { setValue(orig ?? ''); setDraftNote(null); }}>変更を捨てる</button>
+                  <button className="hover:underline" onClick={() => setDraftNote(null)}>閉じる</button>
+                </>
+              ) : (
+                <>
+                  <button disabled={readOnly} className="hover:underline disabled:opacity-40 disabled:no-underline" onClick={() => { setValue(draftNote.value); setDraftNote(null); }}>書きかけを戻す</button>
+                  <button className="hover:underline" onClick={() => { clearDraft(key); setDraftNote(null); }}>捨てる</button>
+                </>
+              )}
+            </div>
+          </div>
+        )}
         <div className="file-content flex-1 min-h-0">
           {isImage ? (
             <div className="h-full overflow-auto p-4">

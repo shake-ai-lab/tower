@@ -4,6 +4,7 @@ import { Aquarium } from './Aquarium';
 import { DeskScene } from './DeskScene';
 import { isAnimatedTheme, isSceneTheme } from '../desk-scenes';
 import { DESK_ORIGIN, deskBounds, scaleText, textScale } from '../desk-geometry';
+import { loadDesk, saveDesk } from '../editor-persist';
 import { useStore } from '../store';
 import { DeskWindowControls, type DeskRect } from './DeskWindowControls';
 const FileEditor = lazy(() => import('./FileEditor').then((m) => ({ default: m.FileEditor })));
@@ -22,8 +23,10 @@ export function EditorWorkspace({ forceVisible = false, onReturn }: { forceVisib
   const visible = s.visible || forceVisible;
   const sessions = useStore((s) => s.sessions);
   const activeFile = s.files.find((f) => f.id === s.selected[s.pane]);
-  const [ratio, setRatio] = useState(50);
-  const [zoom, setZoom] = useState(1);
+  // 分割の比率・自由配置の位置と倍率は前回の続きから（editor-persist）
+  const [saved] = useState(() => loadDesk());
+  const [ratio, setRatio] = useState(saved?.ratio ?? 50);
+  const [zoom, setZoom] = useState(saved?.zoom ?? 1);
   const [deskSelected, setDeskSelected] = useState<string | null>(null);
   const themes = [['dots', 'ドット'], ['wood', '作業机'], ['aquarium', 'アクアリウム'], ['circuit', '電気図面'], ['blueprint', '設計図'], ['paper', '方眼紙'], ['night', '星空'], ['forest', '森'], ['slate', '黒板'], ['plain', '無地']] as const;
   const [theme, setTheme] = useState(() => { try { return localStorage.getItem('tower.desk.theme') ?? 'dots'; } catch { return 'dots'; } });
@@ -44,15 +47,29 @@ export function EditorWorkspace({ forceVisible = false, onReturn }: { forceVisib
     setAquariumMotion(next);
     try { localStorage.setItem('tower.aquarium.motion', next); } catch {}
   };
-  const [positions, setPositions] = useState<Record<string, DeskRect>>({});
+  const [positions, setPositions] = useState<Record<string, DeskRect>>(() => saved?.positions ?? {});
   const desk = s.layout === 'desk';
   const position = (id: string, i: number) => positions[id] ?? { x: -260 + (i % 4) * 70, y: -220 + (i % 4) * 55 + Math.floor(i / 4) * 100, w: 520, h: 440, angle: 0, z: i };
   const changePosition = (id: string, i: number, patch: Partial<ReturnType<typeof position>>) => setPositions((cur) => ({ ...cur, [id]: { ...(cur[id] ?? position(id, i)), ...patch } }));
   const deskSelectedRef = useRef(deskSelected);
   deskSelectedRef.current = deskSelected;
   const region = useRef<HTMLDivElement>(null);
-  const center = useRef({ x: 0, y: 0 });
-  const [restores, setRestores] = useState<Record<string, DeskRect>>({});
+  const center = useRef(saved?.center ?? { x: 0, y: 0 });
+  const [restores, setRestores] = useState<Record<string, DeskRect>>(() => saved?.restores ?? {});
+  // 並べ方を端末に残す（再起動・入れ直しのあとも戻る）。スクロールのたびに書かないよう少し待つ
+  const deskState = useRef({ ratio, zoom, positions, restores });
+  deskState.current = { ratio, zoom, positions, restores };
+  const persistTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const writeDesk = useCallback(() => {
+    clearTimeout(persistTimer.current);
+    const ids = new Set(useEditorWorkspace.getState().files.map((f) => f.id));
+    const keep = (r: Record<string, DeskRect>) => Object.fromEntries(Object.entries(r).filter(([id]) => ids.has(id)));
+    const d = deskState.current;
+    saveDesk({ ratio: d.ratio, zoom: d.zoom, positions: keep(d.positions), restores: keep(d.restores), center: center.current });
+  }, []);
+  const persistDesk = useCallback(() => { clearTimeout(persistTimer.current); persistTimer.current = setTimeout(writeDesk, 300); }, [writeDesk]);
+  useEffect(persistDesk, [ratio, zoom, positions, restores, s.files, persistDesk]);
+  useEffect(() => { window.addEventListener('pagehide', writeDesk); return () => window.removeEventListener('pagehide', writeDesk); }, [writeDesk]);
   const pan = useRef<{ x: number; y: number; left: number; top: number } | null>(null);
   const bringForward = (id: string, i: number) => {
     s.activate(id);
@@ -164,7 +181,7 @@ export function EditorWorkspace({ forceVisible = false, onReturn }: { forceVisib
     {desk && theme === 'aquarium' && <Aquarium active={visible} paused={aquariumPaused} />}
     {desk && isSceneTheme(theme) && <DeskScene key={theme} theme={theme} active={visible} paused={aquariumPaused} />}
     <div ref={region} aria-label={desk ? '自由配置のデスク' : undefined} className={`desk-region relative flex-1 min-h-0 min-w-0 ${desk ? 'overflow-auto' : 'grid'}`} style={{ gridTemplateColumns: split && !rows ? `${ratio}fr 6px ${100 - ratio}fr` : 'minmax(0, 1fr)', gridTemplateRows: split && rows ? `minmax(0, ${ratio}fr) 6px minmax(0, ${100 - ratio}fr)` : 'minmax(0, 1fr)' }}
-      onScroll={(e) => { if (desk) center.current = { x: (e.currentTarget.scrollLeft + e.currentTarget.clientWidth / 2) / zoom - DESK_ORIGIN.x, y: (e.currentTarget.scrollTop + e.currentTarget.clientHeight / 2) / zoom - DESK_ORIGIN.y }; }}
+      onScroll={(e) => { if (desk) center.current = { x: (e.currentTarget.scrollLeft + e.currentTarget.clientWidth / 2) / zoom - DESK_ORIGIN.x, y: (e.currentTarget.scrollTop + e.currentTarget.clientHeight / 2) / zoom - DESK_ORIGIN.y }; if (desk) persistDesk(); }}
       onPointerDown={(e) => { if (!desk || (e.button !== 1 && (e.button !== 0 || (e.target as HTMLElement).closest('[role="tabpanel"]')))) return; e.preventDefault(); setDeskSelected(null); if (document.activeElement instanceof HTMLElement) document.activeElement.blur(); pan.current = { x: e.clientX, y: e.clientY, left: e.currentTarget.scrollLeft, top: e.currentTarget.scrollTop }; e.currentTarget.setPointerCapture(e.pointerId); e.currentTarget.style.cursor = 'grabbing'; }}
       onPointerMove={(e) => { if (!pan.current) return; e.currentTarget.scrollLeft = pan.current.left - (e.clientX - pan.current.x); e.currentTarget.scrollTop = pan.current.top - (e.clientY - pan.current.y); }}
       onPointerUp={(e) => { if (!pan.current) return; pan.current = null; e.currentTarget.releasePointerCapture(e.pointerId); e.currentTarget.style.cursor = ''; }}

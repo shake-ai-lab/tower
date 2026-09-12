@@ -42,6 +42,7 @@ try {
     else if (p === '/api/agents') data = { claude: { available: true }, codex: { available: true } };
     else if (p === '/api/settings') data = { settings: {}, file: 'C:/tower/config.json', version: 'test', needsRestart: [] };
     else if (p === '/api/bridge') data = { enabled: false, permissions: false };
+    else if (p === '/api/usage') { const z = { count: 0, input: 0, cacheRead: 0, output: 0, cost: 0 }; data = { today: z, week: z, all: z, projectsToday: [] }; }
     else if (p === '/api/feedback') data = { notes: [], file: 'C:/feedback.md' };
     return route.fulfill({ json: data });
   });
