@@ -365,7 +365,7 @@ export interface ChangedFile {
 export interface ChangesResponse {
   isGit: boolean;
   branch?: string;
-  history?: { hash: string; parents: string[]; subject: string; refs: string; author: string; message?: string }[];
+  history?: { hash: string; parents: string[]; subject: string; refs: string; author: string; /** ISO 8601 */ date?: string; message?: string }[];
   files: ChangedFile[];
   /** 分離した作業場所の時: 差分の比較先の説明（例: 「元のブランチ main」） */
   against?: string;

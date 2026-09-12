@@ -9,11 +9,11 @@ const MAX_FILE = 200 * 1024;
 const MAX_TOTAL = 2 * 1024 * 1024;
 
 export function collectHistory(dir: string): NonNullable<ChangesResponse['history']> {
-  const result = git(dir, ['log', '--all', '--topo-order', '-40', '--format=%H%x1f%P%x1f%s%x1f%D%x1f%an%x1f%B%x00']);
+  const result = git(dir, ['log', '--all', '--topo-order', '-40', '--format=%H%x1f%P%x1f%s%x1f%D%x1f%an%x1f%aI%x1f%B%x00']);
   if (!result.ok || !result.out) return [];
   return result.out.split('\0').map((line) => line.trim()).filter(Boolean).map((line) => {
-    const [hash, parents, subject, refs, author, message] = line.split('\x1f');
-    return { hash, parents: parents ? parents.split(' ') : [], subject, refs, author, message };
+    const [hash, parents, subject, refs, author, date, message] = line.split('\x1f');
+    return { hash, parents: parents ? parents.split(' ') : [], subject, refs, author, date, message };
   });
 }
 
