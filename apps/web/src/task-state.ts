@@ -70,9 +70,12 @@ export function taskState(s: Judged): TaskState {
   }
 }
 
-/** もう片付いたもの。一覧で「終わったもの」として畳める。報告が「完了」のものも含める（判断することが残っていない） */
+/**
+ * もう片付いたもの（完了・エラー・終了）。一覧で「終わったもの」として畳める。報告が「完了」のものも含める（判断することが残っていない）。
+ * 停止は途中で止めただけで、指示を送れば続きから再開するので含めない（終わりにしたい時は「完了にする」）
+ */
 export function isFinished(s: Judged): boolean {
-  return ['done', 'error', 'stopped', 'ended'].includes(taskState(s));
+  return ['done', 'error', 'ended'].includes(taskState(s));
 }
 
 /** 「完了にする」ボタンを出すか。もう完了しているもの・外で作業中のものには出さない */

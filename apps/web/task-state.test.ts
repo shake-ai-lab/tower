@@ -51,6 +51,16 @@ test('marked done by you: 完了 badge, keeps the partial report visible, no but
   assert.equal(badgeRepeatsReport(s), false);
 });
 
+test('stopped is not finished (it can be resumed), even with a 完了 report; you can still close it by hand', () => {
+  for (const s of [task({ status: 'stopped' }), task({ status: 'stopped', report: report('done') })]) {
+    assert.equal(stateBadge(s).label, '停止');
+    assert.equal(isFinished(s), false);
+    assert.equal(canMarkDone(s), true);
+  }
+  assert.equal(isFinished(task({ status: 'error' })), true);
+  assert.equal(isFinished(task({ status: 'done' })), true);
+});
+
 test('ended without a 完了 report is 終了; working and external-working tasks', () => {
   assert.equal(stateBadge(task({ status: 'done' })).label, '終了');
   assert.equal(stateBadge(task({ status: 'done', report: report('done') })).label, '✓ 完了');

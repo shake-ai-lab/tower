@@ -25,9 +25,10 @@ const ORDER: Record<SessionStatus, number> = {
   running: 1,
   starting: 1,
   idle: 2,
+  // 停止は途中で止めただけ（指示を送れば続きから）なので、報告待ちと同じ所に置く
+  stopped: 2,
   error: 3,
   done: 4,
-  stopped: 4,
 };
 
 /** 判断待ちの「どれ」を知らせたか。許可・質問はその要求、報告の判断はその報告ごと */
@@ -153,7 +154,7 @@ export default function App() {
   const waiting = list.filter(needsYou).length;
   const working = list.filter((s) => s.status === 'running' || s.status === 'starting').length;
 
-  // 終わったもの（停止・完了・エラー）を隠して一覧を軽くする。消すわけではないので「使った量」の集計はそのまま
+  // 終わったもの（完了・エラー、報告が完了のもの）を隠して一覧を軽くする。停止は続きができるので隠さない。消すわけではないので「使った量」の集計はそのまま
   const [hideDone, setHideDone] = useState(() => localStorage.getItem('tower.hideDone') === '1');
   useEffect(() => localStorage.setItem('tower.hideDone', hideDone ? '1' : '0'), [hideDone]);
   const finishedCount = list.filter(isFinished).length;
@@ -408,7 +409,7 @@ export default function App() {
                   {!q && finishedCount > 0 && (
                     <button
                       onClick={() => setHideDone((v) => !v)}
-                      title="停止・完了・エラーで終わったものを一覧から隠します（消しません。検索と「使った量」には残ります）"
+                      title="完了・エラーで終わったものを一覧から隠します（消しません。検索と「使った量」には残ります）。停止したものは続きができるので隠しません"
                       className="text-xs text-zinc-500 hover:text-zinc-300 underline whitespace-nowrap"
                     >
                       {hideDone ? `終わったもの ${finishedCount} 件を見せる` : `終わったもの ${finishedCount} 件を隠す`}

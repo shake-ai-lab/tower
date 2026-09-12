@@ -19,12 +19,19 @@ test('same project name in different folders stays separate', () => {
 });
 
 test('finished tasks are folded away unless asked for or searched', () => {
-  const list = [task('a', 'editor', '進めろって', 'stopped'), task('b', 'editor', 'ダークモード', 'running'), task('c', 'site', 'X', 'error')];
+  const list = [task('a', 'editor', '進めろって', 'done'), task('b', 'editor', 'ダークモード', 'running'), task('c', 'site', 'X', 'error')];
   const folded = pickerGroups(list, '', false);
   assert.deepEqual(ids(folded), [['editor', ['b']]]);
   assert.equal(folded.hiddenFinished, 2);
   assert.deepEqual(ids(pickerGroups(list, '', true)), [['editor', ['a', 'b']], ['site', ['c']]]);
   assert.deepEqual(ids(pickerGroups(list, '進め', false)), [['editor', ['a']]]);
+});
+
+test('stopped tasks are not finished: they can be resumed, so they stay in the list', () => {
+  const list = [task('a', 'editor', '途中で止めた', 'stopped'), task('b', 'editor', '済んだ', 'done')];
+  const folded = pickerGroups(list, '', false);
+  assert.deepEqual(ids(folded), [['editor', ['a']]]);
+  assert.equal(folded.hiddenFinished, 1);
 });
 
 test('search matches project name and title, every word must match', () => {
