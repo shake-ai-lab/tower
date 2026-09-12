@@ -5,47 +5,49 @@ import { api } from '../api';
 import { useEditorWorkspace } from '../editor-workspace';
 import { Icon } from './Icon';
 
-export function SearchPanel({ session, focusKey }: { session: Session; focusKey: number }) {
+export function SearchPanel({ session, focusKey, active = true }: { session: Session; focusKey: number; active?: boolean }) {
   const [q, setQ] = useState('');
   const [caseSensitive, setCaseSensitive] = useState(false);
-  const [res, setRes] = useState<SearchResponse | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState('');
+  const [result, setResult] = useState<{ key: string; response?: SearchResponse; error?: string } | null>(null);
+  const requestKey = JSON.stringify([session.id, q, caseSensitive]);
+  const hasQuery = !!q.trim();
+  const current = hasQuery && result?.key === requestKey ? result : null;
+  const res = current?.response;
+  const err = current?.error;
+  const busy = hasQuery && !current;
   const [closed, setClosed] = useState<Record<string, boolean>>({});
   const input = useRef<HTMLInputElement>(null);
   const open = useEditorWorkspace((s) => s.open);
 
   useEffect(() => {
+    if (!active) return;
     input.current?.focus();
     input.current?.select();
-  }, [focusKey]);
+  }, [focusKey, active]);
 
   // 打ち終わって少し待ってから探す（1 文字ごとに全部のファイルを読まない）
   useEffect(() => {
+    if (!active) return;
     if (!q.trim()) {
-      setRes(null);
-      setErr('');
-      setBusy(false);
+      setResult(null);
       return;
     }
+    setResult(null);
     let alive = true;
     const t = setTimeout(() => {
-      setBusy(true);
       api
         .search(session.id, q, caseSensitive)
         .then((r) => {
           if (!alive) return;
-          setRes(r);
-          setErr('');
+          setResult({ key: requestKey, response: r });
         })
-        .catch((e) => alive && setErr(e instanceof Error ? e.message : String(e)))
-        .finally(() => alive && setBusy(false));
+        .catch((e) => alive && setResult({ key: requestKey, error: e instanceof Error ? e.message : String(e) }));
     }, 300);
     return () => {
       alive = false;
       clearTimeout(t);
     };
-  }, [q, caseSensitive, session.id]);
+  }, [q, caseSensitive, session.id, requestKey, active, focusKey]);
 
   return (
     <div className="p-2 space-y-2 text-[13px]">
@@ -65,14 +67,14 @@ export function SearchPanel({ session, focusKey }: { session: Session; focusKey:
         大文字と小文字を区別する
       </label>
       {err && <p role="alert" className="text-xs text-red-300">{err}</p>}
-      {busy && <p className="text-xs text-zinc-500">探しています…</p>}
+      {busy && <p role="status" className="text-xs text-zinc-500">探しています…</p>}
       {res && !busy && (
         <p role="status" className="text-xs text-zinc-400">
           {res.total ? `${res.total} 件（${res.files.length} ファイル）` : '見つかりませんでした'}
           {res.truncated && ' · 多すぎるので途中までです'}
         </p>
       )}
-      <ul aria-label="検索結果" className="min-w-0">
+      <ul aria-label="検索結果" aria-busy={busy} className="min-w-0">
         {res?.files.map((f) => {
           const cut = f.path.lastIndexOf('/');
           return (

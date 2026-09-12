@@ -106,8 +106,9 @@ export function WorkspaceSidebar({ className = '' }: { className?: string }) {
         <div className="sticky top-0 z-10 px-3 py-2 bg-[#0c0e12]/95 border-b border-zinc-800 text-xs font-semibold tracking-wide text-zinc-300">{TITLE[tab]}</div>
         {tab === 'inbox' ? <Inbox embedded /> : tab === 'settings' ? <SettingsPanel /> : !session ?
           <p className="p-4 text-sm text-zinc-500">{tab === 'search' ? 'タスクを選ぶと、そのプロジェクトの中の文字を探せます。' : `タスクを選ぶと、プロジェクトの${tab === 'git' ? 'ブランチと差分' : 'ファイル'}が表示されます。`}</p> :
-          tab === 'search' ? <SearchPanel key={session.id} session={session} focusKey={searchFocus} /> :
+          tab === 'search' ? null :
           <ProjectFiles key={session.id} session={session} git={tab === 'git'} onQuickOpen={() => setQuickOpen(true)} />}
+        {session && <div hidden={tab !== 'search'}><SearchPanel key={session.id} session={session} focusKey={searchFocus} active={tab === 'search'} /></div>}
       </div>
     </div>
     {desktop && <div role="separator" aria-label="左パネルの幅" aria-orientation="vertical" aria-valuemin={220} aria-valuemax={600} aria-valuenow={resize.actualWidth} tabIndex={0}
