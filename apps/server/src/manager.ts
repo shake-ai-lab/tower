@@ -29,7 +29,7 @@ import { SHOTS_DIR, capture, detectPreview, laterPreviewLabel, targetLabel } fro
 import { CODEX_MISSING, findCodexBin } from './codex-bin.ts';
 import { claudeDefaultModel, codexModels } from './model-defaults.ts';
 import { detectVerifyCommand, runVerify } from './verify.ts';
-import { createWorktree, mergeWorktree, removeWorktree } from './worktree.ts';
+import { createWorktree, mergeFixPrompt, mergeWorktree, originalRef, removeWorktree } from './worktree.ts';
 
 /** 画像・ファイルだけ添えて文を書かずに送った時の指示 */
 const DEFAULT_ATTACH_PROMPT = '添えた画像・ファイルを見てください';
@@ -134,25 +134,40 @@ export class SessionManager {
 
   private autoMerged = new Map<string, number>();
 
-  /** 自動取り込み: 報告が「完了」で、裏取りが（あれば）通った時に一度だけ取り込む */
+  /**
+   * 自動取り込み。どちらも裏取りが（あれば）通った時に、その報告につき一度だけ取り込む
+   * - 自動取り込みを選んだタスク: 報告が「完了」の時
+   * - 取り込みが競合して AI に合わせるよう頼んだタスク: その後の報告が来た時（AI が質問している間は待つ）
+   */
   private maybeAutoMerge(s: Session) {
-    if (!s.workspace?.autoMerge || s.status !== 'idle' || s.report?.outcome !== 'done') return;
+    const ws = s.workspace;
+    if (!ws || s.status !== 'idle' || !s.report) return;
     const at = s.report.generatedAt;
+    const retry = !!ws.mergeFix && at > ws.mergeFix.at;
+    if (ws.mergeFix && !retry) return; // AI に合わせてもらっている最中
+    if (!retry && !(ws.autoMerge && s.report.outcome === 'done')) return;
+    if (retry && s.report.outcome === 'question') return; // 答えて、直った報告が来てから取り込む
     if (this.autoMerged.get(s.id) === at) return;
-    if (s.changedFiles.length === 0) return; // 何も変えていないなら取り込むものが無い
+    if (!retry && s.changedFiles.length === 0) return; // 何も変えていないなら取り込むものが無い
     const needsVerify = detectVerifyCommand(workDir(s)) !== null;
     if (needsVerify) {
       // 裏取りは報告の後に走る。この報告に対する結果が出るまで待つ
       if (!s.verification || s.verification.at < at || s.verification.ok === null) return;
       if (!s.verification.ok) {
         this.autoMerged.set(s.id, at);
-        this.note(s.id, 'system', '裏取りが通らなかったので、自動では取り込みませんでした。直してから「取り込む」を押してください');
+        if (retry) {
+          const message = '元のプロジェクトの変更と合わせた後の裏取り（自動チェック）が通らなかったので、取り込みませんでした。報告を確認してください。このままでよければ「取り込む」を押すと取り込めます';
+          this.hub.update(s.id, { workspace: { ...ws, mergeFix: null, lastMerge: { at: Date.now(), ok: false, message } } });
+          this.note(s.id, 'system', message);
+        } else {
+          this.note(s.id, 'system', '裏取りが通らなかったので、自動では取り込みませんでした。直してから「取り込む」を押してください');
+        }
         return;
       }
     }
     this.autoMerged.set(s.id, at);
     try {
-      const r = this.merge(s.id, true);
+      const r = this.merge(s.id, retry ? 'retry' : 'auto');
       if (!r.ok) console.warn(`[automerge] ${s.id.slice(0, 8)}: ${r.message.split('\n')[0]}`);
     } catch (e) {
       console.warn(`[automerge] ${s.id.slice(0, 8)}:`, e instanceof Error ? e.message : e);
@@ -534,19 +549,67 @@ export class SessionManager {
     }
   }
 
-  /** 分離した作業場所の変更を、元のプロジェクトに取り込む。auto = Tower が自動で（裏取りが通った時） */
-  merge(id: string, auto = false): MergeResult {
+  /**
+   * 分離した作業場所の変更を、元のプロジェクトに取り込む。
+   * via: button = 利用者が押した / auto = 自動取り込み（裏取りが通った時）/ retry = 競合を AI に合わせてもらった後のやり直し
+   * 競合したら、利用者に git の作業を頼まず、そのタスクの AI に合わせて直すよう頼む（やり直しでも駄目なら、そこで利用者に返す）
+   */
+  merge(id: string, via: 'button' | 'auto' | 'retry' = 'button'): MergeResult {
     const s = this.hub.get(id);
     if (!s) throw new Error('セッションが見つかりません');
     if (!s.workspace) throw new Error('このセッションは別の作業場所を使っていません（プロジェクトのフォルダで直接作業しています）');
     if (WORKING.includes(s.status)) {
       throw new Error('作業中は取り込めません。報告が来るまで待つか、停止してから取り込んでください');
     }
-    const r = mergeWorktree(s.project.path, s.workspace, s.title);
-    this.hub.update(id, { workspace: { ...s.workspace, lastMerge: { at: Date.now(), ok: r.ok, message: r.message } } });
-    const head = auto ? (r.ok ? '裏取りが通ったので自動で取り込みました' : '自動取り込みに失敗') : r.ok ? '取り込み' : '取り込み失敗';
-    this.note(id, r.ok ? 'system' : 'error', `${head}: ${r.message.split('\n')[0]}`, r.ok ? undefined : r.message);
-    return r;
+    // この報告ではもう取り込みを試した（押した後の更新で自動取り込みがもう一度走らないように）
+    if (s.report) this.autoMerged.set(id, s.report.generatedAt);
+    const r = mergeWorktree(s.project.path, s.workspace, s.title, { busyTasks: this.workingInOriginal(s) });
+    let message = r.message;
+    let fixPrompt: string | null = null;
+    if (r.reason === 'conflict' || r.reason === 'unresolved') {
+      if (via === 'retry') {
+        message += '\nAI に合わせてもらいましたが、まだ合流できていません。報告を確認してから、もう一度「取り込む」を押してください（押すと、また AI に合わせてもらいます）。';
+      } else if (s.agentSessionId) {
+        fixPrompt = mergeFixPrompt(originalRef(s.project.path), r.reason === 'unresolved');
+        message += '\nAI に、元のプロジェクトの変更と合わせて直すよう頼みました。直った報告が来たら、Tower がもう一度取り込みます。';
+      } else {
+        message += '\nこのタスクに「元のプロジェクトの変更を取り込んで、競合を直して」と指示してから、もう一度「取り込む」を押してください。';
+      }
+    }
+    const now = Date.now();
+    this.hub.update(id, { workspace: { ...s.workspace, mergeFix: fixPrompt ? { at: now } : null, lastMerge: { at: now, ok: r.ok, message } } });
+    const head = r.ok
+      ? via === 'auto'
+        ? '裏取りが通ったので自動で取り込みました'
+        : via === 'retry'
+          ? '元のプロジェクトの変更と合わせたので、もう一度取り込みました'
+          : '取り込み'
+      : fixPrompt
+        ? '取り込みで競合'
+        : via === 'auto'
+          ? '自動取り込みに失敗'
+          : '取り込み失敗';
+    this.note(id, r.ok || fixPrompt ? 'system' : 'error', `${head}: ${message.split('\n')[0]}`, r.ok ? undefined : message);
+    if (fixPrompt) {
+      try {
+        this.send(id, fixPrompt);
+      } catch (e) {
+        // AI に頼めなかった（再開できない等）: 利用者に指示してもらう
+        message = `${r.message}\nAI に頼めませんでした（${e instanceof Error ? e.message : String(e)}）。このタスクに「元のプロジェクトの変更を取り込んで、競合を直して」と指示してから、もう一度「取り込む」を押してください。`;
+        const cur = this.hub.get(id);
+        if (cur?.workspace) this.hub.update(id, { workspace: { ...cur.workspace, mergeFix: null, lastMerge: { at: Date.now(), ok: false, message } } });
+        this.note(id, 'error', `取り込み失敗: ${message.split('\n')[0]}`, message);
+      }
+    }
+    return { ...r, message };
+  }
+
+  /** 元のプロジェクトのフォルダで直接作業中のタスク（その書きかけを、取り込みのついでに記録しないため） */
+  private workingInOriginal(s: Session): string[] {
+    const key = (p: string) => (process.platform === 'win32' ? path.resolve(p).toLowerCase() : path.resolve(p));
+    return [...this.hub.sessions.values()]
+      .filter((x) => x.id !== s.id && !x.workspace && WORKING.includes(x.status) && key(x.project.path) === key(s.project.path))
+      .map((x) => x.title);
   }
 
   private note(sessionId: string, kind: TimelineKind, text: string, detail?: string) {

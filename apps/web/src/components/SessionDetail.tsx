@@ -259,7 +259,12 @@ function WorkspaceStrip({ s }: { s: Session }) {
         <span className="mono text-zinc-500">{ws.branch}</span>
         {working && <span className="text-zinc-500">作業中は取り込めません</span>}
       </div>
-      {ws.lastMerge && (
+      {ws.mergeFix ? (
+        <div className="whitespace-pre-wrap text-amber-200">
+          ⏳ 元のプロジェクトの変更とぶつかったので、AI に合わせて直してもらっています。直った報告が来たら、Tower がもう一度取り込みます（AI から質問が来たら答えてください）。
+          <span className="text-zinc-500 ml-2">{fmtTime(ws.mergeFix.at)}</span>
+        </div>
+      ) : ws.lastMerge && (
         <div className={`whitespace-pre-wrap ${ws.lastMerge.ok ? 'text-emerald-200' : 'text-red-200'}`}>
           {ws.lastMerge.ok ? '✔ ' : '✖ '}
           {ws.lastMerge.message}
