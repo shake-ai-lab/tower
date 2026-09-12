@@ -1,0 +1,39 @@
+{
+  "runId": "2026-09-12T08-29-48-529Z",
+  "url": "http://127.0.0.1:5178",
+  "mode": "isolated-browser-journeys",
+  "results": [
+    {
+      "id": "search-after-save",
+      "goal": "検索で見つけたファイルを編集した後、検索へ戻ると最新の結果が見える",
+      "steps": [
+        "apple を検索",
+        "notes.txt の検索結果を開く",
+        "末尾に apple を追記して保存",
+        "ファイル一覧から検索へ戻る"
+      ],
+      "ok": false,
+      "error": "検証環境の未対応API: GET /api/usage; GET /api/usage",
+      "durationMs": 4690,
+      "screenshot": "search-after-save.png",
+      "snapshot": "search-after-save.yml",
+      "trace": "search-after-save.zip"
+    },
+    {
+      "id": "loading-focus",
+      "goal": "ファイルの読込中に検索へ移ったら、読込完了後も検索を続けられる",
+      "steps": [
+        "ファイルの読込を1.5秒遅くする",
+        "Ctrl+P → notes.txt",
+        "読込中に検索へ移動して入力",
+        "読込完了後の入力先を確認"
+      ],
+      "ok": false,
+      "error": "検証環境の未対応API: GET /api/usage; GET /api/usage",
+      "durationMs": 2952,
+      "screenshot": "loading-focus.png",
+      "snapshot": "loading-focus.yml",
+      "trace": "loading-focus.zip"
+    }
+  ]
+}

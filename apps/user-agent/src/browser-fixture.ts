@@ -17,7 +17,7 @@ export async function installFixture(context: BrowserContext) {
     pending: null, report: null, turns: 0, costUsd: 0, toolCalls: 0,
     changedFiles: [], createdAt: Date.now(), updatedAt: Date.now(), lastError: null,
   };
-  const faults = { search: false, searchDelay: 0, filesDelay: 0, save: false };
+  const faults = { search: false, searchDelay: 0, filesDelay: 0, fileDelay: 0, save: false };
   const unexpected: string[] = [];
   await context.routeWebSocket('**/ws', (ws) => ws.send(JSON.stringify({ type: 'snapshot', sessions: [session] })));
   await context.route('**/api/**', async (route) => {
@@ -26,6 +26,10 @@ export async function installFixture(context: BrowserContext) {
     const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
     if (p === '/api/sessions' && request.method() === 'GET') return json([session]);
     if (p === '/api/config') return json({ externalKeepHours: 24 });
+    if (p === '/api/usage') {
+      const empty = { count: 0, input: 0, cacheRead: 0, output: 0, cost: 0 };
+      return json({ today: empty, week: empty, all: empty, projectsToday: [] });
+    }
     if (p === '/api/feedback') return json({ file: 'memory:feedback', version: 'fixture', notes: [] });
     if (p === '/api/bridge') return json({ installed: false, permissions: false });
     if (p === '/api/projects') return json([session.project]);
@@ -70,6 +74,7 @@ export async function installFixture(context: BrowserContext) {
         return json({ ok: true, path: body.path });
       }
       const file = url.searchParams.get('path') ?? '';
+      await delay(faults.fileDelay);
       return files.has(file) ? json({ path: file, content: files.get(file) }) : json({ error: 'ファイルがありません' }, 404);
     }
     unexpected.push(`${request.method()} ${p}`);

@@ -1,5 +1,5 @@
 {
-  "runId": "2026-09-12T04-16-51-909Z",
+  "runId": "2026-09-12T08-30-28-760Z",
   "url": "http://127.0.0.1:5178",
   "mode": "isolated-browser-journeys",
   "results": [
@@ -14,7 +14,7 @@
       ],
       "ok": true,
       "error": "",
-      "durationMs": 2086,
+      "durationMs": 2460,
       "screenshot": "search-return.png",
       "snapshot": "search-return.yml",
       "trace": "search-return.zip"
@@ -30,7 +30,7 @@
       ],
       "ok": true,
       "error": "",
-      "durationMs": 2662,
+      "durationMs": 3453,
       "screenshot": "search-error.png",
       "snapshot": "search-error.yml",
       "trace": "search-error.zip"
@@ -46,7 +46,7 @@
       ],
       "ok": true,
       "error": "",
-      "durationMs": 2881,
+      "durationMs": 2958,
       "screenshot": "search-pending.png",
       "snapshot": "search-pending.yml",
       "trace": "search-pending.zip"
@@ -61,10 +61,42 @@
       ],
       "ok": true,
       "error": "",
-      "durationMs": 2303,
+      "durationMs": 2718,
       "screenshot": "quick-open-type.png",
       "snapshot": "quick-open-type.yml",
       "trace": "quick-open-type.zip"
+    },
+    {
+      "id": "search-after-save",
+      "goal": "検索で見つけたファイルを編集した後、検索へ戻ると最新の結果が見える",
+      "steps": [
+        "apple を検索",
+        "notes.txt の検索結果を開く",
+        "末尾に apple を追記して保存",
+        "ファイル一覧から検索へ戻る"
+      ],
+      "ok": true,
+      "error": "",
+      "durationMs": 4295,
+      "screenshot": "search-after-save.png",
+      "snapshot": "search-after-save.yml",
+      "trace": "search-after-save.zip"
+    },
+    {
+      "id": "loading-focus",
+      "goal": "ファイルの読込中に検索へ移ったら、読込完了後も検索を続けられる",
+      "steps": [
+        "ファイルの読込を1.5秒遅くする",
+        "Ctrl+P → notes.txt",
+        "読込中に検索へ移動して入力",
+        "読込完了後の入力先を確認"
+      ],
+      "ok": true,
+      "error": "",
+      "durationMs": 3294,
+      "screenshot": "loading-focus.png",
+      "snapshot": "loading-focus.yml",
+      "trace": "loading-focus.zip"
     },
     {
       "id": "quick-open-reopen",
@@ -76,7 +108,7 @@
       ],
       "ok": true,
       "error": "",
-      "durationMs": 2580,
+      "durationMs": 2954,
       "screenshot": "quick-open-reopen.png",
       "snapshot": "quick-open-reopen.yml",
       "trace": "quick-open-reopen.zip"
@@ -91,7 +123,7 @@
       ],
       "ok": true,
       "error": "",
-      "durationMs": 2116,
+      "durationMs": 2245,
       "screenshot": "quick-open-loading.png",
       "snapshot": "quick-open-loading.yml",
       "trace": "quick-open-loading.zip"
@@ -106,7 +138,7 @@
       ],
       "ok": true,
       "error": "",
-      "durationMs": 2299,
+      "durationMs": 3514,
       "screenshot": "quick-open-cancel.png",
       "snapshot": "quick-open-cancel.yml",
       "trace": "quick-open-cancel.zip"
@@ -121,7 +153,7 @@
       ],
       "ok": true,
       "error": "",
-      "durationMs": 621,
+      "durationMs": 986,
       "screenshot": "quick-open-tab.png",
       "snapshot": "quick-open-tab.yml",
       "trace": "quick-open-tab.zip"
@@ -136,7 +168,7 @@
       ],
       "ok": true,
       "error": "",
-      "durationMs": 1778,
+      "durationMs": 2502,
       "screenshot": "quick-open-keyboard.png",
       "snapshot": "quick-open-keyboard.yml",
       "trace": "quick-open-keyboard.zip"
@@ -152,7 +184,7 @@
       ],
       "ok": true,
       "error": "",
-      "durationMs": 2490,
+      "durationMs": 3136,
       "screenshot": "edit-save.png",
       "snapshot": "edit-save.yml",
       "trace": "edit-save.zip"
@@ -168,7 +200,7 @@
       ],
       "ok": true,
       "error": "",
-      "durationMs": 2097,
+      "durationMs": 2963,
       "screenshot": "dirty-close.png",
       "snapshot": "dirty-close.yml",
       "trace": "dirty-close.zip"

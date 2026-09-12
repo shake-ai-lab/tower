@@ -52,6 +52,8 @@
     - button "閉じる"
     - code:
       - textbox "エディターのコンテンツ"
+      - listbox "提案":
+        - listitem "check、テキスト":  check
     - text: 保存すると、次の指示で手動変更をAIに伝えます。テストがあれば裏取りも走ります。
 - complementary "ファイルと並べるチャット":
   - separator "チャットの幅"

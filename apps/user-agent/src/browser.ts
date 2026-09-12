@@ -83,6 +83,33 @@ const journeys: Journey[] = [
       await p.keyboard.type('typing-check', { delay: 60 });
       await waitFor(() => p.getByText('● 未保存', { exact: true }).isVisible(), '名前で開いた直後の文字入力がエディタに届かない');
     } },
+  { id: 'search-after-save', goal: '検索で見つけたファイルを編集した後、検索へ戻ると最新の結果が見える',
+    steps: ['apple を検索', 'notes.txt の検索結果を開く', '末尾に apple を追記して保存', 'ファイル一覧から検索へ戻る'],
+    run: async (p) => {
+      await searchApple(p);
+      await p.getByTitle('notes.txt の 2 行目を開く', { exact: true }).click();
+      await p.locator('.monaco-editor:visible').waitFor();
+      await p.locator('.monaco-editor:visible .view-lines').click();
+      await p.keyboard.press('Control+End'); await p.keyboard.type('\napple', { delay: 60 });
+      await p.keyboard.press('Control+s');
+      await p.getByText(/✔ 保存しました/).waitFor();
+      await p.getByRole('button', { name: 'ファイル', exact: true }).click();
+      await p.getByRole('button', { name: '検索', exact: true }).click();
+      await p.getByRole('status').filter({ hasText: '3 件' }).waitFor();
+    } },
+  { id: 'loading-focus', goal: 'ファイルの読込中に検索へ移ったら、読込完了後も検索を続けられる',
+    steps: ['ファイルの読込を1.5秒遅くする', 'Ctrl+P → notes.txt', '読込中に検索へ移動して入力', '読込完了後の入力先を確認'],
+    run: async (p, f) => {
+      f.faults.fileDelay = 1500;
+      await p.keyboard.press('Control+p');
+      await p.getByLabel('開くファイルの名前', { exact: true }).fill('notes.txt');
+      await p.getByRole('option').first().waitFor(); await p.keyboard.press('Enter');
+      await p.getByRole('dialog', { name: 'ファイル名で開く' }).waitFor({ state: 'hidden' });
+      await p.keyboard.press('Control+Shift+f'); await searchInput(p).fill('apple');
+      await p.locator('.monaco-editor:visible').waitFor();
+      await p.waitForTimeout(150); // 読込後のフォーカス処理も含めて確認
+      if (!await searchInput(p).evaluate((el) => el === el.ownerDocument.activeElement)) throw new Error('ファイル読込完了時に検索入力からフォーカスを奪った');
+    } },
   { id: 'quick-open-reopen', goal: 'すでに開いているファイルも名前で選び直して入力できる',
     steps: ['notes.txt を開く', 'もう一度 Ctrl+P → notes.txt → Enter', 'マウスを使わず再入力'],
     run: async (p) => {
@@ -182,7 +209,7 @@ async function main() {
     try {
       const page = await context.newPage(); page.setDefaultTimeout(10000);
       await page.goto(url);
-      await page.getByRole('button', { name: 'ファイル＋チャット', exact: true }).click();
+      await page.getByRole('navigation', { name: '中央の表示' }).getByRole('button', { name: /^開いたファイル/ }).click();
       await page.getByRole('button', { name: 'notes.txt', exact: true }).waitFor();
       const { explore } = await import('./browser-explore.ts');
       await explore(page, out, arg('--model', 'haiku'), steps,
@@ -205,7 +232,7 @@ async function main() {
       const started = Date.now(); let error = '';
       try {
         await page.goto(url);
-        await page.getByRole('button', { name: 'ファイル＋チャット', exact: true }).click();
+        await page.getByRole('navigation', { name: '中央の表示' }).getByRole('button', { name: /^開いたファイル/ }).click();
         await page.getByRole('button', { name: 'notes.txt', exact: true }).waitFor();
         await journey.run(page, fixture);
         if (errors.length) throw new Error(`画面エラー: ${errors.join('; ')}`);
