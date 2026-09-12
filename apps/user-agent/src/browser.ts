@@ -4,6 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium, type Browser, type Page } from 'playwright-core';
 import { installFixture } from './browser-fixture.ts';
+import { performAction } from './browser-actions.ts';
 
 const args = process.argv.slice(2);
 function arg(name: string, fallback: string) {
@@ -43,6 +44,17 @@ async function quickOpen(p: Page, file = 'notes.txt') {
   await p.locator('.monaco-editor:visible').first().waitFor();
 }
 const journeys: Journey[] = [
+  { id: 'pointer-edit', goal: 'AI操作器が本文の表示座標をクリックし、現在の入力先に文字を打って保存できる',
+    steps: ['notes.txt を開く', '本文の入力要素の表示座標をクリック', '現在の入力先に pointer-check を打つ', 'Ctrl+Sで保存'],
+    run: async (p) => {
+      await quickOpen(p);
+      const editor = p.getByRole('textbox', { name: 'エディターのコンテンツ', exact: true });
+      await performAction(p, { action: 'click', target: 0, value: '' }, [editor]);
+      await performAction(p, { action: 'type', target: -1, value: 'pointer-check' }, []);
+      await waitFor(async () => (await p.locator('.monaco-editor:visible .view-lines').innerText()).includes('pointer-check'), '本文のクリック後に文字が入力されない');
+      await performAction(p, { action: 'press', target: -1, value: 'Control+s' }, []);
+      await p.getByText(/✔ 保存しました/).waitFor();
+    } },
   { id: 'search-return', goal: 'ファイルを確認して検索へ戻っても、探していた内容を失わない',
     steps: ['Ctrl+Shift+F → apple を検索', '大文字と小文字を区別するをオン', 'ファイルへ移動', '検索へ戻る'],
     run: async (p) => {

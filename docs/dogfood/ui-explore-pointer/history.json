@@ -1,0 +1,8 @@
+{
+  "goal": "notes.txtを開き、本文をマウスでクリックしてからHelloを入力してください。保存してからfinishしてください。",
+  "model": "haiku",
+  "finished": false,
+  "error": "Error: llm failed: You've hit your session limit · resets 5:40pm (Etc/GMT-9)",
+  "history": [],
+  "dialogs": []
+}

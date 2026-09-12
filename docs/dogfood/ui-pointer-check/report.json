@@ -1,0 +1,23 @@
+{
+  "runId": "2026-09-12T08-33-58-516Z",
+  "url": "http://127.0.0.1:5178",
+  "mode": "isolated-browser-journeys",
+  "results": [
+    {
+      "id": "pointer-edit",
+      "goal": "AI操作器が本文の表示座標をクリックし、現在の入力先に文字を打って保存できる",
+      "steps": [
+        "notes.txt を開く",
+        "本文の入力要素の表示座標をクリック",
+        "現在の入力先に pointer-check を打つ",
+        "Ctrl+Sで保存"
+      ],
+      "ok": true,
+      "error": "",
+      "durationMs": 2650,
+      "screenshot": "pointer-edit.png",
+      "snapshot": "pointer-edit.yml",
+      "trace": "pointer-edit.zip"
+    }
+  ]
+}
