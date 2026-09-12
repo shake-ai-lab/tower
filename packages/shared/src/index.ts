@@ -151,6 +151,8 @@ export interface Workspace {
   lastMerge: { at: number; ok: boolean; message: string } | null;
   /** true = 報告が「完了」で裏取りも通ったら、Tower が自動で取り込む */
   autoMerge?: boolean;
+  /** 取り込みが競合したので、AI に元のプロジェクトの変更と合わせるよう頼んだ時刻。これより後の報告が来たら Tower がもう一度取り込む */
+  mergeFix?: { at: number } | null;
 }
 
 /** 「比べる」のグループ。label はモデルの表示名（「Haiku 4.5」など） */
@@ -351,6 +353,11 @@ export interface MergeResult {
   message: string;
   /** 取り込んだファイル数 */
   files: number;
+  /**
+   * 失敗の理由。conflict = 同じ箇所が別々に変わっていて合流できない / unresolved = 作業場所に直しかけの競合が残っている /
+   * busy = 元のプロジェクトのフォルダで直接作業中のタスクが、取り込む内容と同じファイルを書き換えている
+   */
+  reason?: 'conflict' | 'unresolved' | 'busy';
 }
 
 export interface PermissionDecisionBody {
