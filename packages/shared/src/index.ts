@@ -226,6 +226,10 @@ export interface Session {
   createdAt: number;
   updatedAt: number;
   lastError: string | null;
+  /** サーバー再起動で中断した印。at = 起動して気づいた時刻、status = 中断直前の状態。自動再開か利用者の指示で消す */
+  interrupted?: { at: number; status: SessionStatus } | null;
+  /** 利用者の指示を挟まずに連続で自動再開した回数（再起動ループの歯止め）。利用者が指示を送ると 0 に戻す */
+  autoResumes?: number;
 }
 
 export type TimelineKind =
@@ -491,6 +495,8 @@ export interface TowerSettings {
   externalKeepHours: number;
   /** 画面の「気づいたこと」を溜める Markdown */
   feedbackFile: string;
+  /** サーバー再起動で中断した作業中のタスクを、起動時に自動で続きから再開する */
+  autoResume: boolean;
 }
 
 export interface SettingsStatus {

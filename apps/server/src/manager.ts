@@ -34,6 +34,36 @@ const DEFAULT_ATTACH_PROMPT = '添えた画像・ファイルを見てくださ�
 /** エージェントが手を動かしている最中（取り込み・直接編集はこの間できない） */
 const WORKING: SessionStatus[] = ['starting', 'running', 'waiting_permission', 'waiting_question'];
 
+/** 再起動後の自動再開でエージェントに送る指示（利用者が書いたのではないと分かる書き出しにする） */
+export const AUTO_RESUME_MESSAGE =
+  '（Tower からの自動メッセージ）Tower が再起動したため、作業が途中で止まりました。止まったところから続けてください。直前に許可や質問を待っていたなら、もう一度聞いてください。作業がすでに終わっていれば、報告だけ書いてください。';
+
+/** 自動再開の連続回数の上限。これ以上は利用者の指示を待つ（再起動ループの歯止め） */
+const AUTO_RESUME_LIMIT = 1;
+
+/** 件と件の間に空ける時間（同時に何本も起動しない） */
+const AUTO_RESUME_GAP_MS = 1500;
+
+/** 中断直前の状態を日本語で */
+const STATUS_LABEL: Partial<Record<SessionStatus, string>> = {
+  starting: '起動中',
+  running: '作業中',
+  waiting_permission: '許可待ち',
+  waiting_question: '質問待ち',
+};
+
+/** 今回の起動で付いた「中断」の印か。古い印は対象にしない（設定を後から入れた時に何日も前のタスクが一斉に動き出さないように） */
+function isFreshInterrupt(s: Session, since: number): boolean {
+  return !!s.interrupted && s.interrupted.at >= since && !!s.agentSessionId && s.origin !== 'external';
+}
+
+/** 起動時に自動で再開する候補（since 以降に付いた印だけ）。新しい順 */
+export function pickInterrupted(sessions: Session[], since: number): Session[] {
+  return sessions
+    .filter((s) => isFreshInterrupt(s, since) && (s.autoResumes ?? 0) < AUTO_RESUME_LIMIT)
+    .sort((a, b) => b.updatedAt - a.updatedAt);
+}
+
 const require = createRequire(import.meta.url);
 
 /** Codex のログイン状態（60秒キャッシュ）。バイナリは @openai/codex に同梱 */
@@ -263,8 +293,47 @@ export class SessionManager {
     );
   }
 
-  /** 追加指示。動いていなければ会話IDで再開する（外部セッションはここで Tower が引き継ぐ） */
-  send(id: string, text: string, uploads?: AttachmentUpload[]): void {
+  /**
+   * 起動時: 再起動で中断したタスクを 1 件ずつ続きから再開する（間隔 1.5 秒。同時に何本も起動しない）。
+   * 1 件の失敗は年表に残して次へ進む。前回の自動再開のあとにまた落ちたものは、繰り返しを避けて利用者の指示を待つ
+   */
+  async resumeInterrupted(): Promise<void> {
+    const all = this.hub.list();
+    // 歯止めに掛かったもの: 自動では再開せず、理由を年表に残す（interrupted はそのまま）
+    for (const s of all) {
+      if (isFreshInterrupt(s, this.hub.bootAt) && (s.autoResumes ?? 0) >= AUTO_RESUME_LIMIT) {
+        this.note(
+          s.id,
+          'system',
+          '前回の自動再開のあとに、また再起動で中断しました。同じことの繰り返しを避けるため自動では再開しません。指示を送ると続きから再開します',
+        );
+      }
+    }
+    const targets = pickInterrupted(all, this.hub.bootAt);
+    for (let i = 0; i < targets.length; i++) {
+      if (i > 0) await new Promise((r) => setTimeout(r, AUTO_RESUME_GAP_MS));
+      const s = this.hub.get(targets[i].id);
+      if (!s?.interrupted) continue; // その間に消された / 利用者が先に指示を送った
+      try {
+        if (s.workspace && !fs.existsSync(s.workspace.path)) {
+          this.note(s.id, 'error', '分離した作業場所のフォルダが見つからないので自動再開しません');
+          this.hub.update(s.id, { interrupted: null });
+          continue;
+        }
+        const before = s.interrupted.status;
+        this.send(s.id, AUTO_RESUME_MESSAGE, undefined, { auto: true });
+        this.hub.update(s.id, { autoResumes: (s.autoResumes ?? 0) + 1, interrupted: null });
+        this.note(s.id, 'system', 'サーバー再起動で中断したため、自動で続きから再開しました', `中断直前の状態: ${STATUS_LABEL[before] ?? before}`);
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        this.note(s.id, 'error', `自動再開に失敗: ${msg}`);
+        if (this.hub.get(s.id)) this.hub.update(s.id, { interrupted: null });
+      }
+    }
+  }
+
+  /** 追加指示。動いていなければ会話IDで再開する（外部セッションはここで Tower が引き継ぐ）。auto = 起動時の自動再開 */
+  send(id: string, text: string, uploads?: AttachmentUpload[], opts?: { auto?: boolean }): void {
     const s = this.hub.get(id);
     if (!s) throw new Error('セッションが見つかりません');
     const checked = checkUploads(uploads);
@@ -289,6 +358,12 @@ export class SessionManager {
       message += `\n\n（補足: このプロジェクトは作業前の時点で自動チェック「${s.baseline.command}」が失敗していました${names}。あなたの変更が原因でない失敗は、報告でそう書いてください。依頼の範囲外なら、直すかどうかを平易な言葉で一言だけ聞いてください）`;
       patch.baselineNoted = true;
     }
+    // 利用者の指示は「中断」の印を消し、自動再開の連続回数も 0 に戻す（自動再開の時は resumeInterrupted 側で消す）
+    // 値が変わる時だけ載せる（変わらないのに hub.update すると保存と配信が余計に走り、再起動後の自動取り込みが二重に動く）
+    if (!opts?.auto && ((s.autoResumes ?? 0) !== 0 || s.interrupted)) {
+      patch.autoResumes = 0;
+      patch.interrupted = null;
+    }
     if (Object.keys(patch).length) this.hub.update(id, patch);
     const running = this.runners.get(id);
     if (running) {
@@ -297,7 +372,11 @@ export class SessionManager {
     }
     this.hub.update(id, {
       status: 'starting',
-      activity: s.origin === 'external' ? 'Tower が引き継いで再開しています…' : '続きから再開しています…',
+      activity: opts?.auto
+        ? 'サーバー再起動から自動で再開しています…'
+        : s.origin === 'external'
+          ? 'Tower が引き継いで再開しています…'
+          : '続きから再開しています…',
       origin: 'tower',
       lastError: null,
       pending: null,

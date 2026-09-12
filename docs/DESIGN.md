@@ -90,6 +90,13 @@ starting → running ⇄ waiting_permission
 - **スマホ向け画面**（2026-09-11）: Tailwind の `md`（768px）未満で、判断インボックスとセッション一覧を下のタブで切り替え、詳細は全画面の重ね表示。起動ダイアログは縦積み。サーバーが `apps/web/dist` を配信するようになった（`npm run build -w apps/web` 後）ので、`host: 0.0.0.0` にすればスマホから 4800 だけで開ける。Playwright（Edge）で 390px 幅の画面を撮って確認
 - **デスクトップ版（Electron）**（2026-09-11）: `apps/desktop/main.cjs`。サーバーが無ければ `node tsx apps/server/src/index.ts` を起動し、Vite が動いていれば 5173、無ければ 4800 の配信画面を読む。閉じるとトレイに隠れ、トレイの WebSocket 購読で「判断待ち N 件」をツールチップに出す。通知は画面側の Notification API がそのまま Windows 通知になる（`setAppUserModelId`）。配布用のパッケージ（electron-builder）は未着手。アイコンは Playwright で HTML から描いた PNG。npm の allow-scripts で postinstall が止まるので、初回は `node node_modules/electron/install.js` が要る
 
+### 再起動後の自動再開（2026-09-12）
+- **何を**: `npm run deploy`・クラッシュ・`tsx watch` でサーバーが落ちると作業中のタスクが全部「停止」になり、1 件ずつ指示を送り直すしかなかった。起動時に Tower が自動で「続きから」再開する（`manager.resumeInterrupted`。1 秒待ってから 1.5 秒間隔で 1 件ずつ）
+- **仕組み**: `hub` の起動時に作業中だったものへ `Session.interrupted`（時刻と中断直前の状態）を付ける（`interruptForRestart`）。`manager.send(..., { auto: true })` が `AUTO_RESUME_MESSAGE`（「Tower からの自動メッセージ」と分かる書き出し）で会話 ID から再開し、年表に「自動で続きから再開しました」を残す
+- **歯止め**: 連続で自動再開した回数を `Session.autoResumes` に持ち、1 回自動再開したあとにまた落ちたものは自動では再開せず年表に理由を残す（再起動ループで同じタスクを延々と起こさない）。利用者が指示を送ると 0 に戻る。設定「再起動で止まったタスクを自動で再開」（`autoResume`）で丸ごと切れる
+- **対象外**: 外部セッション、報告あり（idle）・done・error・利用者が止めたもの、会話 ID が無いもの。途中だった許可・質問はプロセスと一緒に消えるので、エージェントに聞き直してもらう
+- **細かい所**: 対象は今回の起動で付いた印だけ（`hub.bootAt` 以降。設定を後から入れた時に何日も前のタスクが一斉に動き出さない）。動作確認で利用者のデータと混ぜないよう、置き場所を `TOWER_DATA_DIR` で切り替えられるようにした（`TOWER_PORT` は初回起動でも効くように修正）
+
 ### ドッグフーディングで分かったこと（ラウンド1, 2026-09-09）
 - 並列ツール呼び出しで2件目の許可要求が消えるバグ → 修正
 - 「テスト通った」と報告して実際は落ちている（半分はテンプレの不備、半分はエージェントの確認不足）→ 裏取り機能
@@ -163,6 +170,6 @@ starting → running ⇄ waiting_permission
 - なし（全部済み）。次は使いながらの改善（`docs/feedback.md` に溜まったものから）
 
 ## 既知の制約
-- サーバー再起動で動作中セッションは `stopped` になる
+- サーバー再起動で作業中のセッションは一度 `stopped` になり、起動時に自動で続きから再開する（設定で切れる。連続 2 回目は自動再開しない）。直前の許可・質問は消えるのでエージェントが聞き直す
 - 認証無し。LAN公開時は自宅内限定で
 - Windows で開発。macOS/Linux でも動くはずだが未確認

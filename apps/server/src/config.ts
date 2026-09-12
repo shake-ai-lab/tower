@@ -7,7 +7,8 @@ import type { TowerSettings } from '@tower/shared';
 /** 項目の意味は packages/shared の TowerSettings を参照 */
 export type TowerConfig = TowerSettings;
 
-export const DATA_DIR = path.join(os.homedir(), '.tower');
+/** 置き場所。動作確認で利用者のデータ（~/.tower）と混ぜたくない時は TOWER_DATA_DIR で別の場所にできる */
+export const DATA_DIR = process.env.TOWER_DATA_DIR ? path.resolve(process.env.TOWER_DATA_DIR) : path.join(os.homedir(), '.tower');
 export const CONFIG_PATH = path.join(DATA_DIR, 'config.json');
 
 function defaultRoots(): string[] {
@@ -24,6 +25,7 @@ function defaults(): TowerConfig {
     reformatReports: true,
     externalKeepHours: 24,
     feedbackFile: path.join(DATA_DIR, 'feedback.md'),
+    autoResume: true,
   };
 }
 
@@ -42,7 +44,7 @@ export function loadConfig(): TowerConfig {
   const base = defaults();
   if (!fs.existsSync(CONFIG_PATH)) {
     fs.writeFileSync(CONFIG_PATH, JSON.stringify(base, null, 2));
-    return base;
+    return applyEnvOverrides(base);
   }
   return applyEnvOverrides({ ...base, ...readFile() });
 }
@@ -98,6 +100,7 @@ export function validateSettings(body: Partial<TowerSettings>): Partial<TowerSet
   }
   if (body.autoVerify !== undefined) out.autoVerify = !!body.autoVerify;
   if (body.reformatReports !== undefined) out.reformatReports = !!body.reformatReports;
+  if (body.autoResume !== undefined) out.autoResume = !!body.autoResume;
   if (body.bridgeWaitSeconds !== undefined) out.bridgeWaitSeconds = int(body.bridgeWaitSeconds, '待つ秒数', 10, 600);
   if (body.externalKeepHours !== undefined) out.externalKeepHours = int(body.externalKeepHours, '保持する時間', 0, 24 * 30);
   if (body.feedbackFile !== undefined) {

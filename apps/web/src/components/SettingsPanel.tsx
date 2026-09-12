@@ -4,6 +4,12 @@ import { api, errMsg } from '../api';
 import { btn, clearSavedWidths } from '../lib';
 import { CodexAccount } from './CodexAccount';
 
+const CHECKBOX_LABELS = {
+  autoVerify: '報告後にテストを自動実行',
+  reformatReports: '報告をAIで読みやすく整形',
+  autoResume: '再起動で止まったタスクを自動で再開',
+} as const;
+
 export function SettingsPanel() {
   const [status, setStatus] = useState<SettingsStatus | null>(null);
   const [draft, setDraft] = useState<TowerSettings | null>(null);
@@ -34,9 +40,9 @@ export function SettingsPanel() {
     {error && <p role="alert" className="text-red-300 break-words">{error}</p>}
     {!draft ? <p>設定を読み込み中…</p> : <fieldset disabled={busy} className="space-y-3 min-w-0">
       <label className="block">プロジェクトの親フォルダ（1行に1つ）<textarea className={input} rows={4} value={roots} onChange={(e) => setRoots(e.target.value)} /></label>
-      {(['autoVerify', 'reformatReports'] as const).map((key) => <label key={key} className="flex gap-2 items-center">
+      {(['autoVerify', 'reformatReports', 'autoResume'] as const).map((key) => <label key={key} className="flex gap-2 items-center">
         <input type="checkbox" checked={draft[key]} onChange={(e) => setDraft({ ...draft, [key]: e.target.checked })} />
-        {key === 'autoVerify' ? '報告後にテストを自動実行' : '報告をAIで読みやすく整形'}
+        {CHECKBOX_LABELS[key]}
       </label>)}
       <label className="block">外部タスクの保持時間（時間・0は無期限）<input className={input} type="number" min={0} max={720} required value={draft.externalKeepHours} onChange={(e) => setDraft({ ...draft, externalKeepHours: Number(e.target.value) })} /></label>
       <label className="block">外部の許可を待つ時間（秒）<input className={input} type="number" min={10} max={600} required value={draft.bridgeWaitSeconds} onChange={(e) => setDraft({ ...draft, bridgeWaitSeconds: Number(e.target.value) })} /></label>

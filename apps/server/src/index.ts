@@ -430,6 +430,8 @@ const server = serve({ fetch: app.fetch, hostname: config.host, port: config.por
   console.log(
     `[tower] http://${info.address}:${info.port}  projects: ${config.projectRoots.join(', ') || '(なし)'}`,
   );
+  // 再起動で中断した作業中のタスクを、少し待ってから 1 件ずつ続きから再開する
+  if (config.autoResume) setTimeout(() => void manager.resumeInterrupted(), 1000);
 });
 
 const wss = new WebSocketServer({ server: server as HttpServer, path: '/ws' });
