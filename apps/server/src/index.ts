@@ -28,6 +28,7 @@ import { CONFIG_PATH, applyEnvOverrides, loadConfig, saveConfig, validateSetting
 import { apiCors, apiGuard } from './guard.ts';
 import { Db } from './db.ts';
 import { collectChanges, lineMarks } from './diff.ts';
+import { directChanges, linkTasks, setAutoCommitEnabled } from './commit.ts';
 import { listAllFiles, searchText } from './search.ts';
 import { FeedbackFile } from './feedback.ts';
 import { checkImage, listDir, readFileContent, resolveImage, writeFileContent } from './files.ts';
@@ -48,6 +49,7 @@ const bootListen = { host: config.host, port: config.port };
 let feedback = new FeedbackFile(config.feedbackFile);
 setVerifyEnabled(config.autoVerify);
 setReformatEnabled(config.reformatReports);
+setAutoCommitEnabled(config.autoCommit);
 const db = new Db();
 const hub = new Hub(db);
 const manager = new SessionManager(hub);
@@ -67,6 +69,7 @@ function applySettings(patch: Partial<TowerSettings>) {
   Object.assign(config, applyEnvOverrides(saved));
   setVerifyEnabled(config.autoVerify);
   setReformatEnabled(config.reformatReports);
+  setAutoCommitEnabled(config.autoCommit);
   if (feedback.file !== config.feedbackFile) feedback = new FeedbackFile(config.feedbackFile);
   bridge.setWaitSeconds(config.bridgeWaitSeconds);
   if (patch.externalKeepHours !== undefined) {
@@ -166,11 +169,14 @@ app.get('/api/sessions/:id/changes', (c) => {
   const s = hub.get(c.req.param('id'));
   if (!s) return c.json({ error: 'セッションが見つかりません' }, 404);
   try {
-    if (s.workspace) {
-      const r = collectChanges(workDir(s), s.changedFiles, diffBase(s.workspace));
-      return c.json({ ...r, against: `元のプロジェクト（${s.workspace.baseBranch || '分離した時点'}）` });
-    }
-    return c.json(collectChanges(s.project.path, s.changedFiles));
+    const r = s.workspace
+      ? {
+          ...collectChanges(workDir(s), s.changedFiles, diffBase(s.workspace)),
+          against: `元のプロジェクト（${s.workspace.baseBranch || '分離した時点'}）との差分です。すでに取り込んだ分は含みません。`,
+        }
+      : directChanges(s);
+    // どのコミットがどのタスクの記録か（Git のグラフでタスクと結びつける）
+    return c.json(r.history ? { ...r, history: linkTasks(r.history, hub.sessions.values()) } : r);
   } catch (e) {
     return c.json({ error: e instanceof Error ? e.message : String(e) }, 500);
   }

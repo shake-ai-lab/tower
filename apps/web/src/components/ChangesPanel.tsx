@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { ChangesResponse } from '@tower/shared';
 import { api } from '../api';
+import { openTask } from '../layout';
 import { GitHistory } from './GitHistory';
 import { Icon } from './Icon';
 
@@ -90,7 +91,7 @@ export function ChangesPanel({
 
   return (
     <div className="space-y-2">
-      {data.isGit && <><div className="flex items-center gap-2 rounded-sm bg-sky-400/10 border border-sky-400/20 px-2.5 py-2 text-xs text-sky-300 break-all"><Icon name="git" className="shrink-0" />ブランチ: {data.branch || 'HEAD（ブランチ未選択）'}</div><GitHistory commits={data.history ?? []} /></>}
+      {data.isGit && <><div className="flex items-center gap-2 rounded-sm bg-sky-400/10 border border-sky-400/20 px-2.5 py-2 text-xs text-sky-300 break-all"><Icon name="git" className="shrink-0" />ブランチ: {data.branch || 'HEAD（ブランチ未選択）'}</div><GitHistory commits={data.history ?? []} taskId={sessionId} onOpenTask={(id) => openTask(id)} /></>}
       <h3 className="text-xs font-semibold text-zinc-300 pt-3">変更ファイル <span className="rounded-full bg-zinc-800 px-2 py-0.5 ml-1">{data.files.length}</span></h3>
       {data.files.length === 0 && <div className="text-xs text-zinc-500">変更されたファイルはありません。</div>}
       {!data.isGit && (
@@ -99,7 +100,7 @@ export function ChangesPanel({
         </div>
       )}
       {data.against && (
-        <div className="text-[11px] text-zinc-500">{data.against}との差分です。すでに取り込んだ分は含みません。</div>
+        <div className="text-[11px] text-zinc-500">{data.against}</div>
       )}
       {!!groups.length && (
         <ul className="text-xs">
