@@ -29,10 +29,30 @@ function hasPyTests(dir: string): boolean {
 }
 
 /**
+ * プロジェクト専用の Python（.venv / venv）。無ければ null（PATH の python を使う）。
+ * PATH の python が古いと、エージェントは専用の Python で「全部成功」、Tower は毎回「失敗」と食い違っていた。
+ * 別の作業場所（git worktree）には .venv が写らない（.gitignore）ので、元のプロジェクトのものも探す
+ */
+export function projectPython(projectPath: string, originalPath?: string): string | null {
+  const rel = process.platform === 'win32' ? ['Scripts', 'python.exe'] : ['bin', 'python'];
+  for (const root of [projectPath, originalPath]) {
+    if (!root) continue;
+    for (const env of ['.venv', 'venv']) {
+      const p = path.join(root, env, ...rel);
+      if (!fs.existsSync(p)) continue;
+      // 作業フォルダの中なら短く書く（画面に出るので）。外なら空白があっても動くよう括る
+      return root === projectPath ? path.join(env, ...rel) : `"${p}"`;
+    }
+  }
+  return null;
+}
+
+/**
  * プロジェクトに合ったチェックコマンドを推定する。
  * .tower.json の "verify" があればそれを優先（null なら無効）。
+ * originalPath = 別の作業場所で動かしている時の元のプロジェクト（専用の Python を探す）
  */
-export function detectVerifyCommand(projectPath: string): string | null {
+export function detectVerifyCommand(projectPath: string, originalPath?: string): string | null {
   if (!enabled) return null;
   const local = readJson(path.join(projectPath, '.tower.json'));
   if (local && 'verify' in local) return typeof local.verify === 'string' ? local.verify : null;
@@ -41,11 +61,12 @@ export function detectVerifyCommand(projectPath: string): string | null {
   const test = (pkg?.scripts as Record<string, string> | undefined)?.test;
   if (test && !/no test specified/i.test(test)) return 'npm test';
 
+  const py = () => projectPython(projectPath, originalPath) ?? 'python';
   const pyproject = path.join(projectPath, 'pyproject.toml');
   // -q は付けない。プロジェクトの設定（addopts）にも -q があると二重になり、pytest が最後の件数の行を出さなくなる
-  if (fs.existsSync(path.join(projectPath, 'pytest.ini'))) return 'python -m pytest';
-  if (fs.existsSync(pyproject) && /pytest/.test(fs.readFileSync(pyproject, 'utf8'))) return 'python -m pytest';
-  if (hasPyTests(projectPath)) return 'python -m unittest -q';
+  if (fs.existsSync(path.join(projectPath, 'pytest.ini'))) return `${py()} -m pytest`;
+  if (fs.existsSync(pyproject) && /pytest/.test(fs.readFileSync(pyproject, 'utf8'))) return `${py()} -m pytest`;
+  if (hasPyTests(projectPath)) return `${py()} -m unittest -q`;
   if (fs.existsSync(path.join(projectPath, 'Cargo.toml'))) return 'cargo test';
   if (fs.existsSync(path.join(projectPath, 'go.mod'))) return 'go test ./...';
   return null;
@@ -65,13 +86,15 @@ export function summarizeTestOutput(output: string, ok: boolean): string | null 
     fail = tapFail ? Number(tapFail[1]) : 0;
   } else {
     const lines = output.split(/\r?\n/);
-    // jest / vitest / pytest / cargo は最後の集計行に "N passed" "N failed" が並ぶ
-    const line = lines.filter((l) => /\b\d+ (passed|failed)\b/.test(l)).at(-1);
+    // jest / vitest / pytest / cargo は最後の集計行に "N passed" "N failed" が並ぶ。
+    // pytest は読み込めなかったファイルを "N errors in 1.2s" と数える（テストが 1 件も走らないとこれだけになる）
+    const line = lines.filter((l) => /\b\d+ (passed|failed)\b|\b\d+ errors? in [\d.]+s\b/.test(l)).at(-1);
     if (line) {
       const p = line.match(/(\d+) passed/);
       const f = line.match(/(\d+) failed/);
+      const e = line.match(/(\d+) errors? in /);
       pass = p ? Number(p[1]) : 0;
-      fail = f ? Number(f[1]) : 0;
+      fail = (f ? Number(f[1]) : 0) + (e ? Number(e[1]) : 0);
     } else {
       // mocha は "N passing" と "N failing" が別の行
       const last = (re: RegExp) => lines.map((l) => l.match(re)).filter(Boolean).at(-1);
@@ -92,24 +115,24 @@ export function summarizeTestOutput(output: string, ok: boolean): string | null 
   return `失敗 ${fail} 件${pass ? `・成功 ${pass} 件` : ''}`;
 }
 
-// 失敗したテストの名前を拾うパターン（ランナーごと）
-const FAIL_PATTERNS: RegExp[] = [
-  /^\s*not ok \d+ - (.+?)\s*$/gm, // node:test（TAP）
-  /^\s*[✕×✗] (.+?)(?: \(\d+ ?ms\))?\s*$/gm, // jest / vitest
-  /^FAILED (\S+?)(?: - .*)?$/gm, // pytest
-  /^\s*\d+\) (.+?)\s*$/gm, // mocha
-  /^test (\S+) \.\.\. FAILED$/gm, // cargo
-  /^--- FAIL: (\S+)/gm, // go
+// 失敗したテストの名前を拾うパターン（ランナーごと）。files = ファイル単位の行も拾う
+const FAIL_PATTERNS: { re: RegExp; files?: boolean }[] = [
+  { re: /^\s*not ok \d+ - (.+?)\s*$/gm }, // node:test（TAP）。ファイルごとにも not ok を出すので、それは除く
+  { re: /^\s*[✕×✗] (.+?)(?: \(\d+ ?ms\))?\s*$/gm }, // jest / vitest
+  { re: /^FAILED (\S+?)(?: - .*)?$/gm }, // pytest
+  { re: /^ERROR (\S+?)(?: - .*)?$/gm, files: true }, // pytest（読み込めなかったファイル）
+  { re: /^\s*\d+\) (.+?)\s*$/gm }, // mocha
+  { re: /^test (\S+) \.\.\. FAILED$/gm }, // cargo
+  { re: /^--- FAIL: (\S+)/gm }, // go
 ];
 
 /** 失敗したテスト名（最大 20 件）。「修正前から落ちていた」と「新しく壊れた」を見分けるのに使う */
 export function failedTests(output: string): string[] {
   const out = new Set<string>();
-  for (const re of FAIL_PATTERNS) {
+  for (const { re, files } of FAIL_PATTERNS) {
     for (const m of output.matchAll(re)) {
       const name = m[1].trim();
-      // ファイル単位の行（node:test はファイルごとにも not ok を出す）は除く
-      if (!name || /\.(m?[jt]s|py)$/.test(name)) continue;
+      if (!name || (!files && /\.(m?[jt]s|py)$/.test(name))) continue;
       out.add(name);
       if (out.size >= 20) return [...out];
     }
@@ -117,10 +140,14 @@ export function failedTests(output: string): string[] {
   return [...out];
 }
 
+// 色付けの記号。pytest は FORCE_COLOR があると値が 0 でも色を付けるので、件数や名前が拾えなくなっていた
+const ANSI = /\x1b\[[0-9;?]*[A-Za-z]/g;
+
 export function runVerify(
   projectPath: string,
   command: string,
-  timeoutMs = 120_000,
+  // 専用の Python で本物のテストを走らせると 100 秒を超えるプロジェクトもある（2 分で切ると毎回「失敗」になる）
+  timeoutMs = 300_000,
 ): Promise<{ ok: boolean; output: string; summary: string | null; failed: string[]; durationMs: number }> {
   return new Promise((resolve) => {
     const t0 = Date.now();
@@ -130,7 +157,7 @@ export function runVerify(
       shell: true,
       // shell 越しに起動するので、止める時は子孫ごと（Windows は taskkill /T、他は プロセスグループ）
       detached: process.platform !== 'win32',
-      env: { ...process.env, CI: '1', FORCE_COLOR: '0' },
+      env: { ...process.env, CI: '1', FORCE_COLOR: '0', NO_COLOR: '1', PY_COLORS: '0' },
     });
     const killTree = () => {
       if (!child.pid) return;
@@ -156,7 +183,7 @@ export function runVerify(
       settled = true;
       clearTimeout(timer);
       if (forced) clearTimeout(forced);
-      const output = chunks.join('').trim();
+      const output = chunks.join('').replace(ANSI, '').trim();
       const ok = code === 0;
       resolve({
         ok,

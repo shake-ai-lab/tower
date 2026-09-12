@@ -297,7 +297,7 @@ export class ClaudeRunner implements AgentRunner {
   /** 報告の裏取り: プロジェクトのテストを Tower 側で走らせ、結果をセッションに載せる */
   private async verify() {
     const dir = workDir(this.session);
-    const cmd = detectVerifyCommand(dir);
+    const cmd = detectVerifyCommand(dir, this.session.project.path);
     if (!cmd || this.verifying) return;
     this.verifying = true;
     const at = Date.now();

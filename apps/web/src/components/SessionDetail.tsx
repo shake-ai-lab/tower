@@ -4,7 +4,7 @@ import type { Preview, Report, Screenshot, Session, TimelineItem, Verification }
 import { PERMISSION_CHOICES, type PermissionChoice } from '@tower/shared';
 import { api, errMsg } from '../api';
 import { OUTCOME, STATUS, btn, fmtElapsed, fmtTime, fmtTokens, fmtUsd, isAlive, verifyBadge, useDesktop, useResizable } from '../lib';
-import { canMarkDone } from '../task-state';
+import { canMarkDone, onlyOldFailures } from '../task-state';
 import { useStore } from '../store';
 import { openTask } from '../layout';
 import { PendingCard } from './PendingCards';
@@ -105,20 +105,24 @@ function BaselineStrip({ b }: { b: Verification }) {
 
 function VerificationStrip({ v, baseline, reportOutcome }: { v: Verification; baseline?: Verification | null; reportOutcome: Report['outcome'] | null }) {
   const [open, setOpen] = useState(false);
-  const conflict = v.ok === false && reportOutcome === 'done';
+  // 前からの失敗が残っているだけ: 今回の変更のせいではないので赤で責めない（エージェントの説明と食い違って見えていた）
+  const old = onlyOldFailures({ verification: v, baseline });
+  const conflict = v.ok === false && reportOutcome === 'done' && !old;
   const verdict = compareVerdict(baseline, v);
   const cls =
     v.ok === null
       ? 'border-zinc-700 bg-zinc-800/40'
       : v.ok
         ? 'border-emerald-500/40 bg-emerald-500/5'
-        : 'border-red-500/60 bg-red-500/10';
+        : old
+          ? 'border-amber-500/50 bg-amber-500/5'
+          : 'border-red-500/60 bg-red-500/10';
   return (
     <div className={`rounded-sm border p-2.5 text-sm ${cls}`}>
       <button onClick={() => setOpen((o) => !o)} className="w-full flex items-center gap-2 text-left">
-        <span>{v.ok === null ? '⏳' : v.ok ? '✔' : '✖'}</span>
+        <span>{v.ok === null ? '⏳' : v.ok ? '✔' : old ? '△' : '✖'}</span>
         <span className="font-medium">
-          {v.ok === null ? '裏取り中' : v.ok ? '裏取りOK' : '裏取りNG'}
+          {v.ok === null ? '裏取り中' : v.ok ? '裏取りOK' : old ? '裏取り: 前からの失敗' : '裏取りNG'}
           {v.ok !== null && v.summary && <span className="font-normal">（{v.summary}）</span>}
           <span className="text-zinc-500 font-normal"> — Tower が </span>
           <span className="mono text-xs">{v.command}</span>
@@ -154,6 +158,11 @@ function VerificationStrip({ v, baseline, reportOutcome }: { v: Verification; ba
       {conflict && (
         <div className="mt-1.5 text-xs text-red-200">
           エージェントは「完了」と報告していますが、テストは失敗しています。報告を鵜呑みにせず、追加指示で直させてください。
+        </div>
+      )}
+      {old && (
+        <div className="mt-1.5 text-xs text-amber-200/90">
+          この失敗は作業を始める前から出ていて、今回の変更で増えたものはありません。今回の変更の良し悪しには関係しません。
         </div>
       )}
       {open && (
@@ -645,6 +654,13 @@ export function SessionDetail({ id, onShowWorkspace, embedded = false, onClose, 
   }, [timeline?.length, s?.status]);
 
   if (!s) return null;
+  // 経過は最後の指示から後だけを見せ、それより前のやりとりは畳む。報告はいちばん新しいやりとりのものなので、
+  // 最初の指示からの経過を並べると、上の報告と下の経過で話がずれて見えていた
+  const items = timeline ?? [];
+  let lastUser = -1;
+  for (let i = items.length - 1; i >= 0; i--) if (items[i].kind === 'user') { lastUser = i; break; }
+  const older = lastUser > 0 ? items.slice(0, lastUser) : [];
+  const latest = lastUser > 0 ? items.slice(lastUser) : items;
   const st = STATUS[s.status];
   const external = s.origin === 'external';
   const alive = isAlive(s.status) && !external;
@@ -789,15 +805,27 @@ export function SessionDetail({ id, onShowWorkspace, embedded = false, onClose, 
 
         <div>
           <div className="flex items-center gap-2 text-[11px] text-zinc-500 mb-1 px-1">
-            <span>{working ? '今の作業の経過' : '経過'}（クリックで詳細）</span>
+            <span>{working ? '今の作業の経過' : older.length ? '最後の指示からの経過' : '経過'}（クリックで詳細）</span>
             {timeline?.some((t) => t.imagePath) && (
               <button type="button" onClick={toggleImages} aria-pressed={showImages} className="ml-auto underline hover:text-zinc-300">
                 {showImages ? '画像をまとめて隠す' : '画像をまとめて表示'}
               </button>
             )}
           </div>
+          {older.length > 0 && (
+            <details className="mb-1 rounded border border-zinc-800 bg-[#12151b] px-2 py-1">
+              <summary className="cursor-pointer text-xs text-zinc-400 hover:text-zinc-200">
+                それより前のやりとりを見る（{older.length} 件）
+              </summary>
+              <div className="mt-1 space-y-0.5">
+                {older.map((t) => (
+                  <TimelineRow key={t.id} t={t} showImages={showImages} />
+                ))}
+              </div>
+            </details>
+          )}
           <div className="space-y-0.5">
-            {(timeline ?? []).map((t) => (
+            {latest.map((t) => (
               <TimelineRow key={t.id} t={t} showImages={showImages} />
             ))}
             {!timeline && <div className="text-xs text-zinc-500 px-1">読み込み中…</div>}

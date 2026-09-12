@@ -3,7 +3,19 @@
 // ボタンは「完了にする」と食い違っていた）。画面から切り離してテストできるようにしている
 import type { Session } from '@tower/shared';
 
-type Judged = Pick<Session, 'status' | 'pending' | 'report' | 'verification' | 'completedByUser'>;
+type Judged = Pick<Session, 'status' | 'pending' | 'report' | 'verification' | 'completedByUser'> & Partial<Pick<Session, 'baseline'>>;
+
+/**
+ * 自動チェックの失敗が、作業を始める前からのものだけか（修正前も失敗していて、新しく失敗したものが無い）。
+ * この時に「完了なのに失敗」と赤で責めると、エージェントの説明（前からの失敗で無関係）と画面が食い違って見える
+ */
+export function onlyOldFailures(s: Pick<Session, 'verification'> & Partial<Pick<Session, 'baseline'>>): boolean {
+  const v = s.verification;
+  const b = s.baseline;
+  if (!v || v.ok !== false || !b || b.ok !== false) return false;
+  const before = new Set(b.failed ?? []);
+  return (v.failed ?? []).every((n) => before.has(n));
+}
 
 export type TaskState =
   | 'starting'
@@ -60,7 +72,8 @@ export function taskState(s: Judged): TaskState {
     case undefined:
       return 'waiting';
     case 'done':
-      return s.verification?.ok === false ? 'mismatch' : 'done';
+      // 前からの失敗が残っているだけなら、今回の変更は何も壊していないので「完了」のまま（詳細の自動チェック欄に黄色で出る）
+      return s.verification?.ok === false && !onlyOldFailures(s) ? 'mismatch' : 'done';
     case 'partial':
       return 'partial';
     case 'failed':

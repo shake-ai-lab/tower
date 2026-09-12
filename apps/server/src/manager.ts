@@ -149,7 +149,7 @@ export class SessionManager {
     if (retry && s.report.outcome === 'question') return; // 答えて、直った報告が来てから取り込む
     if (this.autoMerged.get(s.id) === at) return;
     if (!retry && s.changedFiles.length === 0) return; // 何も変えていないなら取り込むものが無い
-    const needsVerify = detectVerifyCommand(workDir(s)) !== null;
+    const needsVerify = detectVerifyCommand(workDir(s), s.project.path) !== null;
     if (needsVerify) {
       // 裏取りは報告の後に走る。この報告に対する結果が出るまで待つ
       if (!s.verification || s.verification.at < at || s.verification.ok === null) return;
@@ -315,10 +315,10 @@ export class SessionManager {
 
   private async runBaseline(s: Session) {
     const dir = workDir(s);
-    const cmd = detectVerifyCommand(dir);
+    const cmd = detectVerifyCommand(dir, s.project.path);
     if (!cmd) return;
     const at = Date.now();
-    const r = await runVerify(dir, cmd, 90_000);
+    const r = await runVerify(dir, cmd);
     if (!this.hub.get(s.id)) return; // その間に消された
     this.hub.update(s.id, { baseline: { command: cmd, ok: r.ok, output: r.output, summary: r.summary, failed: r.failed, at, durationMs: r.durationMs } });
     this.note(
@@ -461,7 +461,7 @@ export class SessionManager {
     const s = this.hub.get(id);
     if (!s) return;
     const dir = workDir(s);
-    const cmd = detectVerifyCommand(dir);
+    const cmd = detectVerifyCommand(dir, s.project.path);
     if (!cmd || this.verifying.has(id)) return;
     this.verifying.add(id);
     const at = Date.now();

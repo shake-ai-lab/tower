@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import type { Report, Session } from '@tower/shared';
-import { badgeRepeatsReport, canMarkDone, isFinished, needsYou, stateBadge, taskState } from './src/task-state.ts';
+import { badgeRepeatsReport, canMarkDone, isFinished, needsYou, onlyOldFailures, stateBadge, taskState } from './src/task-state.ts';
+import { verifyBadge } from './src/lib.ts';
 
 const report = (outcome: Report['outcome'], needsDecision: string | null = null): Report =>
   ({ request: 'r', outcome, summary: ['やった'], changedFiles: [], needsDecision, nextStep: null, raw: '', generatedAt: 1 });
@@ -41,6 +42,20 @@ test('完了 but the automatic check failed is 要確認, not 完了', () => {
   assert.equal(canMarkDone(s), true);
   assert.equal(isFinished(s), false);
   assert.equal(badgeRepeatsReport(s), false);
+});
+
+test('完了 with only the failures that were already there before the work: stays 完了, badge says 前からの失敗', () => {
+  const v = (ok: boolean, failed: string[]) => ({ ok, failed }) as Session['verification'];
+  const s = task({ report: report('done'), baseline: v(false, ['a']), verification: v(false, ['a']) });
+  assert.equal(onlyOldFailures(s), true);
+  assert.equal(stateBadge(s).label, '✓ 完了');
+  assert.equal(verifyBadge(s)?.text, '△ 前からの失敗');
+  // 新しく壊れたものがあれば今まで通り 要確認
+  const worse = task({ report: report('done'), baseline: v(false, ['a']), verification: v(false, ['a', 'b']) });
+  assert.equal(onlyOldFailures(worse), false);
+  assert.equal(stateBadge(worse).label, '要確認');
+  // 修正前は通っていたなら 要確認
+  assert.equal(stateBadge(task({ report: report('done'), baseline: v(true, []), verification: v(false, []) })).label, '要確認');
 });
 
 test('marked done by you: 完了 badge, keeps the partial report visible, no button', () => {
