@@ -1,16 +1,18 @@
 // セッションに付く小さな札。一覧カード・詳細・パネル選択で同じ見た目を使い回す
 import type { ReactNode } from 'react';
 import type { Session } from '@tower/shared';
-import { STATUS } from '../lib';
+import { stateBadge } from '../task-state';
 
-/** 状態の札。作業中はくるくる回る印を付けて、止まっているものと見分けやすくする。completed = 利用者が手で「完了」にした */
-export function StatusBadge({ status, completed = false, className = 'text-xs' }: { status: Session['status']; completed?: boolean; className?: string }) {
-  const st = STATUS[status];
-  const manual = completed && status === 'done';
+/**
+ * 状態の札。何と出すかは task-state.ts が決める（報告が「完了」なら「完了」、判断を求めていれば「判断待ち」）。
+ * 作業中はくるくる回る印を付けて、止まっているものと見分けやすくする
+ */
+export function StatusBadge({ s, className = 'text-xs' }: { s: Session; className?: string }) {
+  const b = stateBadge(s);
   return (
-    <span title={manual ? 'あなたが「完了」にしました。続きの指示を送れば再開できます' : undefined} className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full whitespace-nowrap ${className} ${manual ? 'bg-emerald-800/80 text-emerald-100' : st.badge}`}>
-      {st.working && <span aria-hidden="true" className="working-spinner" />}
-      {manual ? '✓ 完了' : st.label}
+    <span title={b.title} className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full whitespace-nowrap ${className} ${b.cls}`}>
+      {b.working && <span aria-hidden="true" className="working-spinner" />}
+      {b.label}
     </span>
   );
 }

@@ -91,7 +91,12 @@ export function EditorWorkspace({ forceVisible = false, onReturn }: { forceVisib
   const bringForward = (id: string, i: number) => {
     s.activate(id);
     setDeskSelected(id);
-    setPositions((cur) => ({ ...cur, [id]: { ...(cur[id] ?? position(id, i)), z: Math.max(s.files.length, ...Object.values(cur).map((p) => p.z)) + 1 } }));
+    // もう一番前なら数を増やさない（押すたびに増え続けていた）
+    setPositions((cur) => {
+      const top = Math.max(s.files.length - 1, ...Object.entries(cur).filter(([k]) => k !== id).map(([, p]) => p.z));
+      if (cur[id] && cur[id].z > top) return cur;
+      return { ...cur, [id]: { ...(cur[id] ?? position(id, i)), z: top + 1 } };
+    });
   };
   const maximize = (id: string, i: number) => {
     const el = region.current;
@@ -213,7 +218,8 @@ export function EditorWorkspace({ forceVisible = false, onReturn }: { forceVisib
       {desk && <><select aria-label="デスクの背景" className="bg-zinc-800 border border-zinc-700 px-2 py-1" value={theme} onChange={(e) => { setTheme(e.target.value); try { localStorage.setItem('tower.desk.theme', e.target.value); } catch {} }}>{themes.map(([id, label]) => <option key={id} value={id}>{label}</option>)}</select><span className="text-zinc-500">余白のドラッグ・ホイールで移動（Shift で左右）· Ctrl + ホイールで拡大縮小 · 辺・角でサイズ変更 · 上の丸で回転</span><button aria-label="デスクを縮小" onClick={() => zoomAt(zoom / 1.15)}>−</button><button title="100%に戻す" onClick={() => zoomAt(1)}>{Math.round(zoom * 100)}%</button><button aria-label="デスクを拡大" onClick={() => zoomAt(zoom * 1.15)}>＋</button><button onClick={arrange}>整列</button><button onClick={() => fit()}>全体を見る</button><button onClick={() => centerAt()}>中央に戻る</button>{isAnimatedTheme(theme) && <>{aquariumMotion === 'auto' && reducedMotion && <span className="text-zinc-400">OS設定に合わせて静止中</span>}<button aria-pressed={!aquariumPaused} title="背景の動きの再生・静止を選んで保存（OS設定より優先）" onClick={toggleAquarium}>{aquariumPaused ? '背景を動かす' : '背景を静止'}</button></>}</>}
       <button className="px-2 py-1 text-sky-300" onClick={() => { if (onReturn) onReturn(); else useEditorWorkspace.setState({ visible: false }); }}>タスクに戻る</button>
     </header>
-    <div className={`relative flex flex-1 min-h-0 min-w-0 overflow-hidden ${desk && theme === 'aquarium' ? 'aquarium-scene' : ''}`}>
+    {/* isolate: 窓の前後（z）をこの中だけで比べる。無いと前に出し続けた窓が「気づいたこと」などの上に重なり、入力欄を押せなくなる */}
+    <div className={`relative isolate flex flex-1 min-h-0 min-w-0 overflow-hidden ${desk && theme === 'aquarium' ? 'aquarium-scene' : ''}`}>
     {desk && theme === 'aquarium' && <Aquarium active={visible} paused={aquariumPaused} />}
     {desk && isSceneTheme(theme) && <DeskScene key={theme} theme={theme} active={visible} paused={aquariumPaused} />}
     <div ref={region} aria-label={desk ? '自由配置のデスク' : undefined} className={`desk-region relative flex-1 min-h-0 min-w-0 ${desk ? 'overflow-auto' : 'grid'}`} style={{ gridTemplateColumns: split && !rows ? `${ratio}fr 6px ${100 - ratio}fr` : 'minmax(0, 1fr)', gridTemplateRows: split && rows ? `minmax(0, ${ratio}fr) 6px minmax(0, ${100 - ratio}fr)` : 'minmax(0, 1fr)' }}

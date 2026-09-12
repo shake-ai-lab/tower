@@ -12,7 +12,8 @@ import { SessionCard } from './components/SessionCard';
 import { SessionDetail } from './components/SessionDetail';
 import { UsageMenu } from './components/UsageMenu';
 import { MultiSessionView } from './components/MultiSessionView';
-import { STATUS, btn, needsYou, projectStyle, useDesktop, useTick } from './lib';
+import { btn, needsYou, projectStyle, useDesktop, useTick } from './lib';
+import { isFinished, stateBadge } from './task-state';
 import { useStore } from './store';
 import { projectKey } from './project-key';
 import { CHAT_SIDE_WIDTH, SEGMENTS, describeLayout, openTask, segmentOf, useLayout, type Segment } from './layout';
@@ -28,9 +29,6 @@ const ORDER: Record<SessionStatus, number> = {
   done: 4,
   stopped: 4,
 };
-
-/** 「終わったもの」= もう動かないもの。報告待ち（idle）は次の指示を出せるので含めない */
-const FINISHED: SessionStatus[] = ['stopped', 'done', 'error'];
 
 /** 判断待ちの「どれ」を知らせたか。許可・質問はその要求、報告の判断はその報告ごと */
 const needsYouKey = (s: Session) => (s.pending ? s.pending.id : `${s.id}:${s.report?.generatedAt ?? 0}`);
@@ -146,8 +144,8 @@ export default function App() {
 
   const list = useMemo(
     () => {
-      // 報告で判断を求めて止まっているもの（idle）も、許可・質問と同じく先頭へ
-      const rank = (s: Session) => (needsYou(s) ? 0 : ORDER[s.status]);
+      // 報告で判断を求めて止まっているもの（idle）も、許可・質問と同じく先頭へ。報告が「完了」のものは終わったものと同じ所へ
+      const rank = (s: Session) => (needsYou(s) ? 0 : s.status === 'idle' && isFinished(s) ? ORDER.done : ORDER[s.status]);
       return Object.values(sessions).sort((a, b) => rank(a) - rank(b) || b.updatedAt - a.updatedAt);
     },
     [sessions],
@@ -158,7 +156,7 @@ export default function App() {
   // 終わったもの（停止・完了・エラー）を隠して一覧を軽くする。消すわけではないので「使った量」の集計はそのまま
   const [hideDone, setHideDone] = useState(() => localStorage.getItem('tower.hideDone') === '1');
   useEffect(() => localStorage.setItem('tower.hideDone', hideDone ? '1' : '0'), [hideDone]);
-  const finishedCount = list.filter((s) => FINISHED.includes(s.status)).length;
+  const finishedCount = list.filter(isFinished).length;
 
   // 履歴検索: プロジェクト名・依頼文・報告の言葉で絞り込む（空白区切りは AND）。検索中は隠しているものも対象
   const [q, setQ] = useState('');
@@ -173,7 +171,7 @@ export default function App() {
   const shown = useMemo(() => {
     const words = q.trim().toLowerCase().split(/\s+/).filter(Boolean);
     const candidates = activeProject ? list.filter((s) => projectKey(s.project.path) === activeProject) : list;
-    if (words.length === 0) return hideDone ? candidates.filter((s) => !FINISHED.includes(s.status)) : candidates;
+    if (words.length === 0) return hideDone ? candidates.filter((s) => !isFinished(s)) : candidates;
     const text = (s: Session) =>
       [s.project.name, s.project.path, s.title, s.prompt, s.model ?? '', s.agent, s.workspace?.branch ?? '', s.report?.raw ?? '', s.report?.summary.join(' ') ?? '']
         .join('\n')
@@ -241,7 +239,8 @@ export default function App() {
       }
       if (e.defaultPrevented || e.isComposing || e.ctrlKey || e.metaKey || e.altKey) return;
       if (target?.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"]), [role="textbox"]')) return;
-      if (e.key === 'n' && !dialog) setDialog(true);
+      // 押した「n」が、開いた画面の指示欄に入らないようにする
+      if (e.key === 'n' && !dialog) { e.preventDefault(); setDialog(true); }
       if (e.key === 'f' && !dialog) {
         e.preventDefault();
         setFeedback(true);
@@ -267,7 +266,7 @@ export default function App() {
     const view = dialog
       ? '新しいタスク'
       : s
-        ? `詳細「${s.project.name} / ${title}」（${STATUS[s.status].label}）`
+        ? `詳細「${s.project.name} / ${title}」（${stateBadge(s).label}）`
         : window.innerWidth < 768 && tab === 'inbox'
           ? '判断待ち'
           : q

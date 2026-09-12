@@ -1,6 +1,7 @@
 // フリート（一覧）の 1 枚。ふつうのカードと、1 行に詰めたコンパクト表示の 2 種類
 import type { Session } from '@tower/shared';
 import { OUTCOME, STATUS, fmtElapsed, fmtUsd, needsYou, projectStyle, verifyBadge } from '../lib';
+import { badgeRepeatsReport } from '../task-state';
 import { SessionTags, StatusBadge, agentLabel } from './SessionBadges';
 
 type CardProps = { s: Session; selected: boolean; onClick: () => void };
@@ -29,7 +30,7 @@ function CompactCard({ s, selected, onClick }: CardProps) {
       <WorkingBar s={s} />
       <StatusDot s={s} />
       <span className="text-sm truncate flex-1 min-w-0" title={s.title}>{s.title}</span>
-      <StatusBadge status={s.status} completed={!!s.completedByUser} className="text-[10px]" />
+      <StatusBadge s={s} className="text-[10px]" />
       <span className={`w-full pl-4 text-[11px] truncate ${st.working ? 'text-sky-200/80' : 'text-zinc-500'}`}>
         {agentLabel(s)} · {s.activity} · {elapsed(s)}
       </span>
@@ -40,6 +41,10 @@ function CompactCard({ s, selected, onClick }: CardProps) {
 function FullCard({ s, selected, onClick }: CardProps) {
   const st = STATUS[s.status];
   const frame = selected ? 'border-sky-500' : st.attention || needsYou(s) ? 'border-amber-400/70 attention' : st.working ? 'working-card' : 'border-zinc-800';
+  // 作業中・許可や質問の待ちの間は、前の回の報告（「質問あり」など）を出さない。今の状態と食い違って見える
+  const showReport = !!s.report && !st.working && !s.pending;
+  // 報告を受けて止まっている時は、報告の 1 行が今の様子を表す（「指示待ち」「判断待ち: …」と同じことを 2 度書かない）
+  const showActivity = !(showReport && (s.status === 'idle' || s.status === 'done'));
   return (
     <button
       onClick={onClick}
@@ -52,17 +57,19 @@ function FullCard({ s, selected, onClick }: CardProps) {
           <span className="truncate rounded border px-1.5 py-0.5 text-xs" style={projectStyle(s.project.path)} title={s.project.path}>{s.project.name}</span>
           <SessionTags s={s} />
         </div>
-        <StatusBadge status={s.status} completed={!!s.completedByUser} />
+        <StatusBadge s={s} />
       </div>
 
       <div className="text-sm text-zinc-300 line-clamp-2 break-words [overflow-wrap:anywhere]">{s.title}</div>
 
-      <div className={`text-xs flex items-center gap-2 min-w-0 ${st.working ? 'text-sky-200' : 'text-zinc-400'}`}>
-        <StatusDot s={s} />
-        <span className="truncate">{s.activity}</span>
-      </div>
+      {showActivity && (
+        <div className={`text-xs flex items-center gap-2 min-w-0 ${st.working ? 'text-sky-200' : 'text-zinc-400'}`}>
+          <StatusDot s={s} />
+          <span className="truncate">{s.activity}</span>
+        </div>
+      )}
 
-      {s.report && <ReportLine s={s} report={s.report} />}
+      {showReport && <ReportLine s={s} report={s.report!} />}
 
       <div className="mt-auto pt-1 flex flex-wrap gap-x-2 gap-y-1 justify-between text-[11px] text-zinc-500">
         <span>{elapsed(s)}</span>
@@ -75,13 +82,13 @@ function FullCard({ s, selected, onClick }: CardProps) {
   );
 }
 
-/** 報告の要点 1 行: 結果の札・自動チェックの札・判断してほしいこと（無ければ要約の先頭） */
+/** 報告の要点 1 行: 結果の札（上の状態の札と同じなら省く）・自動チェックの札・判断してほしいこと（無ければ要約の先頭） */
 function ReportLine({ s, report }: { s: Session; report: NonNullable<Session['report']> }) {
   const outcome = OUTCOME[report.outcome];
   const vb = verifyBadge(s);
   return (
     <div className="text-xs text-zinc-300 flex flex-wrap items-start gap-2 min-w-0">
-      <span className={`px-1.5 py-0.5 rounded shrink-0 ${outcome.cls}`}>{outcome.label}</span>
+      {!badgeRepeatsReport(s) && <span className={`px-1.5 py-0.5 rounded shrink-0 ${outcome.cls}`}>{outcome.label}</span>}
       {vb && (
         <span title={`自動チェック: ${s.verification?.command}`} className={`px-1.5 py-0.5 rounded shrink-0 ${vb.cls}`}>
           {vb.text}

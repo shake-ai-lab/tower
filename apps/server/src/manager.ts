@@ -506,7 +506,7 @@ export class SessionManager {
     if (!s) throw new Error('セッションが見つかりません');
     if (s.status === 'done' && s.completedByUser) return s;
     if (s.origin === 'external' && WORKING.includes(s.status)) {
-      throw new Error(`${s.externalHint ?? '外部'} で作業中なので、ここからは完了にできません。向こうで止めるか、終わってから押してください`);
+      throw new Error(`いま ${s.externalHint ?? 'Tower の外'} で作業中なので、ここからは完了にできません。向こうで止めるか、終わってから押してください`);
     }
     const r = this.runners.get(id);
     if (r) {

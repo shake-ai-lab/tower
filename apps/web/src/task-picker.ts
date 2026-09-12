@@ -1,9 +1,7 @@
 // パネルに出すタスクを選ぶメニュー（4分割・集中）の絞り込みと並べ方。画面から切り離してテストできるようにしている
-import type { Session, SessionStatus } from '@tower/shared';
+import type { Session } from '@tower/shared';
 import { projectKey } from './project-key';
-
-/** もう動かないもの。ふだんは畳んでおき、探している時（検索中）だけ出す */
-export const FINISHED: SessionStatus[] = ['stopped', 'done', 'error'];
+import { isFinished } from './task-state';
 
 export interface TaskGroup {
   key: string;
@@ -13,7 +11,7 @@ export interface TaskGroup {
 
 /**
  * 渡された順（急ぎのもの → 新しいもの）を保ったままプロジェクトごとにまとめる。急ぎのタスクがあるプロジェクトほど上に来る。
- * 検索語は空白区切りで AND。検索中は終わったものも対象にする
+ * 検索語は空白区切りで AND。終わったもの（完了・停止・エラー）はふだん畳んでおき、検索中は対象にする
  */
 export function pickerGroups(sessions: Session[], query: string, showFinished: boolean): { groups: TaskGroup[]; hiddenFinished: number } {
   const words = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
@@ -23,7 +21,7 @@ export function pickerGroups(sessions: Session[], query: string, showFinished: b
     if (words.length) {
       const text = [s.project.name, s.title, s.prompt, s.externalHint ?? ''].join('\n').toLowerCase();
       if (!words.every((w) => text.includes(w))) continue;
-    } else if (!showFinished && FINISHED.includes(s.status)) {
+    } else if (!showFinished && isFinished(s)) {
       hiddenFinished++;
       continue;
     }

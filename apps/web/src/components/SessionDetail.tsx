@@ -4,6 +4,7 @@ import type { Preview, Report, Screenshot, Session, TimelineItem, Verification }
 import { PERMISSION_CHOICES, type PermissionChoice } from '@tower/shared';
 import { api, errMsg } from '../api';
 import { OUTCOME, STATUS, btn, fmtElapsed, fmtTime, fmtTokens, fmtUsd, isAlive, verifyBadge, useDesktop, useResizable } from '../lib';
+import { canMarkDone } from '../task-state';
 import { useStore } from '../store';
 import { openTask } from '../layout';
 import { PendingCard } from './PendingCards';
@@ -330,7 +331,6 @@ function CompareStrip({ s }: { s: Session }) {
           <tbody>
             {group.map((x) => {
               const vb = verifyBadge(x);
-              const st = STATUS[x.status];
               const me = x.id === s.id;
               const end = WORKING.includes(x.status) ? Date.now() : x.updatedAt;
               return (
@@ -341,7 +341,7 @@ function CompareStrip({ s }: { s: Session }) {
                     {x.workspace?.lastMerge?.ok && <span className="ml-1 text-emerald-300">採用済み</span>}
                   </td>
                   <td className="pr-2">
-                    <span className={`px-1.5 py-0.5 rounded ${st.badge}`}>{st.label}</span>
+                    <StatusBadge s={x} className="text-[11px]" />
                   </td>
                   <td className="pr-2">
                     {x.report ? (
@@ -666,8 +666,8 @@ export function SessionDetail({ id, onShowWorkspace, embedded = false, onClose, 
     if (!confirm('このセッションを停止しますか？')) return;
     await api.stop(id).catch((e) => setErr(errMsg(e)));
   };
-  // 報告が一部完了・失敗でも「もうこれでよい」と決めた時に。判断待ちから外れる
-  const canComplete = s.status !== 'done' && !(external && working);
+  // 報告が一部完了・失敗でも「もうこれでよい」と決めた時に。判断待ちから外れる。もう完了しているものには出さない
+  const canComplete = canMarkDone(s);
   const complete = async () => {
     const head = working ? '作業を止めて、このタスクを「完了」にしますか？' : 'このタスクを「完了」にしますか？';
     const tail = s.agentSessionId ? '判断待ちの一覧から外れます。続きの指示を送れば、また再開できます。' : '判断待ちの一覧から外れます。';
@@ -690,7 +690,7 @@ export function SessionDetail({ id, onShowWorkspace, embedded = false, onClose, 
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
           <span className="font-semibold">{s.project.name}</span>
           <SessionTags s={s} agent={false} />
-          <StatusBadge status={s.status} completed={!!s.completedByUser} />
+          <StatusBadge s={s} />
           {s.model && <span className="hidden sm:inline text-xs text-zinc-500">{s.model}</span>}
           <div className="ml-auto flex gap-1.5">
             {canComplete && (
@@ -733,13 +733,20 @@ export function SessionDetail({ id, onShowWorkspace, embedded = false, onClose, 
       </header>
 
       <div ref={scroller} className="flex-1 overflow-y-auto p-2 space-y-2">
-        {external && (
+        {/* 外で作業している最中だけ注意する。止まっている時は指示欄の案内で足りる（毎回の大きな枠は場所を取るだけだった） */}
+        {external && working && (
           <div className="text-xs text-indigo-200/80 bg-indigo-400/5 border border-indigo-400/30 rounded-md p-2 leading-relaxed">
-            このセッションは {s.externalHint ?? '外部'} で動いています。ここから指示を送ると Tower が会話を引き継ぎます（{s.externalHint ?? '元の画面'} 側で同時に動かさないでください）。
+            いま {s.externalHint ?? 'Tower の外'} で作業中です。ここから指示を送ると両方で同時に動いてしまうので、終わるのを待ってから送ってください。
           </div>
         )}
         {s.pending && <PendingCard session={s} />}
-        {s.report && <ReportCard r={s.report} onFileClick={() => setShowChanges(true)} />}
+        {s.report && (working ? (
+          // 作業中は前の回の報告をたたみ、今の作業の経過を先に見せる
+          <details className="rounded-md border border-zinc-800 bg-[#12151b] px-3 py-2 text-xs text-zinc-400">
+            <summary className="cursor-pointer hover:text-zinc-200">前回の報告を見る（{OUTCOME[s.report.outcome].label}）</summary>
+            <div className="mt-2"><ReportCard r={s.report} onFileClick={() => setShowChanges(true)} /></div>
+          </details>
+        ) : <ReportCard r={s.report} onFileClick={() => setShowChanges(true)} />)}
         {s.compare && <CompareStrip s={s} />}
         {s.workspace && <WorkspaceStrip s={s} />}
         {s.verification ? (
@@ -777,7 +784,7 @@ export function SessionDetail({ id, onShowWorkspace, embedded = false, onClose, 
 
         <div>
           <div className="flex items-center gap-2 text-[11px] text-zinc-500 mb-1 px-1">
-            <span>経過（クリックで詳細）</span>
+            <span>{working ? '今の作業の経過' : '経過'}（クリックで詳細）</span>
             {timeline?.some((t) => t.imagePath) && (
               <button type="button" onClick={toggleImages} aria-pressed={showImages} className="ml-auto underline hover:text-zinc-300">
                 {showImages ? '画像をまとめて隠す' : '画像をまとめて表示'}
@@ -811,7 +818,7 @@ export function SessionDetail({ id, onShowWorkspace, embedded = false, onClose, 
             alive
               ? '追加の指示（Ctrl+Enter で送信）。画像は貼り付け（Ctrl+V）かドラッグで添えられます'
               : external && s.agentSessionId
-                ? `続きの指示（送ると Tower が ${s.externalHint ?? '外部'} から引き継ぎます）`
+                ? `続きの指示（送ると、${s.externalHint ? `${s.externalHint} で始めた` : 'Tower の外で始めた'}会話の続きを Tower が引き受けます）`
                 : s.agentSessionId
                   ? '続きの指示（止まっているので、送ると再開します）'
                   : 'このセッションは再開できません'

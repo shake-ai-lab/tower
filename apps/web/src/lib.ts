@@ -143,14 +143,8 @@ export const RISK: Record<RiskLevel, { label: string; cls: string }> = {
   high: { label: '危険度 高', cls: 'bg-red-600 text-white font-semibold' },
 };
 
-/**
- * あなたの判断を待っているか。許可・質問（pending）に加えて、報告で「判断が必要」「質問あり」と言って
- * 止まっているもの（idle）も含める。次の指示を送る・停止すると外れる
- */
-export function needsYou(s: Session): boolean {
-  if (s.pending) return true;
-  return s.status === 'idle' && !!s.report && (!!s.report.needsDecision || s.report.outcome === 'question');
-}
+// 判断待ちかどうかの判定は task-state.ts（札・完了ボタン・畳み方と同じ所）にある
+export { needsYou } from './task-state';
 
 /** 判断待ちになった時刻（インボックスの並び順と「◯分前」用） */
 export const needsYouSince = (s: Session): number => s.pending?.createdAt ?? s.report?.generatedAt ?? s.updatedAt;

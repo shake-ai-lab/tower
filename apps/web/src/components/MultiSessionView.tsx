@@ -88,7 +88,7 @@ export function MultiSessionView({ sessions, single = false, chatShown = false }
               if (next) activate(i, next);
             }}
           />
-          {id && <StatusBadge status={sessions.find((s) => s.id === id)!.status} className="text-[10px] shrink-0" />}
+          {id && <StatusBadge s={sessions.find((s) => s.id === id)!} className="text-[10px] shrink-0" />}
         </div>
         <div className="flex-1 min-h-0 min-w-0">{id ? <SessionDetail key={id} id={id} embedded /> : (
           <div className="h-full flex flex-col items-center justify-center gap-3 p-4 text-center">

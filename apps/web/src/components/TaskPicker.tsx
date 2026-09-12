@@ -3,9 +3,10 @@
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent } from 'react';
 import { createPortal } from 'react-dom';
 import type { Session } from '@tower/shared';
-import { STATUS, needsYou, projectStyle } from '../lib';
-import { FINISHED, ago, pickerGroups } from '../task-picker';
-import { ExternalTag } from './SessionBadges';
+import { STATUS, projectStyle } from '../lib';
+import { ago, pickerGroups } from '../task-picker';
+import { isFinished } from '../task-state';
+import { ExternalTag, StatusBadge } from './SessionBadges';
 
 export function TaskPicker({
   sessions,
@@ -45,7 +46,7 @@ export function TaskPicker({
   // 開いた時は検索を空にし、いま出しているタスクに印を合わせる（終わったタスクを出していればそれも見せる）
   useEffect(() => {
     if (!open) return;
-    const finished = !!current && FINISHED.includes(current.status);
+    const finished = !!current && isFinished(current);
     setQ('');
     setShowFinished(finished);
     const at = pickerGroups(sessions, '', finished).groups.flatMap((g) => g.sessions).findIndex((s) => s.id === value);
@@ -189,7 +190,6 @@ export function TaskPicker({
                   {g.sessions.map((s) => {
                     const i = n++;
                     const st = STATUS[s.status];
-                    const decide = s.status === 'idle' && needsYou(s);
                     const here = s.id === value;
                     return (
                       <div
@@ -203,7 +203,7 @@ export function TaskPicker({
                         className={`mx-1 flex cursor-pointer items-center gap-2 rounded border-l-2 px-2 py-1.5 ${here ? 'border-sky-400' : 'border-transparent'} ${i === active ? 'bg-sky-400/15' : ''}`}
                       >
                         <span aria-hidden="true" className={`h-2 w-2 shrink-0 rounded-full ${st.dot}`} />
-                        <span title={s.title} className={`min-w-0 flex-1 truncate text-[13px] ${here ? 'font-semibold text-sky-200' : FINISHED.includes(s.status) ? 'text-zinc-400' : 'text-zinc-100'}`}>
+                        <span title={s.title} className={`min-w-0 flex-1 truncate text-[13px] ${here ? 'font-semibold text-sky-200' : isFinished(s) ? 'text-zinc-400' : 'text-zinc-100'}`}>
                           {s.title}
                         </span>
                         <ExternalTag s={s} />
@@ -212,9 +212,7 @@ export function TaskPicker({
                         ) : (
                           shownIn[s.id] && <span className="shrink-0 text-[10px] text-zinc-500">パネル{shownIn[s.id]}</span>
                         )}
-                        <span className={`shrink-0 rounded-full px-1.5 py-0.5 text-[10px] ${decide ? 'bg-amber-400 font-semibold text-black' : st.badge}`}>
-                          {decide ? '判断待ち' : st.label}
-                        </span>
+                        <StatusBadge s={s} className="shrink-0 text-[10px]" />
                         <span className="w-12 shrink-0 text-right text-[10px] text-zinc-500">{ago(s.updatedAt)}</span>
                       </div>
                     );

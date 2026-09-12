@@ -47,7 +47,8 @@ export function DeskWindowControls({ name, project, rect, zoom, onChange, onActi
     } else { const { z: _, ...resized } = resizeDesk(g.start, g.mode, dx, dy); onChange(resized); }
   };
   return <div className="desk-window-controls" onPointerMove={move} onPointerUp={finish} onPointerCancel={() => { if (gesture.current) onChange(gesture.current.start); finish(); }}>
-    <div className="desk-titlebar" onDoubleClick={onMaximize}>
+    {/* ダブルクリックで最大化するのはタイトルの所だけ。A−・A＋などのボタンを続けて押した時に最大化しない */}
+    <div className="desk-titlebar" onDoubleClick={(e) => { if (!(e.target as HTMLElement).closest('button:not(.desk-window-title)')) onMaximize(); }}>
       <button aria-label={`${name}を移動`} className="desk-window-title" onPointerDown={(e) => begin(e, 'move')} onKeyDown={(e) => {
         if (e.key.startsWith('Arrow')) { e.preventDefault(); onChange({ x: rect.x + (e.key === 'ArrowRight' ? 20 : e.key === 'ArrowLeft' ? -20 : 0), y: rect.y + (e.key === 'ArrowDown' ? 20 : e.key === 'ArrowUp' ? -20 : 0) }); }
       }} title="ドラッグで移動・ダブルクリックで最大化">{name}<span>{project}</span></button>
