@@ -199,6 +199,16 @@ export interface UsageSummary {
   projectsToday: (UsageSum & { name: string; path: string })[];
 }
 
+/** タスクの作業を記録したコミット（報告のたびに Tower が記録したもの・エージェントが自分で記録したもの） */
+export interface TaskCommit {
+  hash: string;
+  /** コミットの件名（1 行目） */
+  subject: string;
+  /** 記録したファイルの数。エージェントが自分で記録した時は分からないので省略 */
+  files?: number;
+  at: number;
+}
+
 /** セッションが実際に作業しているフォルダ */
 export const workDir = (s: Pick<Session, 'project' | 'workspace'>): string => s.workspace?.path ?? s.project.path;
 
@@ -248,6 +258,8 @@ export interface Session {
   toolCalls: number;
   /** このセッションで触ったファイル（Edit/Write から機械的に集計） */
   changedFiles: string[];
+  /** このタスクの作業を記録したコミット（古い順）。Git のグラフでタスクと結びつける */
+  commits?: TaskCommit[];
   createdAt: number;
   updatedAt: number;
   lastError: string | null;
@@ -398,12 +410,31 @@ export interface ChangedFile {
   diff: string;
 }
 
+/** コミットを記録したタスク。title が null = そのタスクはもう消した */
+export interface CommitTask {
+  id: string;
+  title: string | null;
+}
+
+export interface HistoryCommit {
+  hash: string;
+  parents: string[];
+  subject: string;
+  refs: string;
+  author: string;
+  /** ISO 8601 */
+  date?: string;
+  message?: string;
+  /** このコミットを記録したタスク。Tower のタスクの記録でなければ無し */
+  task?: CommitTask;
+}
+
 export interface ChangesResponse {
   isGit: boolean;
   branch?: string;
-  history?: { hash: string; parents: string[]; subject: string; refs: string; author: string; /** ISO 8601 */ date?: string; message?: string }[];
+  history?: HistoryCommit[];
   files: ChangedFile[];
-  /** 分離した作業場所の時: 差分の比較先の説明（例: 「元のブランチ main」） */
+  /** 差分が何と比べたものかの説明（1 文。例: 「元のプロジェクト（main）との差分です。すでに取り込んだ分は含みません。」）。HEAD と比べる時は無し */
   against?: string;
 }
 
@@ -529,6 +560,8 @@ export interface TowerSettings {
   feedbackFile: string;
   /** サーバー再起動で中断した作業中のタスクを、起動時に自動で続きから再開する */
   autoResume: boolean;
+  /** 報告のたびに、そのタスクが変えたファイルを Tower が記録（コミット）する。Git のグラフでタスクと結びつく */
+  autoCommit: boolean;
 }
 
 export interface SettingsStatus {

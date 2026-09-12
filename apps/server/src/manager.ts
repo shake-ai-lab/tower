@@ -24,6 +24,7 @@ import { ClaudeRunner } from './agents/claude.ts';
 import { CodexRunner } from './agents/codex.ts';
 import type { AgentRunner } from './agents/types.ts';
 import { checkUploads, removeAttachments, saveAttachments } from './attachments.ts';
+import { autoCommitEnabled, commitTaskWork, type CommitOutcome } from './commit.ts';
 import type { Hub } from './hub.ts';
 import { SHOTS_DIR, capture, detectPreview, laterPreviewLabel, targetLabel } from './preview.ts';
 import { CODEX_MISSING, findCodexBin } from './codex-bin.ts';
@@ -126,10 +127,35 @@ export class SessionManager {
       const at = s.report?.generatedAt ?? 0;
       if (at && at !== (this.lastReportAt.get(s.id) ?? 0)) {
         this.lastReportAt.set(s.id, at);
+        // 記録は自動取り込みより先に（取り込みでまとめて記録されると、報告の説明が付かない）
+        this.commitReport(s);
         if (s.preview) void this.capturePreview(s.id, 'after');
       }
-      this.maybeAutoMerge(s);
+      this.maybeAutoMerge(this.hub.get(s.id) ?? s);
     });
+  }
+
+  /** 報告のたびに、そのタスクの変更を記録（コミット）する。Tower で動かしているタスクだけ（外から観測しているだけのものは触らない） */
+  private commitReport(s: Session) {
+    if (!autoCommitEnabled() || s.origin === 'external' || s.status !== 'idle' || !s.report) return;
+    let r: CommitOutcome;
+    try {
+      r = commitTaskWork(s, s.report);
+    } catch (e) {
+      r = { kind: 'failed', message: `変更を記録（コミット）できませんでした: ${e instanceof Error ? e.message : String(e)}` };
+    }
+    if (r.kind === 'skipped') {
+      if (r.message) this.note(s.id, 'system', r.message);
+      return;
+    }
+    if (r.kind === 'failed') {
+      this.note(s.id, 'error', r.message.split('\n')[0].slice(0, 140), r.message);
+      return;
+    }
+    const cur = this.hub.get(s.id);
+    if (!cur) return;
+    this.hub.update(s.id, { commits: [...(cur.commits ?? []), r.commit].slice(-200) });
+    this.note(s.id, 'system', `変更を記録しました（コミット ${r.commit.hash.slice(0, 7)}・${r.files.length} ファイル）`, `${r.message}\n\n${r.files.join('\n')}`);
   }
 
   private autoMerged = new Map<string, number>();
@@ -563,7 +589,7 @@ export class SessionManager {
     }
     // この報告ではもう取り込みを試した（押した後の更新で自動取り込みがもう一度走らないように）
     if (s.report) this.autoMerged.set(id, s.report.generatedAt);
-    const r = mergeWorktree(s.project.path, s.workspace, s.title, { busyTasks: this.workingInOriginal(s) });
+    const r = mergeWorktree(s.project.path, s.workspace, s.title, { busyTasks: this.workingInOriginal(s), taskId: s.id });
     let message = r.message;
     let fixPrompt: string | null = null;
     if (r.reason === 'conflict' || r.reason === 'unresolved') {

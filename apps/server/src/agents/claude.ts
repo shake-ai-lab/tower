@@ -32,6 +32,7 @@ import {
   firstLine,
   hasJapanese,
   readImage,
+  resultText,
   summarizeToolResult,
   toolDetail,
   touchedFile,
@@ -44,6 +45,7 @@ const isAgentTask = (type?: string) => /agent|workflow/i.test(type ?? '');
 import { REPORT_INSTRUCTIONS, fallbackReport, parseReport } from '../report.ts';
 import { detectVerifyCommand, runVerify } from '../verify.ts';
 import { workspaceNote } from '../worktree.ts';
+import { commitNote, recordAgentCommits } from '../commit.ts';
 import type { AgentRunner } from './types.ts';
 
 /** 後から push できる AsyncIterable。SDK の streaming input に渡す */
@@ -155,6 +157,8 @@ export class ClaudeRunner implements AgentRunner {
 
     const parts = [REPORT_INSTRUCTIONS];
     if (s.workspace) parts.push(workspaceNote(s.workspace, s.project.path));
+    const commits = commitNote();
+    if (commits) parts.push(commits);
     if (s.preview) parts.push(previewNote(s.preview.target));
     const append = parts.join('\n\n');
     const options: Options = {
@@ -524,6 +528,8 @@ export class ClaudeRunner implements AgentRunner {
               const isErr = block.is_error === true;
               const tu = this.toolUses.get(block.tool_use_id);
               this.toolUses.delete(block.tool_use_id);
+              // 自分でコミットしたら、そのコミットをタスクの記録に加える（Git のグラフで結びつける）
+              if (!isErr && tu?.name === 'Bash') recordAgentCommits(this.hub, this.id, String(tu.input.command ?? ''), resultText(block.content));
               // エラーは原文（何が起きたか）が要る。成功は「何をしたか」を日本語で
               const summary = isErr ? summarizeToolResult(block.content) : summarizeToolResult(block.content, tu?.name, tu?.input);
               this.timeline(isErr ? 'error' : 'tool_result', isErr ? `失敗: ${summary}` : summary || '(結果なし)');

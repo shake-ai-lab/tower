@@ -26,6 +26,7 @@ function defaults(): TowerConfig {
     externalKeepHours: 24,
     feedbackFile: path.join(DATA_DIR, 'feedback.md'),
     autoResume: true,
+    autoCommit: true,
   };
 }
 
@@ -101,6 +102,7 @@ export function validateSettings(body: Partial<TowerSettings>): Partial<TowerSet
   if (body.autoVerify !== undefined) out.autoVerify = !!body.autoVerify;
   if (body.reformatReports !== undefined) out.reformatReports = !!body.reformatReports;
   if (body.autoResume !== undefined) out.autoResume = !!body.autoResume;
+  if (body.autoCommit !== undefined) out.autoCommit = !!body.autoCommit;
   if (body.bridgeWaitSeconds !== undefined) out.bridgeWaitSeconds = int(body.bridgeWaitSeconds, '待つ秒数', 10, 600);
   if (body.externalKeepHours !== undefined) out.externalKeepHours = int(body.externalKeepHours, '保持する時間', 0, 24 * 30);
   if (body.feedbackFile !== undefined) {

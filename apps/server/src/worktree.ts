@@ -238,8 +238,10 @@ const shortTitle = (t: string) => (t.length > 30 ? `${t.slice(0, 30)}…` : t);
  * 1. 作業場所の未保存の変更をコミット 2. 元のプロジェクトで今開いているブランチに merge
  * 元のプロジェクト側に保存していない変更があって重なる時は、利用者に git の作業を頼まず、Tower がその変更を先に記録してから合流する。
  * ただし busyTasks（元のプロジェクトのフォルダで直接作業中のタスク）がある時は、書きかけを記録しないよう待ってもらう。
+ * taskId を渡すと、作業場所の記録と合流の記録にタスクの印（Tower-Task: の行）を付ける（Git のグラフでタスクと結びつく）
  */
-export function mergeWorktree(projectPath: string, ws: Workspace, title: string, opts: { busyTasks?: string[] } = {}): MergeResult {
+export function mergeWorktree(projectPath: string, ws: Workspace, title: string, opts: { busyTasks?: string[]; taskId?: string } = {}): MergeResult {
+  const tag = (msg: string) => (opts.taskId ? `${msg}\n\nTower-Task: ${opts.taskId}` : msg);
   if (!fs.existsSync(ws.root)) {
     return { ok: false, message: '分離した作業場所のフォルダが見つかりません（消された可能性があります）', files: 0 };
   }
@@ -247,7 +249,7 @@ export function mergeWorktree(projectPath: string, ws: Workspace, title: string,
   if (hasUnresolved(ws.root)) {
     return { ok: false, reason: 'unresolved', message: '作業場所に、元のプロジェクトの変更と合わせかけのまま直っていない箇所（競合）が残っています。', files: 0 };
   }
-  const commitErr = commitEverything(ws.root, `Tower: ${title}`);
+  const commitErr = commitEverything(ws.root, tag(`Tower: ${title}`));
   if (commitErr) return { ok: false, message: commitErr, files: 0 };
 
   const target = currentBranch(projectPath);
@@ -257,7 +259,7 @@ export function mergeWorktree(projectPath: string, ws: Workspace, title: string,
     return { ok: true, message: '取り込む変更はありません（すでに元のプロジェクトに入っています）', files: 0 };
   }
   const files = git(projectPath, ['diff', '--name-only', `HEAD...${ws.branch}`]).out.split(/\r?\n/).filter(Boolean);
-  const mergeArgs = ['merge', '--no-edit', '-m', `Tower: ${title} を取り込み`, ws.branch];
+  const mergeArgs = ['merge', '--no-edit', '-m', tag(`Tower: ${title} を取り込み`), ws.branch];
   let m = git(projectPath, mergeArgs);
   let saved = 0;
   if (!m.ok && OVERWRITE.test(`${m.out}\n${m.err}`)) {

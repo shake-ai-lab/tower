@@ -8,6 +8,7 @@ const CHECKBOX_LABELS = {
   autoVerify: '報告後にテストを自動実行',
   reformatReports: '報告をAIで読みやすく整形',
   autoResume: '再起動で止まったタスクを自動で再開',
+  autoCommit: '報告のたびに変更を記録（コミット）',
 } as const;
 
 export function SettingsPanel() {
@@ -40,7 +41,7 @@ export function SettingsPanel() {
     {error && <p role="alert" className="text-red-300 break-words">{error}</p>}
     {!draft ? <p>設定を読み込み中…</p> : <fieldset disabled={busy} className="space-y-3 min-w-0">
       <label className="block">プロジェクトの親フォルダ（1行に1つ）<textarea className={input} rows={4} value={roots} onChange={(e) => setRoots(e.target.value)} /></label>
-      {(['autoVerify', 'reformatReports', 'autoResume'] as const).map((key) => <label key={key} className="flex gap-2 items-center">
+      {(['autoVerify', 'reformatReports', 'autoResume', 'autoCommit'] as const).map((key) => <label key={key} className="flex gap-2 items-center">
         <input type="checkbox" checked={draft[key]} onChange={(e) => setDraft({ ...draft, [key]: e.target.checked })} />
         {CHECKBOX_LABELS[key]}
       </label>)}

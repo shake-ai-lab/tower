@@ -29,6 +29,7 @@ import { REPORT_INSTRUCTIONS, fallbackReport, parseReport } from '../report.ts';
 import { VERSION } from '../version.ts';
 import { detectVerifyCommand, runVerify } from '../verify.ts';
 import { workspaceNote } from '../worktree.ts';
+import { commitNote, recordAgentCommits } from '../commit.ts';
 import { BROWSER_TOOLS, TowerBrowser, browserActivity, browserNote, isBrowserTool } from './codex-browser.ts';
 import { RpcClient, RpcError, type RpcId } from './codex-rpc.ts';
 import {
@@ -254,6 +255,8 @@ export class CodexRunner implements AgentRunner {
   private instructions(s: Session): string {
     const parts = [REPORT_INSTRUCTIONS];
     if (s.workspace) parts.push(workspaceNote(s.workspace, s.project.path));
+    const commits = commitNote();
+    if (commits) parts.push(commits);
     parts.push(browserNote(s.preview?.target));
     return parts.join('\n\n');
   }
@@ -528,6 +531,8 @@ export class CodexRunner implements AgentRunner {
         const out = String(item.aggregatedOutput ?? '').trim();
         const tail = out.split(/\r?\n/).slice(-1)[0] ?? '';
         const ok = item.status === 'completed' && (item.exitCode ?? 0) === 0;
+        // 自分でコミットしたら、そのコミットをタスクの記録に加える（Git のグラフで結びつける）
+        if (ok) recordAgentCommits(this.hub, this.id, command, out);
         this.timeline(
           ok ? 'tool_result' : 'error',
           ok ? tail.slice(0, 120) || '(出力なし)' : `失敗 (exit ${item.exitCode ?? '?'}): ${tail.slice(0, 120)}`,
