@@ -8,7 +8,7 @@ import { useStore } from '../store';
 import { PendingCard } from './PendingCards';
 import { ChangesPanel } from './ChangesPanel';
 import { AttachButton, AttachList, SentAttachments, useAttachments } from './Attachments';
-import { StatusBadge } from './SessionCard';
+import { SessionTags, StatusBadge } from './SessionBadges';
 
 // Monaco は重いので、「直す」を押した時に初めて読み込む
 import { useEditorWorkspace } from '../editor-workspace';
@@ -673,19 +673,7 @@ export function SessionDetail({ id, onShowWorkspace, embedded = false, onClose, 
       <header className="relative p-3 border-b border-zinc-800 space-y-1">
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
           <span className="font-semibold">{s.project.name}</span>
-          {external && (
-            <span className="text-[10px] px-1.5 py-0.5 rounded bg-indigo-900/70 text-indigo-200">{s.externalHint ?? '外部'}</span>
-          )}
-          {s.workspace && (
-            <span title={`ブランチ ${s.workspace.branch}`} className="text-[10px] px-1.5 py-0.5 rounded bg-fuchsia-900/70 text-fuchsia-200">
-              分離
-            </span>
-          )}
-          {s.compare && (
-            <span title="同じ依頼を複数のモデルに投げて比べています" className="text-[10px] px-1.5 py-0.5 rounded bg-violet-900/70 text-violet-200">
-              比較 {s.compare.label}
-            </span>
-          )}
+          <SessionTags s={s} agent={false} />
           <StatusBadge status={s.status} />
           {s.model && <span className="hidden sm:inline text-xs text-zinc-500">{s.model}</span>}
           <div className="ml-auto flex gap-1.5">

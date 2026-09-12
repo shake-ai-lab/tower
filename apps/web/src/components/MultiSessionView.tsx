@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import type { Session } from '@tower/shared';
 import { useStore } from '../store';
 import { SessionDetail } from './SessionDetail';
-import { StatusBadge } from './SessionCard';
+import { StatusBadge } from './SessionBadges';
 
 export function MultiSessionView({ sessions, single = false }: { sessions: Session[]; single?: boolean }) {
   const selectedId = useStore((s) => s.selectedId);
