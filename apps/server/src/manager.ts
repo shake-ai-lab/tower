@@ -15,6 +15,7 @@ import {
   type AttachmentUpload,
   type CreateSessionBody,
   type MergeResult,
+  type ReportOutcome,
   type Session,
   type SessionStatus,
   type TimelineKind,
@@ -45,6 +46,9 @@ const AUTO_RESUME_LIMIT = 1;
 
 /** 件と件の間に空ける時間（同時に何本も起動しない） */
 const AUTO_RESUME_GAP_MS = 1500;
+
+/** 報告の結果を日本語で（手で完了にした時の年表用） */
+const REPORT_LABEL: Record<ReportOutcome, string> = { done: '完了', partial: '一部完了', failed: '失敗', question: '質問あり', unknown: '報告' };
 
 /** 中断直前の状態を日本語で */
 const STATUS_LABEL: Partial<Record<SessionStatus, string>> = {
@@ -381,6 +385,8 @@ export class SessionManager {
       patch.autoResumes = 0;
       patch.interrupted = null;
     }
+    // 手で「完了」にしたものも、続きの指示を送れば再開する（完了の印は外す）
+    if (s.completedByUser) patch.completedByUser = null;
     if (Object.keys(patch).length) this.hub.update(id, patch);
     const running = this.runners.get(id);
     if (running) {
@@ -488,6 +494,30 @@ export class SessionManager {
     await r.stop();
     this.runners.delete(id);
     return true;
+  }
+
+  /**
+   * 利用者が手で「完了」にする（報告が一部完了・失敗でも、もうこれでよいと判断した時）。
+   * エージェントが動いていれば止めてから。判断待ち・自動再開の対象から外れる。
+   * 続きの指示を送れば send が会話IDで再開する（完了の印はそこで外れる）
+   */
+  async complete(id: string): Promise<Session> {
+    const s = this.hub.get(id);
+    if (!s) throw new Error('セッションが見つかりません');
+    if (s.status === 'done' && s.completedByUser) return s;
+    if (s.origin === 'external' && WORKING.includes(s.status)) {
+      throw new Error(`${s.externalHint ?? '外部'} で作業中なので、ここからは完了にできません。向こうで止めるか、終わってから押してください`);
+    }
+    const r = this.runners.get(id);
+    if (r) {
+      await r.stop();
+      this.runners.delete(id);
+    }
+    const next = this.hub.update(id, { status: 'done', activity: '完了にしました', pending: null, pendingCount: 0, interrupted: null, completedByUser: Date.now() });
+    if (!next) throw new Error('セッションが削除されました');
+    const outcome = s.report ? `（その時の報告: ${REPORT_LABEL[s.report.outcome]}）` : '';
+    this.note(id, 'system', `「完了」にしました${outcome}`, s.agentSessionId ? '続きの指示を送れば、また再開できます' : undefined);
+    return next;
   }
 
   async remove(id: string) {

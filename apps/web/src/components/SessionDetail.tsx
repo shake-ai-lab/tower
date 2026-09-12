@@ -5,6 +5,7 @@ import { PERMISSION_CHOICES, type PermissionChoice } from '@tower/shared';
 import { api, errMsg } from '../api';
 import { OUTCOME, STATUS, btn, fmtElapsed, fmtTime, fmtTokens, fmtUsd, isAlive, verifyBadge, useDesktop, useResizable } from '../lib';
 import { useStore } from '../store';
+import { openTask } from '../layout';
 import { PendingCard } from './PendingCards';
 import { ChangesPanel } from './ChangesPanel';
 import { AttachButton, AttachList, SentAttachments, useAttachments } from './Attachments';
@@ -272,7 +273,6 @@ function WorkspaceStrip({ s }: { s: Session }) {
 /** 「比べる」で作った案どうしの対比表。気に入った案を取り込み、残りを片付ける */
 function CompareStrip({ s }: { s: Session }) {
   const sessions = useStore((st) => st.sessions);
-  const select = useStore((st) => st.select);
   const [busy, setBusy] = useState(false);
   const c = s.compare;
   if (!c) return null;
@@ -358,7 +358,7 @@ function CompareStrip({ s }: { s: Session }) {
                   <td className="text-right pr-2">{fmtUsd(x.costUsd)}</td>
                   <td className="text-right">
                     {!me && (
-                      <button onClick={() => select(x.id)} className="underline text-sky-300 hover:text-sky-200">
+                      <button onClick={() => openTask(x.id)} className="underline text-sky-300 hover:text-sky-200">
                         見る
                       </button>
                     )}
@@ -666,6 +666,15 @@ export function SessionDetail({ id, onShowWorkspace, embedded = false, onClose, 
     if (!confirm('このセッションを停止しますか？')) return;
     await api.stop(id).catch((e) => setErr(errMsg(e)));
   };
+  // 報告が一部完了・失敗でも「もうこれでよい」と決めた時に。判断待ちから外れる
+  const canComplete = s.status !== 'done' && !(external && working);
+  const complete = async () => {
+    const head = working ? '作業を止めて、このタスクを「完了」にしますか？' : 'このタスクを「完了」にしますか？';
+    const tail = s.agentSessionId ? '判断待ちの一覧から外れます。続きの指示を送れば、また再開できます。' : '判断待ちの一覧から外れます。';
+    if (!confirm(`${head}\n${tail}`)) return;
+    setErr(null);
+    await api.complete(id).catch((e) => setErr(errMsg(e)));
+  };
   const remove = async () => {
     const msg = s.workspace
       ? 'このセッションを一覧から削除しますか？（履歴も消えます）\n別の作業場所（コピー）も消えます。まだ取り込んでいない変更は失われます。'
@@ -677,13 +686,18 @@ export function SessionDetail({ id, onShowWorkspace, embedded = false, onClose, 
   return (
     <section ref={resize.ref} data-resizable-panel={embedded ? undefined : true} aria-label="タスク詳細" style={{ ...(desktop && !embedded ? { width: resize.width, minWidth: 300, flexShrink: 1 } : {}), ...(hidden ? { display: 'none' } : {}) }} className={`w-full border-zinc-800 flex flex-col overflow-hidden bg-[#0c0e12] ${embedded ? 'relative h-full min-h-0 min-w-0' : desktop ? 'relative border-l' : 'fixed inset-0 z-40'}`}>
       {desktop && !embedded && <div role="separator" aria-label="タスク詳細の幅" aria-orientation="vertical" aria-valuemin={300} aria-valuemax={1000} aria-valuenow={resize.actualWidth} tabIndex={0} onMouseDown={resize.onMouseDown} onDoubleClick={resize.reset} onKeyDown={resize.onKeyDown} className="absolute left-0 top-0 bottom-0 w-1.5 z-10 cursor-col-resize hover:bg-sky-500/60 focus:bg-sky-500/60" />}
-      <header className="relative p-3 border-b border-zinc-800 space-y-1">
+      <header className={`relative p-3 border-b border-zinc-800 space-y-1 ${st.working ? 'working-head' : ''}`}>
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
           <span className="font-semibold">{s.project.name}</span>
           <SessionTags s={s} agent={false} />
-          <StatusBadge status={s.status} />
+          <StatusBadge status={s.status} completed={!!s.completedByUser} />
           {s.model && <span className="hidden sm:inline text-xs text-zinc-500">{s.model}</span>}
           <div className="ml-auto flex gap-1.5">
+            {canComplete && (
+              <button onClick={complete} title="報告が一部完了・失敗でも、これで終わりにする。判断待ちから外れます" className={`${btn.base} ${btn.success} !py-1 !text-xs`}>
+                完了にする
+              </button>
+            )}
             {alive && (
               <button onClick={stop} className={`${btn.base} ${btn.danger} !py-1 !text-xs`}>
                 停止

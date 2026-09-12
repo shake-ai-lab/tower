@@ -1,7 +1,36 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { resizeDesk, type DeskRect } from './src/components/DeskWindowControls';
-import { deskBounds, rotateDesk, scaleText, textScale } from './src/desk-geometry';
+import { deskBounds, deskWheelAction, rotateDesk, scaleText, textScale, wheelZoomFactor, zoomScroll } from './src/desk-geometry';
+
+const keys = (ctrlKey = false, altKey = false, metaKey = false) => ({ ctrlKey, altKey, metaKey });
+test('wheel means the same thing wherever the pointer is: plain wheel scrolls, Ctrl/⌘ (or pinch) zooms the desk', () => {
+  for (const over of [true, false]) {
+    assert.equal(deskWheelAction(keys(), over), 'scroll');
+    assert.equal(deskWheelAction(keys(true), over), 'zoom');
+    assert.equal(deskWheelAction(keys(false, false, true), over), 'zoom');
+  }
+  assert.equal(deskWheelAction(keys(true, true), true), 'text');
+  assert.equal(deskWheelAction(keys(true, true), false), 'zoom');
+  assert.equal(deskWheelAction(keys(false, true), true), 'scroll');
+});
+
+test('wheel zoom: one mouse notch is about 1.22x either way, pinch steps are fine, line/page modes are evened out', () => {
+  const up = wheelZoomFactor(-100), down = wheelZoomFactor(100);
+  assert.ok(Math.abs(up - 1.2214) < 1e-3);
+  assert.ok(Math.abs(up * down - 1) < 1e-9);
+  assert.ok(wheelZoomFactor(-4) > 1 && wheelZoomFactor(-4) < 1.02);
+  assert.equal(wheelZoomFactor(-3, 1), up);
+  assert.equal(wheelZoomFactor(1, 2), down);
+});
+
+test('zooming keeps the point under the pointer in place', () => {
+  const scroll = { left: 1000, top: 500 }, at = { x: 200, y: 100 };
+  const zoomed = zoomScroll(scroll, at, 1, 2);
+  assert.deepEqual(zoomed, { left: 2200, top: 1100 });
+  const back = zoomScroll(zoomed, at, 2, 1);
+  assert.deepEqual(back, scroll);
+});
 
 const start: DeskRect = { x: 200, y: 150, w: 520, h: 440, angle: 90, z: 1 };
 test('rotated right edge resizes in local coordinates without moving the opposite edge', () => {

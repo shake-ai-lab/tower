@@ -44,7 +44,7 @@ await build({
   outfile: path.join(STAGE, 'app', 'server.mjs'),
   // 子プロセス（Claude Code の CLI、ブラウザ）を自分の置き場所から探すものは束ねない
   external: ['@anthropic-ai/claude-agent-sdk', 'playwright-core'],
-  // Codex の SDK（JS）は小さいので束ねる。本体（378MB の @openai/codex）は入れず、VS Code の Codex 拡張のものを使う（codex-bin.ts）
+  // Codex の本体（378MB の @openai/codex）は入れず、VS Code の Codex 拡張のものを app-server として動かす（codex-bin.ts / agents/codex.ts）
   // 束ねると package.json が隣に無いので、版はここで埋め込む（「気づいたこと」の場面に記す）
   define: { 'process.env.TOWER_VERSION': JSON.stringify(rootPkg.version) },
   // 束ねた CommonJS 側の require() が ESM の中でも動くように、本物の require を用意する

@@ -10,6 +10,7 @@ import { SearchPanel } from './SearchPanel';
 import { QuickOpen } from './QuickOpen';
 import { Icon } from './Icon';
 import { useEditorWorkspace } from '../editor-workspace';
+import { useLayout } from '../layout';
 
 function Folder({ id, path = '', onOpen, version, selected, hidden }: { id: string; path?: string; onOpen: (path: string) => void; version: number; selected?: string; hidden: string[] }) {
   const [data, setData] = useState<TreeResponse | null>(null);
@@ -75,14 +76,15 @@ export function WorkspaceSidebar({ className = '' }: { className?: string }) {
     const key = (e: KeyboardEvent) => {
       if (e.defaultPrevented || e.isComposing || !(e.ctrlKey || e.metaKey)) return;
       const next = e.shiftKey && e.key.toLowerCase() === 'e' ? 'files' : e.shiftKey && e.key.toLowerCase() === 'g' ? 'git' : e.key === ',' ? 'settings' : null;
-      if (next) { e.preventDefault(); setTab(next); }
+      // 左の欄を隠していても、その中身を呼ぶキーを押したら出す
+      if (next) { e.preventDefault(); setTab(next); useLayout.getState().setSidebar(true); }
     };
     // Ctrl+P（名前で開く）と Ctrl+Shift+F（全体検索）は、エディタや印刷に取られないよう捕捉段階で受ける
     const early = (e: KeyboardEvent) => {
       if (e.isComposing || !(e.ctrlKey || e.metaKey) || e.altKey) return;
       const k = e.key.toLowerCase();
       if (k === 'p' && !e.shiftKey) setQuickOpen(true);
-      else if (k === 'f' && e.shiftKey) { setTab('search'); setSearchFocus((n) => n + 1); }
+      else if (k === 'f' && e.shiftKey) { setTab('search'); setSearchFocus((n) => n + 1); useLayout.getState().setSidebar(true); }
       else return;
       e.preventDefault();
       e.stopPropagation();
@@ -95,6 +97,9 @@ export function WorkspaceSidebar({ className = '' }: { className?: string }) {
   const resize = useResizable('sidebar', 320, 220, 600, 'left');
   // タスクを選んだらファイル一覧へ。ただし判断待ちがまだ残っている時は、その一覧から次々に答えられるよう留まる
   useEffect(() => { if (id) setTab((t) => t === 'git' || t === 'search' || (t === 'inbox' && waiting > 0) ? t : 'files'); }, [id]); // eslint-disable-line react-hooks/exhaustive-deps
+  // 上の「判断待ち N」を押した時は、判断待ちの一覧に切り替える
+  const inboxAt = useLayout((s) => s.inboxAt);
+  useEffect(() => { if (inboxAt) setTab('inbox'); }, [inboxAt]);
   return <>
   <aside ref={resize.ref} data-resizable-panel className={`relative w-full md:border-r border-zinc-800 bg-[#0c0e12] ${className}`} style={desktop ? { width: resize.width, minWidth: 220, flexShrink: 1 } : undefined}>
     <div className="flex h-full min-h-0">
@@ -103,7 +108,11 @@ export function WorkspaceSidebar({ className = '' }: { className?: string }) {
           <button key={value} aria-label={value === 'inbox' ? `判断待ち ${waiting}` : label} title={label} aria-pressed={tab === value} onClick={() => { setTab(value); if (value === 'search') setSearchFocus((n) => n + 1); }} className={`relative flex flex-col items-center gap-1 py-2 text-[10px] border-l-2 ${value === 'settings' ? 'mt-auto' : ''} ${tab === value ? 'border-sky-400 text-sky-200 bg-sky-400/10' : 'border-transparent text-zinc-500 hover:text-zinc-200 hover:bg-white/5'}`}><Icon name={value} className="!w-5 !h-5" /><span>{value === 'inbox' ? '判断待ち' : label}</span>{value === 'inbox' && waiting > 0 && <span className="absolute top-0 right-0 rounded-full bg-amber-400 text-black px-1">{waiting}</span>}</button>)}
       </nav>
       <div className="flex-1 min-w-0 min-h-0 overflow-y-auto">
-        <div className="sticky top-0 z-10 px-3 py-2 bg-[#0c0e12]/95 border-b border-zinc-800 text-xs font-semibold tracking-wide text-zinc-300">{TITLE[tab]}</div>
+        <div className="sticky top-0 z-10 flex items-center gap-2 px-3 py-2 bg-[#0c0e12]/95 border-b border-zinc-800 text-xs font-semibold tracking-wide text-zinc-300">
+          <span className="min-w-0 truncate">{TITLE[tab]}</span>
+          <button type="button" aria-label="左の欄を隠す" title="左の欄を隠す（Ctrl+B）。上の「左の欄」でまた出せます" onClick={() => useLayout.getState().setSidebar(false)}
+            className="hidden md:block ml-auto shrink-0 rounded px-1.5 py-0.5 font-normal text-zinc-500 hover:bg-zinc-800 hover:text-zinc-100">«</button>
+        </div>
         {tab === 'inbox' ? <Inbox embedded /> : tab === 'settings' ? <SettingsPanel /> : !session ?
           <p className="p-4 text-sm text-zinc-500">{tab === 'search' ? 'タスクを選ぶと、そのプロジェクトの中の文字を探せます。' : `タスクを選ぶと、プロジェクトの${tab === 'git' ? 'ブランチと差分' : 'ファイル'}が表示されます。`}</p> :
           tab === 'search' ? null :

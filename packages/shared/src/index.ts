@@ -253,6 +253,8 @@ export interface Session {
   interrupted?: { at: number; status: SessionStatus } | null;
   /** 利用者の指示を挟まずに連続で自動再開した回数（再起動ループの歯止め）。利用者が指示を送ると 0 に戻す */
   autoResumes?: number;
+  /** 利用者が手で「完了」にした時刻（その時 status は 'done'）。続きの指示を送って再開すると消す */
+  completedByUser?: number | null;
 }
 
 export type TimelineKind =
@@ -605,7 +607,7 @@ export const AGENT_CHOICES: { value: AgentKind; label: string; hint: string }[] 
   {
     value: 'codex',
     label: 'Codex (OpenAI)',
-    hint: '許可の都度確認はできないので、作業フォルダ内だけ書き込める砂場で動く。ログインは VS Code の Codex と共通',
+    hint: 'VS Code の Codex と同じ設定・道具で動く。許可・質問はここで答える。画面は Tower のブラウザーで自分で確かめる。ログインは VS Code の Codex と共通',
   },
 ];
 

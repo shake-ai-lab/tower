@@ -3,13 +3,14 @@ import type { ReactNode } from 'react';
 import type { Session } from '@tower/shared';
 import { STATUS } from '../lib';
 
-/** 状態の札。作業中はくるくる回る印を付けて、止まっているものと見分けやすくする */
-export function StatusBadge({ status, className = 'text-xs' }: { status: Session['status']; className?: string }) {
+/** 状態の札。作業中はくるくる回る印を付けて、止まっているものと見分けやすくする。completed = 利用者が手で「完了」にした */
+export function StatusBadge({ status, completed = false, className = 'text-xs' }: { status: Session['status']; completed?: boolean; className?: string }) {
   const st = STATUS[status];
+  const manual = completed && status === 'done';
   return (
-    <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full whitespace-nowrap ${className} ${st.badge}`}>
+    <span title={manual ? 'あなたが「完了」にしました。続きの指示を送れば再開できます' : undefined} className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full whitespace-nowrap ${className} ${manual ? 'bg-emerald-800/80 text-emerald-100' : st.badge}`}>
       {st.working && <span aria-hidden="true" className="working-spinner" />}
-      {st.label}
+      {manual ? '✓ 完了' : st.label}
     </span>
   );
 }

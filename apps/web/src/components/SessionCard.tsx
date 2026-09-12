@@ -29,7 +29,7 @@ function CompactCard({ s, selected, onClick }: CardProps) {
       <WorkingBar s={s} />
       <StatusDot s={s} />
       <span className="text-sm truncate flex-1 min-w-0" title={s.title}>{s.title}</span>
-      <StatusBadge status={s.status} className="text-[10px]" />
+      <StatusBadge status={s.status} completed={!!s.completedByUser} className="text-[10px]" />
       <span className={`w-full pl-4 text-[11px] truncate ${st.working ? 'text-sky-200/80' : 'text-zinc-500'}`}>
         {agentLabel(s)} · {s.activity} · {elapsed(s)}
       </span>
@@ -52,7 +52,7 @@ function FullCard({ s, selected, onClick }: CardProps) {
           <span className="truncate rounded border px-1.5 py-0.5 text-xs" style={projectStyle(s.project.path)} title={s.project.path}>{s.project.name}</span>
           <SessionTags s={s} />
         </div>
-        <StatusBadge status={s.status} />
+        <StatusBadge status={s.status} completed={!!s.completedByUser} />
       </div>
 
       <div className="text-sm text-zinc-300 line-clamp-2 break-words [overflow-wrap:anywhere]">{s.title}</div>

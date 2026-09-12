@@ -46,7 +46,7 @@ try {
     else if (p === '/api/feedback') data = { notes: [], file: 'C:/feedback.md' };
     return route.fulfill({ json: data });
   });
-  await page.goto('http://127.0.0.1:5179');
+  await page.goto(process.env.TOWER_TEST_URL ?? 'http://127.0.0.1:5179');
   const projectFilter = page.getByLabel('プロジェクトで絞り込み');
   assert.equal(await projectFilter.locator('option').count(), 3);
   await projectFilter.selectOption('c:/projects/editor');
@@ -106,7 +106,7 @@ try {
   await page.screenshot({ path: 'docs/screenshots/workspace-projects.png' });
   await newTask.getByRole('button', { name: '閉じる (Esc)' }).click();
   await page.getByRole('button', { name: 'ファイル', exact: true }).click();
-  const detailHandle = page.getByRole('separator', { name: 'タスク詳細の幅' });
+  const detailHandle = page.getByRole('separator', { name: 'チャットの幅' });
   for (const width of [1920, 1600, 1280, 1100]) {
     await page.setViewportSize({ width, height: 900 });
     for (const [handle, offset] of [[separator, 1500], [detailHandle, -1500], [separator, -1500], [detailHandle, 1500]]) {
@@ -135,22 +135,31 @@ try {
   await page.screenshot({ path: 'docs/screenshots/feedback-mobile.png' });
   await page.getByRole('tabpanel').getByRole('button', { name: '閉じる', exact: true }).click();
   await page.setViewportSize({ width: 1600, height: 1000 });
-  const views = page.getByRole('navigation', { name: '表示パターン' });
+  const views = page.getByRole('navigation', { name: '中央の表示' });
+  // パネルのタスク選びは一覧式（TaskPicker）。見出しのボタンの title に「プロジェクト / 題名」が出る
+  const pick = async (label, title) => {
+    await page.getByRole('button', { name: label, exact: true }).click();
+    await page.getByRole('dialog', { name: label }).getByRole('option').filter({ hasText: title }).click();
+  };
+  const pickerTitle = (label) => page.getByRole('button', { name: label, exact: true }).getAttribute('title');
   await views.getByRole('button', { name: 'コンパクト', exact: true }).click();
   assert.equal(await page.locator('main section button').count(), 3);
   await views.getByRole('button', { name: '集中', exact: true }).click();
-  await page.getByLabel('集中するタスク').selectOption('duplicate');
+  await pick('集中するタスク', 'A very long task title');
   assert.equal(await page.getByLabel('集中ビュー').getByLabel('タスク詳細', { exact: true }).count(), 1);
+  // 4分割だけを見る（右のチャットは隠す）
+  const chatToggle = page.getByRole('toolbar', { name: '画面の構成' }).getByRole('button', { name: 'チャット', exact: true });
+  if (await chatToggle.getAttribute('aria-pressed') === 'true') await chatToggle.click();
   await views.getByRole('button', { name: '4分割', exact: true }).click();
-  await page.getByLabel('パネル4のタスク').selectOption('test');
+  await pick('パネル4のタスク', 'Feedback UI check');
   assert.equal(await page.getByLabel('4分割ビュー').getByLabel('タスク詳細', { exact: true }).count(), 4);
-  assert.equal(await page.getByRole('separator', { name: 'タスク詳細の幅' }).count(), 0);
-  await page.getByLabel('パネル2のタスク').selectOption('separate');
+  assert.equal(await page.getByRole('separator', { name: 'チャットの幅' }).count(), 0);
+  await pick('パネル2のタスク', 'A separate project with the same name');
   await page.getByLabel('4分割ビュー').getByText('01', { exact: true }).click();
   assert.match(await page.locator('.session-pane').first().getAttribute('class'), /border-sky-400/);
   assert.doesNotMatch(await page.locator('.session-pane').nth(1).getAttribute('class'), /border-sky-400/);
-  assert.equal(await page.getByLabel('パネル1のタスク').inputValue(), 'test');
-  assert.equal(await page.getByLabel('パネル2のタスク').inputValue(), 'separate');
+  assert.match(await pickerTitle('パネル1のタスク'), /Feedback UI check/);
+  assert.match(await pickerTitle('パネル2のタスク'), /A separate project with the same name/);
   const secondPane = page.getByLabel('4分割ビュー').getByLabel('タスク詳細', { exact: true }).nth(1);
   await secondPane.getByRole('textbox').fill('Only send this to the second pane');
   await secondPane.getByRole('button', { name: '送信', exact: true }).click();
@@ -158,8 +167,8 @@ try {
   await page.screenshot({ path: 'docs/screenshots/workspace-quad.png' });
   await page.reload();
   await page.getByLabel('4分割ビュー').waitFor();
-  assert.equal(await page.getByLabel('パネル2のタスク').inputValue(), 'separate');
-  assert.equal(await page.getByLabel('パネル4のタスク').inputValue(), 'test');
+  assert.match(await pickerTitle('パネル2のタスク'), /A separate project with the same name/);
+  assert.match(await pickerTitle('パネル4のタスク'), /Feedback UI check/);
   assert.equal(await views.getByRole('button', { name: '4分割', exact: true }).getAttribute('aria-pressed'), 'true');
   await page.setViewportSize({ width: 390, height: 844 });
   await page.getByRole('button', { name: 'セッション', exact: false }).last().click();

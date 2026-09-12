@@ -249,7 +249,8 @@ async function ensureServer(target: Extract<PreviewTarget, { kind: 'url' }>, dir
   throw new Error(`開発サーバー「${target.command}」を起動しましたが、${target.readySeconds ?? 60} 秒たっても ${target.url} が応答しません:\n${tail.join('').trim().slice(-600)}`);
 }
 
-async function launch(): Promise<Browser> {
+/** 入っている Edge か Chrome を見えない形で起動する（Codex に渡すブラウザーでも使う） */
+export async function launch(): Promise<Browser> {
   let lastErr = '';
   for (const channel of ['msedge', 'chrome'] as const) {
     try {

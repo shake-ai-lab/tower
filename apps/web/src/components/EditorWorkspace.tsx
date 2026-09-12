@@ -3,11 +3,24 @@ import { useEditorWorkspace, type OpenFile } from '../editor-workspace';
 import { Aquarium } from './Aquarium';
 import { DeskScene } from './DeskScene';
 import { isAnimatedTheme, isSceneTheme } from '../desk-scenes';
-import { DESK_ORIGIN, deskBounds, scaleText, textScale } from '../desk-geometry';
+import { DESK_ORIGIN, deskBounds, deskWheelAction, scaleText, textScale, wheelZoomFactor, zoomScroll } from '../desk-geometry';
 import { loadDesk, saveDesk } from '../editor-persist';
 import { useStore } from '../store';
+import { useLayout } from '../layout';
 import { DeskWindowControls, type DeskRect } from './DeskWindowControls';
 const FileEditor = lazy(() => import('./FileEditor').then((m) => ({ default: m.FileEditor })));
+
+/** 指している所からウィンドウの枠までの間に、このホイールでまだ動ける（端に着いていない）スクロール領域があるか */
+function scrollsWithin(target: HTMLElement, stop: HTMLElement, e: WheelEvent): boolean {
+  let dx = e.deltaX, dy = e.deltaY;
+  if (e.shiftKey && !dx) { dx = dy; dy = 0; }
+  for (let el: HTMLElement | null = target; el && el !== stop; el = el.parentElement) {
+    const cs = getComputedStyle(el);
+    if (dy && /auto|scroll/.test(cs.overflowY) && (dy > 0 ? el.scrollTop + el.clientHeight < el.scrollHeight - 1 : el.scrollTop > 0)) return true;
+    if (dx && /auto|scroll/.test(cs.overflowX) && (dx > 0 ? el.scrollLeft + el.clientWidth < el.scrollWidth - 1 : el.scrollLeft > 0)) return true;
+  }
+  return false;
+}
 
 function Document({ file, active, windowed, fontScale }: { file: OpenFile; active: boolean; windowed: boolean; fontScale: number }) {
   const session = useStore((s) => s.sessions[file.sessionId]);
@@ -20,6 +33,7 @@ function Document({ file, active, windowed, fontScale }: { file: OpenFile; activ
 
 export function EditorWorkspace({ forceVisible = false, onReturn }: { forceVisible?: boolean; onReturn?: () => void }) {
   const s = useEditorWorkspace();
+  const sidebarShown = useLayout((l) => l.sidebar);
   const visible = s.visible || forceVisible;
   const sessions = useStore((s) => s.sessions);
   const activeFile = s.files.find((f) => f.id === s.selected[s.pane]);
@@ -27,6 +41,9 @@ export function EditorWorkspace({ forceVisible = false, onReturn }: { forceVisib
   const [saved] = useState(() => loadDesk());
   const [ratio, setRatio] = useState(saved?.ratio ?? 50);
   const [zoom, setZoom] = useState(saved?.zoom ?? 1);
+  // ホイールが続けて届く間は描画を待たずに最新の倍率とスクロール位置で計算する（指している所がずれない）
+  const zoomRef = useRef(zoom);
+  const pendingScroll = useRef<{ left: number; top: number } | null>(null);
   const [deskSelected, setDeskSelected] = useState<string | null>(null);
   const themes = [['dots', 'ドット'], ['wood', '作業机'], ['aquarium', 'アクアリウム'], ['circuit', '電気図面'], ['blueprint', '設計図'], ['paper', '方眼紙'], ['night', '星空'], ['forest', '森'], ['slate', '黒板'], ['plain', '無地']] as const;
   const [theme, setTheme] = useState(() => { try { return localStorage.getItem('tower.desk.theme') ?? 'dots'; } catch { return 'dots'; } });
@@ -101,6 +118,7 @@ export function EditorWorkspace({ forceVisible = false, onReturn }: { forceVisib
     const bounds = deskBounds(rects), el = region.current;
     if (!el) return;
     const value = Math.max(.1, Math.min(1, (el.clientWidth - 120) / Math.max(1, bounds.w), (el.clientHeight - 140) / Math.max(1, bounds.h)));
+    zoomRef.current = value; pendingScroll.current = null;
     setZoom(value); centerAt(bounds.x + bounds.w / 2, bounds.y + bounds.h / 2, value);
   };
   const arrange = () => {
@@ -109,31 +127,49 @@ export function EditorWorkspace({ forceVisible = false, onReturn }: { forceVisib
     setPositions(next); setRestores({}); fit(Object.values(next));
   };
   const scaleWindowText = (id: string, i: number, value: number) => changePosition(id, i, scaleText(position(id, i), value));
+  /** 倍率を変える。clientX/Y を渡すとその点を中心に（渡さなければ画面の真ん中） */
   const zoomAt = (value: number, clientX?: number, clientY?: number) => {
     const el = region.current;
     if (!el) return;
-    const next = Math.max(0.1, Math.min(2, value)), rect = el.getBoundingClientRect();
-    const x = clientX === undefined ? el.clientWidth / 2 : clientX - rect.left;
-    const y = clientY === undefined ? el.clientHeight / 2 : clientY - rect.top;
-    const left = (el.scrollLeft + x) * next / zoom - x, top = (el.scrollTop + y) * next / zoom - y;
+    const from = zoomRef.current, next = Math.max(0.1, Math.min(2, value));
+    if (next === from) return;
+    const rect = el.getBoundingClientRect();
+    const at = { x: clientX === undefined ? el.clientWidth / 2 : clientX - rect.left, y: clientY === undefined ? el.clientHeight / 2 : clientY - rect.top };
+    pendingScroll.current = zoomScroll(pendingScroll.current ?? { left: el.scrollLeft, top: el.scrollTop }, at, from, next);
+    zoomRef.current = next;
     setZoom(next);
-    requestAnimationFrame(() => { el.scrollLeft = left; el.scrollTop = top; });
   };
+  // 新しい倍率で並べ直した直後（描く前）にスクロール位置を合わせる。ちらつかない
+  useLayoutEffect(() => {
+    const el = region.current, p = pendingScroll.current;
+    if (!el || !p) return;
+    pendingScroll.current = null;
+    el.scrollLeft = p.left; el.scrollTop = p.top;
+  }, [zoom]);
+  // ホイールの決まり（場所で意味を変えない）:
+  //  ふつうのホイール = 指している物をスクロール（ファイルの中身ならファイル、余白・タイトルバーなら作業場。Shift で左右）
+  //  Ctrl / ⌘ + ホイール・ピンチ = 作業場の拡大縮小（どこでも・指している位置を中心に）。Alt も押すとそのウィンドウの文字の大きさ
+  // ファイルの中（Monaco など）より先に受け取るため capture で聞く
   useEffect(() => {
     const el = region.current;
     if (!desk || !el) return;
     const wheel = (e: WheelEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.altKey) {
-        const panel = (e.target as HTMLElement).closest<HTMLElement>('[data-desk-file]');
-        const id = panel?.dataset.deskFile, i = s.files.findIndex((f) => f.id === id);
-        if (id && i >= 0) { e.preventDefault(); scaleWindowText(id, i, textScale(position(id, i)) * Math.exp(-e.deltaY * .002)); }
+      const target = e.target as HTMLElement;
+      const panel = target.closest<HTMLElement>('[data-desk-file]');
+      const action = deskWheelAction(e, !!panel);
+      if (action === 'scroll') {
+        // ファイルの中身の上: 中身が端まで行っても作業場は動かさない（Monaco は自分でホイールを受け止める）
+        if (panel && !target.closest('.desk-window-controls, .monaco-editor') && !scrollsWithin(target, panel, e)) e.preventDefault();
         return;
       }
-      if (e.ctrlKey || e.metaKey || !(e.target as HTMLElement).closest('[role="tabpanel"]')) { e.preventDefault(); zoomAt(zoom * Math.exp(-e.deltaY * 0.002), e.clientX, e.clientY); }
+      e.preventDefault(); e.stopPropagation();
+      const id = panel?.dataset.deskFile, i = s.files.findIndex((f) => f.id === id);
+      if (action === 'text' && id && i >= 0) scaleWindowText(id, i, textScale(position(id, i)) * wheelZoomFactor(e.deltaY, e.deltaMode));
+      else zoomAt(zoomRef.current * wheelZoomFactor(e.deltaY, e.deltaMode), e.clientX, e.clientY);
     };
-    el.addEventListener('wheel', wheel, { passive: false });
-    return () => el.removeEventListener('wheel', wheel);
-  }, [desk, zoom, positions, restores, s.files]);
+    el.addEventListener('wheel', wheel, { passive: false, capture: true });
+    return () => el.removeEventListener('wheel', wheel, { capture: true });
+  }, [desk, positions, restores, s.files]);
   useEffect(() => {
     if (!desk || !visible) return;
     const key = (e: KeyboardEvent) => {
@@ -141,7 +177,7 @@ export function EditorWorkspace({ forceVisible = false, onReturn }: { forceVisib
       if ((e.ctrlKey || e.metaKey) && ['+', '=', '-', '0'].includes(e.key)) {
         e.preventDefault(); e.stopPropagation();
         if (e.altKey) { const id = deskSelected, i = s.files.findIndex((f) => f.id === id); if (id && i >= 0) scaleWindowText(id, i, e.key === '0' ? 1 : textScale(position(id, i)) * (e.key === '-' ? 1 / 1.15 : 1.15)); }
-        else zoomAt(e.key === '0' ? 1 : zoom * (e.key === '-' ? 1 / 1.15 : 1.15));
+        else zoomAt(e.key === '0' ? 1 : zoomRef.current * (e.key === '-' ? 1 / 1.15 : 1.15));
       }
       if (e.key === 'Escape') setDeskSelected(null);
     };
@@ -173,8 +209,8 @@ export function EditorWorkspace({ forceVisible = false, onReturn }: { forceVisib
     <header className="flex flex-wrap items-center gap-2 p-2 border-b border-zinc-700 text-xs">
       <span className="text-zinc-400 mr-auto truncate" title={activeFile ? `${sessions[activeFile.sessionId]?.project.path} / ${activeFile.path}` : undefined}>ファイル · {s.files.length} 件{activeFile && ` · ${sessions[activeFile.sessionId]?.project.name ?? '削除されたタスク'} / ${activeFile.path}`}</span>
       {([['single', '分割なし'], ['columns', '左右に分割'], ['rows', '上下に分割'], ['desk', '自由に配置']] as const).map(([layout, label]) => <button key={layout} aria-pressed={s.layout === layout} className={`rounded px-2 py-1 ${s.layout === layout ? 'bg-sky-900 text-sky-200' : 'bg-zinc-800'}`} onClick={() => s.split(layout)}>{label}</button>)}
-      <details className="relative"><summary>キー操作</summary><div className="absolute right-0 top-6 z-50 w-72 bg-zinc-900 border border-zinc-600 p-3 leading-6 shadow-xl">Ctrl / ⌘ + S：保存<br />Ctrl / ⌘ + F：ファイル内検索<br />Ctrl / ⌘ + P：ファイル名で開く<br />Ctrl / ⌘ + Shift + F：プロジェクト全体から探す<br />Ctrl / ⌘ + W：閉じる<br />Ctrl / ⌘ + Tab：次のファイル（Shiftで前へ）<br />Ctrl / ⌘ + ＼：左右に分割<br />自由配置：Ctrl / ⌘ + ＋・−：拡大・縮小、0：100%<br />Ctrl / ⌘ + Alt + ＋・−・0：選択ウィンドウの文字の大きさ（Ctrl / ⌘ + Alt + ホイールでも）<br />Esc：配置の選択解除<br />タイトルで矢印キー：移動<br />Ctrl / ⌘ + Shift + E：ファイル一覧<br />Ctrl / ⌘ + Shift + G：Git<br />Ctrl / ⌘ + ,：設定<br />Ctrl / ⌘ + Shift + N：新しいタスク</div></details>
-      {desk && <><select aria-label="デスクの背景" className="bg-zinc-800 border border-zinc-700 px-2 py-1" value={theme} onChange={(e) => { setTheme(e.target.value); try { localStorage.setItem('tower.desk.theme', e.target.value); } catch {} }}>{themes.map(([id, label]) => <option key={id} value={id}>{label}</option>)}</select><span className="text-zinc-500">辺・角でサイズ変更 · 上の丸で回転 · 余白をドラッグで移動</span><button aria-label="デスクを縮小" onClick={() => zoomAt(zoom / 1.15)}>−</button><button title="100%に戻す" onClick={() => zoomAt(1)}>{Math.round(zoom * 100)}%</button><button aria-label="デスクを拡大" onClick={() => zoomAt(zoom * 1.15)}>＋</button><button onClick={arrange}>整列</button><button onClick={() => fit()}>全体を見る</button><button onClick={() => centerAt()}>中央に戻る</button>{isAnimatedTheme(theme) && <>{aquariumMotion === 'auto' && reducedMotion && <span className="text-zinc-400">OS設定に合わせて静止中</span>}<button aria-pressed={!aquariumPaused} title="背景の動きの再生・静止を選んで保存（OS設定より優先）" onClick={toggleAquarium}>{aquariumPaused ? '背景を動かす' : '背景を静止'}</button></>}</>}
+      <details className="relative"><summary>キー操作</summary><div className="absolute right-0 top-6 z-50 w-72 bg-zinc-900 border border-zinc-600 p-3 leading-6 shadow-xl">Ctrl / ⌘ + S：保存<br />Ctrl / ⌘ + F：ファイル内検索<br />Ctrl / ⌘ + P：ファイル名で開く<br />Ctrl / ⌘ + Shift + F：プロジェクト全体から探す<br />Ctrl / ⌘ + W：閉じる<br />Ctrl / ⌘ + Tab：次のファイル（Shiftで前へ）<br />Ctrl / ⌘ + ＼：左右に分割<br />自由配置：ホイールで指している所をスクロール（ファイルの上はファイル、余白は作業場。Shift + ホイールで左右）<br />自由配置：Ctrl / ⌘ + ホイール（タッチパッドはピンチ）で拡大・縮小（どこでも）。Ctrl / ⌘ + ＋・−でも、0：100%<br />Ctrl / ⌘ + Alt + ＋・−・0：選択ウィンドウの文字の大きさ（Ctrl / ⌘ + Alt + ホイールでも）<br />Esc：配置の選択解除<br />タイトルで矢印キー：移動<br />Ctrl / ⌘ + Shift + E：ファイル一覧<br />Ctrl / ⌘ + Shift + G：Git<br />Ctrl / ⌘ + ,：設定<br />Ctrl / ⌘ + B：左の欄を出す・隠す<br />Ctrl / ⌘ + Alt + B：チャットを出す・隠す<br />Ctrl / ⌘ + Shift + N：新しいタスク</div></details>
+      {desk && <><select aria-label="デスクの背景" className="bg-zinc-800 border border-zinc-700 px-2 py-1" value={theme} onChange={(e) => { setTheme(e.target.value); try { localStorage.setItem('tower.desk.theme', e.target.value); } catch {} }}>{themes.map(([id, label]) => <option key={id} value={id}>{label}</option>)}</select><span className="text-zinc-500">余白のドラッグ・ホイールで移動（Shift で左右）· Ctrl + ホイールで拡大縮小 · 辺・角でサイズ変更 · 上の丸で回転</span><button aria-label="デスクを縮小" onClick={() => zoomAt(zoom / 1.15)}>−</button><button title="100%に戻す" onClick={() => zoomAt(1)}>{Math.round(zoom * 100)}%</button><button aria-label="デスクを拡大" onClick={() => zoomAt(zoom * 1.15)}>＋</button><button onClick={arrange}>整列</button><button onClick={() => fit()}>全体を見る</button><button onClick={() => centerAt()}>中央に戻る</button>{isAnimatedTheme(theme) && <>{aquariumMotion === 'auto' && reducedMotion && <span className="text-zinc-400">OS設定に合わせて静止中</span>}<button aria-pressed={!aquariumPaused} title="背景の動きの再生・静止を選んで保存（OS設定より優先）" onClick={toggleAquarium}>{aquariumPaused ? '背景を動かす' : '背景を静止'}</button></>}</>}
       <button className="px-2 py-1 text-sky-300" onClick={() => { if (onReturn) onReturn(); else useEditorWorkspace.setState({ visible: false }); }}>タスクに戻る</button>
     </header>
     <div className={`relative flex flex-1 min-h-0 min-w-0 overflow-hidden ${desk && theme === 'aquarium' ? 'aquarium-scene' : ''}`}>
@@ -211,7 +247,7 @@ export function EditorWorkspace({ forceVisible = false, onReturn }: { forceVisib
         onPointerMove={(e) => { if (!e.currentTarget.hasPointerCapture(e.pointerId)) return; const rect = region.current!.getBoundingClientRect(); setRatio(Math.max(20, Math.min(80, 100 * (rows ? (e.clientY - rect.top) / rect.height : (e.clientX - rect.left) / rect.width)))); }}
         onPointerUp={(e) => e.currentTarget.releasePointerCapture(e.pointerId)} />}
     </div>
-    {!s.files.length && <p className="absolute inset-0 flex items-center justify-center p-8 text-sm text-zinc-400 pointer-events-none">左のエクスプローラーでファイルを選んでください。</p>}
+    {!s.files.length && <p className="absolute inset-0 flex items-center justify-center p-8 text-sm text-zinc-400 pointer-events-none">{sidebarShown ? '左のエクスプローラーでファイルを選んでください。' : 'Ctrl+P でファイル名から開けます。左の欄（Ctrl+B）を出すとエクスプローラーから選べます。'}</p>}
     </div>
   </section>;
 }

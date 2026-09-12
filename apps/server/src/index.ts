@@ -413,6 +413,15 @@ app.post('/api/sessions/:id/stop', async (c) => {
   return c.json({ ok });
 });
 
+// 利用者が手で「完了」にする（動いていれば止めてから）。続きの指示を送ると再開する
+app.post('/api/sessions/:id/complete', async (c) => {
+  try {
+    return c.json(await manager.complete(c.req.param('id')));
+  } catch (e) {
+    return c.json({ error: e instanceof Error ? e.message : String(e) }, 409);
+  }
+});
+
 app.delete('/api/sessions/:id', async (c) => {
   await manager.remove(c.req.param('id'));
   return c.json({ ok: true });

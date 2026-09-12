@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   AGENT_CHOICES,
   CODEX_MODEL_CHOICES,
@@ -12,13 +12,13 @@ import {
 import { api, errMsg } from '../api';
 import { btn, isAlive } from '../lib';
 import { useStore } from '../store';
+import { openTask } from '../layout';
 import { Icon } from './Icon';
 import { CodexAccount } from './CodexAccount';
 import { projectKey } from '../project-key';
 import { AttachButton, AttachList, useAttachments } from './Attachments';
 
 export function NewSessionDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const select = useStore((s) => s.select);
   const sessions = useStore((s) => s.sessions);
   const [projects, setProjects] = useState<ProjectInfo[]>([]);
   const [agents, setAgents] = useState<Record<AgentKind, AgentAvailability> | null>(null);
@@ -68,9 +68,22 @@ export function NewSessionDialog({ open, onClose }: { open: boolean; onClose: ()
     api.agents().then(setAgents).catch(() => setAgents(null));
   }, [open]);
 
+  const promptRef = useRef<HTMLTextAreaElement>(null);
+  const focusPrompt = () => promptRef.current?.focus();
   useEffect(() => {
     if (!open) return;
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
+    const onKey = (e: KeyboardEvent) => {
+      // 日本語の変換中の Esc は変換の取り消しなので、窓は閉じない
+      if (e.key === 'Escape') { if (!e.isComposing) onClose(); return; }
+      // 文字を打てない所（プロジェクトのボタンの上など）で打ち始めたら、依頼の欄へ送る。
+      // そのままだと日本語入力の文字が画面の左上に出るだけで、どこにも入らない
+      const typing = e.key === 'Process' || (e.key.length === 1 && e.key !== ' ');
+      if (!typing || e.ctrlKey || e.metaKey || e.altKey) return;
+      const t = e.target instanceof HTMLElement ? e.target : null;
+      if (t?.closest('textarea, select, [contenteditable]:not([contenteditable="false"])')) return;
+      if (t instanceof HTMLInputElement && !['checkbox', 'radio', 'button', 'submit'].includes(t.type)) return;
+      promptRef.current?.focus();
+    };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [open, onClose]);
@@ -85,10 +98,10 @@ export function NewSessionDialog({ open, onClose }: { open: boolean; onClose: ()
       const attachments = attach.uploads();
       if (comparing) {
         const list = await api.compare({ projectPath, prompt, permissionMode: perm, models: compareModels, attachments });
-        select(list[0]?.id ?? null);
+        if (list[0]) openTask(list[0].id);
       } else {
         const s = await api.create({ projectPath, prompt, agent, model: model || null, permissionMode: perm, isolate, autoMerge: isolate && autoMerge, attachments });
-        select(s.id);
+        openTask(s.id);
       }
       setPrompt('');
       attach.clear();
@@ -133,13 +146,13 @@ export function NewSessionDialog({ open, onClose }: { open: boolean; onClose: ()
           <div className="p-3 text-xs text-zinc-300 space-y-2">
             <div className="font-semibold">プロジェクトを選択</div>
             <input aria-label="プロジェクトを検索" placeholder="名前・パスで検索" value={query} onChange={(e) => setQuery(e.target.value)} className="w-full rounded bg-black/30 border border-zinc-700 px-2 py-2" />
-            {browse && <><div className="break-all text-zinc-400">{browse.path}</div><div className="flex flex-wrap gap-2"><button disabled={loadingFolders} onClick={() => { setBrowse(null); setQuery(''); }}>候補一覧へ</button>{browse.parent && <button disabled={loadingFolders} onClick={() => void openFolder(browse.parent!)}>↑ 親フォルダ</button>}<button className="text-sky-300" onClick={() => setProjectPath(browse.path)}>このフォルダを選択</button></div></>}
+            {browse && <><div className="break-all text-zinc-400">{browse.path}</div><div className="flex flex-wrap gap-2"><button disabled={loadingFolders} onClick={() => { setBrowse(null); setQuery(''); }}>候補一覧へ</button>{browse.parent && <button disabled={loadingFolders} onClick={() => void openFolder(browse.parent!)}>↑ 親フォルダ</button>}<button className="text-sky-300" onClick={() => { setProjectPath(browse.path); focusPrompt(); }}>このフォルダを選択</button></div></>}
           </div>
           <div className="flex-1 overflow-y-auto px-2 pb-2 space-y-0.5 max-h-32 md:max-h-none">
             {(browse?.projects ?? projects).filter((p) => `${p.name} ${p.path}`.toLowerCase().includes(query.toLowerCase())).map((p) => (
               <div key={p.path} className="flex items-center gap-1"><button
                 title={p.path} aria-pressed={projectPath === p.path}
-                onClick={() => setProjectPath(p.path)}
+                onClick={() => { setProjectPath(p.path); focusPrompt(); }}
                 className={`w-full text-left px-3 py-2 rounded-md text-sm flex items-center gap-2 ${projectPath === p.path ? 'bg-sky-600/30 text-sky-100' : 'hover:bg-zinc-800 text-zinc-300'}`}
               >
                 <Icon name="folder" className="text-amber-300" />
@@ -183,6 +196,7 @@ export function NewSessionDialog({ open, onClose }: { open: boolean; onClose: ()
                   onClick={() => {
                     setAgent(a.value);
                     setModel('');
+                    focusPrompt();
                   }}
                   title={off ? avail?.reason : a.hint}
                   className={`${btn.base} ${agent === a.value ? 'bg-sky-600 text-white' : btn.ghost} ${off ? 'opacity-60' : ''}`}
@@ -198,6 +212,7 @@ export function NewSessionDialog({ open, onClose }: { open: boolean; onClose: ()
           {agent === 'codex' && <CodexAccount onChanged={refreshAgents} />}
           <div {...attach.dropProps} className="flex-1 flex flex-col gap-2 min-h-0">
             <textarea
+              ref={promptRef}
               autoFocus
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}

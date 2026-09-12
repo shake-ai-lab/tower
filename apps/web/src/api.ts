@@ -58,6 +58,8 @@ export const api = {
   answer: (id: string, body: AnswerBody) =>
     req<{ ok: true }>(`/api/sessions/${id}/answer`, { method: 'POST', body: JSON.stringify(body) }),
   stop: (id: string) => req<{ ok: boolean }>(`/api/sessions/${id}/stop`, { method: 'POST' }),
+  /** 手で「完了」にする（動いていれば止める）。続きの指示を送ると再開する */
+  complete: (id: string) => req<Session>(`/api/sessions/${id}/complete`, { method: 'POST' }),
   merge: (id: string) => req<MergeResult>(`/api/sessions/${id}/merge`, { method: 'POST' }),
   file: (id: string, path: string) => req<FileContent>(`/api/sessions/${id}/file?path=${encodeURIComponent(path)}`),
   tree: (id: string, path: string) => req<TreeResponse>(`/api/sessions/${id}/tree?path=${encodeURIComponent(path)}`),

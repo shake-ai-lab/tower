@@ -41,7 +41,9 @@ export function useResizable(key: string, def: number, min: number, max: number,
     return () => { observer.disconnect(); endDrag.current?.(); };
   }, []);
   const limit = useCallback(() => {
-    const siblings = [...(ref.current?.parentElement?.querySelectorAll<HTMLElement>('[data-resizable-panel]') ?? [])];
+    // 同じ横並び（data-resizable-root。無ければ親）の中の、ほかの幅を変えられる欄の分を引く。チャットは中央の枠の中にあるので親だけでは足りない
+    const root = ref.current?.closest('[data-resizable-root]') ?? ref.current?.parentElement;
+    const siblings = [...(root?.querySelectorAll<HTMLElement>('[data-resizable-panel]') ?? [])];
     const otherWidth = siblings.filter((el) => el !== ref.current && getComputedStyle(el).position !== 'fixed' && el.getBoundingClientRect().width > 0).reduce((sum, el) => sum + el.getBoundingClientRect().width, 0);
     return Math.max(min, Math.min(max, window.innerWidth - otherWidth - 320));
   }, [min, max]);
@@ -105,10 +107,10 @@ export function clearSavedWidths() {
   window.dispatchEvent(new Event('tower:reset-widths'));
 }
 
-/** working = エージェントが手を動かしている最中（流れる帯とくるくるで目立たせる） */
+/** working = エージェントが手を動かしている最中（流れる帯・くるくる・波紋の点で目立たせる。index.css の working-*） */
 export const STATUS: Record<SessionStatus, { label: string; dot: string; badge: string; attention?: boolean; working?: boolean }> = {
-  starting: { label: '起動中', dot: 'bg-zinc-400 animate-pulse', badge: 'bg-zinc-700 text-zinc-200', working: true },
-  running: { label: '作業中', dot: 'bg-sky-400 animate-pulse', badge: 'bg-sky-500 text-white font-semibold', working: true },
+  starting: { label: '起動中', dot: 'bg-zinc-400 working-dot', badge: 'bg-zinc-700 text-zinc-200', working: true },
+  running: { label: '作業中', dot: 'bg-sky-400 working-dot', badge: 'bg-sky-500 text-white font-semibold', working: true },
   waiting_permission: {
     label: '許可待ち',
     dot: 'bg-amber-400',

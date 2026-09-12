@@ -140,7 +140,7 @@ try {
   await page.getByRole('button', { name: 'note.txtを別グループへ移動', exact: true }).click();
   await page.waitForFunction(() => document.querySelector('[role=tabpanel][aria-label="note.txt"] .view-lines')?.textContent.includes('unsaved'));
   await page.getByRole('button', { name: 'タスクに戻る', exact: true }).click();
-  await page.getByRole('button', { name: '開いているファイル', exact: false }).click();
+  await page.getByRole('navigation', { name: '中央の表示' }).getByRole('button', { name: /^開いたファイル/ }).click();
   await page.waitForFunction(() => document.querySelector('[role=tabpanel][aria-label="note.txt"] .view-lines')?.textContent.includes('unsaved'));
   await page.getByRole('button', { name: '分割なし', exact: true }).click();
   assert.equal(await page.getByRole('tab').count(), 4);
@@ -185,9 +185,29 @@ try {
   assert.match(await note.getAttribute('style'), /rotate\(0deg\)/);
   const desk = page.getByLabel('自由配置のデスク', { exact: true });
   const deskBox = await desk.boundingBox();
+  const zoomLabel = page.getByTitle('100%に戻す', { exact: true });
+  const deskScroll = () => desk.evaluate((el) => `${el.scrollLeft},${el.scrollTop}`);
+  // ホイールの決まり（場所で意味を変えない）: ファイルの上のホイールはファイルだけ。作業場は動かない
+  const noteCenter = await note.boundingBox();
+  const scrollAtStart = await deskScroll(), zoomAtStart = await zoomLabel.textContent();
+  await page.mouse.move(noteCenter.x + noteCenter.width / 2, noteCenter.y + noteCenter.height / 2);
+  await page.mouse.wheel(0, 300);
+  await page.waitForTimeout(150);
+  assert.equal(await deskScroll(), scrollAtStart);
+  assert.equal(await zoomLabel.textContent(), zoomAtStart);
+  // Ctrl+ホイールはファイルの上でも作業場の拡大縮小
+  await page.keyboard.down('Control'); await page.mouse.wheel(0, -100); await page.keyboard.up('Control');
+  await page.waitForFunction((t) => document.querySelector('[title="100%に戻す"]').textContent !== t, zoomAtStart);
+  await page.getByRole('button', { name: '整列', exact: true }).click();
   const zoomBefore = (await note.boundingBox()).width;
   await page.mouse.move(deskBox.x + deskBox.width - 35, deskBox.y + deskBox.height - 35);
-  await page.mouse.wheel(0, -100);
+  // 余白のふつうのホイールは作業場を上下に動かすだけ（拡大縮小しない）
+  const zoomText = await zoomLabel.textContent(), topBefore = await desk.evaluate((el) => el.scrollTop);
+  await page.mouse.wheel(0, 200);
+  await page.waitForFunction((top) => document.querySelector('[aria-label="自由配置のデスク"]').scrollTop > top, topBefore);
+  assert.equal(await zoomLabel.textContent(), zoomText);
+  // 余白の Ctrl+ホイールで拡大
+  await page.keyboard.down('Control'); await page.mouse.wheel(0, -100); await page.keyboard.up('Control');
   await page.waitForFunction((width) => document.querySelector('[role=tabpanel][aria-label="note.txt"]').getBoundingClientRect().width > width, zoomBefore);
   await page.mouse.down();
   await page.mouse.move(deskBox.x + deskBox.width - 155, deskBox.y + deskBox.height - 155, { steps: 8 });
@@ -262,14 +282,16 @@ try {
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
   await page.screenshot({ path: 'docs/screenshots/editor-mobile.png' });
   await page.setViewportSize({width: 1600, height: 1000});
-  await page.getByRole('button', {name: 'ファイル＋チャット', exact: true}).click();
-  const chat = page.getByRole('complementary', {name: 'ファイルと並べるチャット'});
+  // 中央を「開いたファイル」にして、右のチャット（初めから出ている）と並べる
+  await page.getByRole('navigation', {name: '中央の表示'}).getByRole('button', {name: /^開いたファイル/}).click();
+  const chat = page.getByRole('complementary', {name: 'チャット', exact: true});
   await chat.waitFor();
   assert.ok(await note.isVisible());
   assert.ok(await tree.isVisible());
   const chatBox = await chat.boundingBox(), editorBox = await page.getByRole('region', {name: 'ファイルエディタ'}).boundingBox();
   assert.ok(chatBox.x >= editorBox.x + editorBox.width - 2);
-  await chat.getByLabel('チャットのタスク').selectOption('separate');
+  await chat.getByRole('button', {name: 'チャットのタスク'}).click();
+  await page.getByRole('dialog', {name: 'チャットのタスク'}).getByRole('option').filter({hasText: 'A separate project with the same name'}).click();
   await chat.getByPlaceholder('追加の指示（Ctrl+Enter で送信）').fill('File and chat work together');
   await chat.getByRole('button', {name: '送信', exact: true}).click();
   assert.deepEqual(sentMessages.at(-1), {id: 'separate', text: 'File and chat work together'});
