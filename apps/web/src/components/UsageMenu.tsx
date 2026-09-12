@@ -1,57 +1,73 @@
-import { useMemo, useState } from 'react';
-import type { Session } from '@tower/shared';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { Session, UsageSum, UsageSummary } from '@tower/shared';
+import { api } from '../api';
 import { btn, fmtTokens, fmtUsd } from '../lib';
-import { projectKey } from '../project-key';
 
-type Sum = { count: number; input: number; cacheRead: number; output: number; cost: number };
-const empty = (): Sum => ({ count: 0, input: 0, cacheRead: 0, output: 0, cost: 0 });
-const add = (a: Sum, s: Session) => {
-  a.count++;
-  a.input += s.usage?.input ?? 0;
-  a.cacheRead += s.usage?.cacheRead ?? 0;
-  a.output += s.usage?.output ?? 0;
-  a.cost += s.costUsd ?? 0;
-};
+const empty = (): UsageSum => ({ count: 0, input: 0, cacheRead: 0, output: 0, cost: 0 });
 
-/** 使った量のまとめ（今日 / 今週 / 全部、今日のプロジェクト別）。全セッションから画面側で集計する */
+/**
+ * 使った量のまとめ（今日 / 今週 / 全部、今日のプロジェクト別）。
+ * サーバー側の台帳（GET /api/usage）から出すので、タスクを消しても合計は減らない。
+ * sessions は「量が動いたら取り直す」ための指紋にだけ使う
+ */
 export function UsageMenu({ sessions }: { sessions: Session[] }) {
   const [open, setOpen] = useState(false);
-  const stats = useMemo(() => {
-    const now = new Date();
-    const dayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-    const weekStart = dayStart - 6 * 86_400_000;
-    const today = empty();
-    const week = empty();
-    const all = empty();
-    // 同じ名前の別プロジェクト（場所違い）を混ぜないよう、場所で分ける
-    const byProject = new Map<string, Sum & { name: string; path: string }>();
+  const [summary, setSummary] = useState<UsageSummary | null>(null);
+  const [failed, setFailed] = useState(false);
+
+  // 指紋: タスク数と（外部を除く）費用・トークンの合計。これが変わったら台帳も動いているはずなので取り直す
+  const fingerprint = useMemo(() => {
+    let cost = 0;
+    let tokens = 0;
     for (const s of sessions) {
       if (s.origin === 'external') continue; // Tower の外で動いているものは量が分からない
-      add(all, s);
-      const sumSince = (start: number): Sum => {
-        const entries = (s.usageHistory ?? []).filter((entry) => entry.ts >= start);
-        return entries.reduce((sum, entry) => ({ count: 1, input: sum.input + entry.input, cacheRead: sum.cacheRead + entry.cacheRead, output: sum.output + entry.output, cost: sum.cost + entry.cost }), empty());
-      };
-      const merge = (target: Sum, value: Sum) => { for (const key of ['count', 'input', 'cacheRead', 'output', 'cost'] as const) target[key] += value[key]; };
-      merge(week, sumSince(weekStart));
-      const daily = sumSince(dayStart);
-      merge(today, daily);
-      if (daily.count) {
-        const key = projectKey(s.project.path);
-        const p = byProject.get(key) ?? { ...empty(), name: s.project.name, path: s.project.path };
-        merge(p, daily);
-        byProject.set(key, p);
-      }
+      cost += s.costUsd ?? 0;
+      tokens += (s.usage?.input ?? 0) + (s.usage?.output ?? 0);
     }
-    const dup = new Set([...byProject.values()].map((p) => p.name).filter((n, i, a) => a.indexOf(n) !== i));
-    const projects: [string, Sum][] = [...byProject.values()]
-      .sort((a, b) => b.input + b.output - (a.input + a.output))
-      .slice(0, 6)
-      .map((p) => [dup.has(p.name) ? `${p.name}（${p.path}）` : p.name, p]);
-    return { today, week, all, projects };
+    return `${sessions.length}:${cost}:${tokens}`;
   }, [sessions]);
 
-  const rows: [string, Sum][] = [
+  // 先に出した問い合わせが後から返っても、古い値で上書きしない
+  const seq = useRef(0);
+  const load = useCallback(() => {
+    const mine = ++seq.current;
+    api
+      .usage()
+      .then((s) => {
+        if (mine !== seq.current) return;
+        setSummary(s);
+        setFailed(false);
+      })
+      .catch(() => {
+        if (mine === seq.current) setFailed(true);
+      });
+  }, []);
+
+  // 初回はすぐ取り、以後は指紋が変わってから 1 秒待って取る（更新が続く間に何度も取りに行かない）
+  const loadedOnce = useRef(false);
+  useEffect(() => {
+    if (!loadedOnce.current) {
+      loadedOnce.current = true;
+      load();
+      return;
+    }
+    const timer = setTimeout(load, 1000);
+    return () => clearTimeout(timer);
+  }, [fingerprint, load]);
+
+  // 開いた時にも取り直す
+  useEffect(() => {
+    if (open) load();
+  }, [open, load]);
+
+  const stats = summary ?? { today: empty(), week: empty(), all: empty(), projectsToday: [] };
+  // 同じ名前の別プロジェクト（場所違い）が並んだら、場所を添えて区別する
+  const projects = useMemo<[string, UsageSum][]>(() => {
+    const dup = new Set(stats.projectsToday.map((p) => p.name).filter((n, i, a) => a.indexOf(n) !== i));
+    return stats.projectsToday.map((p) => [dup.has(p.name) ? `${p.name}（${p.path}）` : p.name, p]);
+  }, [stats.projectsToday]);
+
+  const rows: [string, UsageSum][] = [
     ['今日（記録分）', stats.today],
     ['この7日（記録分）', stats.week],
     ['全部', stats.all],
@@ -67,6 +83,7 @@ export function UsageMenu({ sessions }: { sessions: Session[] }) {
       </button>
       {open && (
         <div className="absolute right-0 top-full mt-1 w-[min(420px,calc(100vw-2rem))] rounded-lg border border-zinc-700 bg-[#171a21] shadow-xl p-3 text-xs z-50 space-y-3">
+          {failed && <p className="text-amber-400/80">取得できませんでした</p>}
           <table className="w-full">
             <thead className="text-zinc-500">
               <tr>
@@ -91,10 +108,10 @@ export function UsageMenu({ sessions }: { sessions: Session[] }) {
               ))}
             </tbody>
           </table>
-          {stats.projects.length > 0 && (
+          {projects.length > 0 && (
             <div>
               <div className="text-zinc-500 mb-1">今日のプロジェクト別</div>
-              {stats.projects.map(([name, v]) => (
+              {projects.map(([name, v]) => (
                 <div key={name} className="flex justify-between gap-2 py-0.5 border-t border-zinc-800/60">
                   <span className="truncate text-zinc-300">{name}</span>
                   <span className="whitespace-nowrap text-zinc-400">
@@ -108,7 +125,7 @@ export function UsageMenu({ sessions }: { sessions: Session[] }) {
           <p className="text-zinc-500 leading-relaxed">
             エージェントがタスクの作業に使った量です。Tower 自体は AI を呼びません（例外: 書式の無い報告を整形する時だけ、小さなモデルを 1 回）。
             「読んだ」の大半は前回までの会話の使い回し（キャッシュ）で、新しく読ませた分よりずっと軽く数えられます。
-            使用量が報告された日で集計します。更新前の使用量は日付を復元できないため「全部」のみに含まれます。実行中の未報告分・外部タスク・費用を報告しないエージェントの費用は含まれません。表示額はアカウント全体の合計ではありません。
+            使用量が報告された日で集計します。更新前の使用量は日付を復元できないため「全部」のみに含まれます。消したタスクの分も残ります。実行中の未報告分・外部タスク・費用を報告しないエージェントの費用は含まれません。表示額はアカウント全体の合計ではありません。
           </p>
         </div>
       )}

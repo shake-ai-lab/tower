@@ -137,6 +137,8 @@ app.post('/api/agents/codex/login', (c) => {
   catch { return c.json({ error: '同梱のCodexを起動できませんでした。Towerを再インストールしてください。' }, 500); }
 });
 app.get('/api/sessions', (c) => c.json(hub.list()));
+// 使った量のまとめ。サーバー側の台帳から集計するので、タスクを消しても減らない
+app.get('/api/usage', (c) => c.json(db.usageSummary(Date.now())));
 
 app.post('/api/sessions', async (c) => {
   const body = (await c.req.json()) as CreateSessionBody;

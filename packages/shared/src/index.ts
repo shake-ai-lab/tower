@@ -174,6 +174,27 @@ export interface Usage {
   contextWindow?: number;
 }
 
+/** 使った量の合計（台帳から）。count = タスク数 */
+export interface UsageSum {
+  count: number;
+  input: number;
+  cacheRead: number;
+  output: number;
+  cost: number;
+}
+
+/**
+ * 使った量のまとめ（GET /api/usage）。サーバー側の台帳から集計するので、タスクを消しても減らない。
+ * today / week は記録時刻が分かる分だけ。all は日付を復元できない古い分も含む
+ */
+export interface UsageSummary {
+  today: UsageSum;
+  week: UsageSum;
+  all: UsageSum;
+  /** 今日のプロジェクト別（多い順、最大 6 件） */
+  projectsToday: (UsageSum & { name: string; path: string })[];
+}
+
 /** セッションが実際に作業しているフォルダ */
 export const workDir = (s: Pick<Session, 'project' | 'workspace'>): string => s.workspace?.path ?? s.project.path;
 

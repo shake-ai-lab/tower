@@ -37,6 +37,113 @@ export function describeTaskNotification(p: string): string | null {
   return `${subject}が終わりました`;
 }
 
+/** ひらがな・カタカナ・漢字を含むか（英語のままの description を使わない判定） */
+export function hasJapanese(s: string): boolean {
+  return /[぀-ヿ㐀-鿿]/.test(s);
+}
+
+/** 先頭のコマンド名を正規化する。パス付き・拡張子付き・引用符付きでも `vitest` `python` のように見えるようにする */
+function commandHead(segment: string): string {
+  const [first = '', ...rest] = segment.split(/\s+/);
+  const name = path
+    .basename(first.replace(/^["'&]+|["']+$/g, ''))
+    .replace(/\.(exe|cmd|bat|ps1)$/i, '');
+  return [name, ...rest].join(' ');
+}
+
+/**
+ * コマンドの中で「主役」の部分を取り出す。先頭行を `&&` `||` `|` `;` で区切り、
+ * `cd X` や環境変数の指定など前置きは飛ばして最初の意味のある部分を返す
+ */
+function mainSegment(command: string): string {
+  const parts = firstLine(command.trim()).split(/&&|\|\|?|;/);
+  for (const raw of parts) {
+    const seg = raw
+      .trim()
+      .replace(/^\(+/, '')
+      .replace(/^(sudo\s+|\w+=\S*\s+)+/, '')
+      .trim();
+    if (!seg) continue;
+    // `set` は前置きだが PowerShell の `Set-Content` などは主役なので残す
+    if (/^(cd|pushd|Set-Location|sl|export|set)\b(?!-)/i.test(seg) || /^\$env:/i.test(seg)) continue;
+    return commandHead(seg);
+  }
+  return '';
+}
+
+const RUNNERS = '(?:npm|pnpm|yarn|bun)';
+/** `npm run -w apps/web build` のような、run の後ろに付くオプション（`-w` やその値を動作名にしない） */
+const RUN_FLAGS = '(?:(?:-w|--workspace|--prefix|-C)\\s+\\S+\\s+|-\\S+\\s+)*';
+/** コマンドの主役部分 → 日本語の一言。上から順に当てはめる */
+const COMMAND_PHRASES: Array<[RegExp, string | ((m: RegExpMatchArray) => string)]> = [
+  [/^git\s+status\b/i, 'git の状態を見ています'],
+  [/^git\s+diff\b/i, '差分を見ています'],
+  [/^git\s+log\b/i, '履歴を見ています'],
+  [/^git\s+show\b/i, '変更内容を見ています'],
+  [/^git\s+branch\b/i, 'ブランチを見ています'],
+  [/^git\s+(add|commit)\b/i, '変更を記録（コミット）しています'],
+  [/^git\s+push\b/i, '変更を送信（push）しています'],
+  [/^git\s+(pull|fetch)\b/i, '最新の変更を取り込んでいます'],
+  [/^git\s+(checkout|switch|merge|rebase|stash)\b/i, 'ブランチを切り替え・統合しています'],
+  [/^git\s+worktree\b/i, '作業場所を整えています'],
+  [/^git\b/i, 'git を操作しています'],
+  [new RegExp(`^${RUNNERS}\\s+(run\\s+)?test\\w*`, 'i'), 'テストを実行しています'],
+  [/^(npx\s+)?(vitest|jest|mocha|playwright\s+test)\b/i, 'テストを実行しています'],
+  [/^(pytest|cargo\s+test|go\s+test)\b/i, 'テストを実行しています'],
+  [/^(node|npx\s+tsx|tsx)\s+--test\b/i, 'テストを実行しています'],
+  [/^(npx\s+)?tsc\b.*--noEmit/i, 'コードを点検しています'],
+  [new RegExp(`^${RUNNERS}\\s+run\\s+${RUN_FLAGS}(build|compile)\\b`, 'i'), 'ビルドしています'],
+  [/^(npx\s+)?(tsc\b|vite\s+build\b)/i, 'ビルドしています'],
+  [/^(cargo|go)\s+build\b/i, 'ビルドしています'],
+  [new RegExp(`^${RUNNERS}\\s+run\\s+${RUN_FLAGS}(typecheck|lint)\\b`, 'i'), 'コードを点検しています'],
+  [/^(npx\s+)?(eslint|prettier|ruff|mypy)\b/i, 'コードを点検しています'],
+  [/^(npm|pnpm|yarn|bun|pip|pip3|uv|cargo|go)\s+(install|add|i|get)\b/i, 'パッケージを入れています'],
+  [new RegExp(`^${RUNNERS}\\s+run\\s+${RUN_FLAGS}([^-\\s]\\S*)`, 'i'), (m) => `${m[1]} を実行しています`],
+  [new RegExp(`^${RUNNERS}\\s+start\\b`, 'i'), 'start を実行しています'],
+  [/^(ls|dir|find|tree|Get-ChildItem|gci|fd)\b/i, 'ファイルの一覧を見ています'],
+  [/^(cat|head|tail|less|more|type|Get-Content|gc|wc|bat)\b/i, 'ファイルの中身を見ています'],
+  [/^sed\s+-n\b/i, 'ファイルの中身を見ています'],
+  [/^(grep|egrep|rg|ag|Select-String|sls)\b/i, 'コードを検索しています'],
+  [/^(curl|wget|Invoke-WebRequest|Invoke-RestMethod|iwr|irm)\b/i, 'Web に接続しています'],
+  [/^(mkdir|md|cp|mv|touch|New-Item|ni|Copy-Item|Move-Item)\b/i, 'ファイルを整理しています'],
+  [/^(rm|del|rmdir|Remove-Item|ri)\b/i, 'ファイルを消しています'],
+  [/^(taskkill|kill|pkill|killall|Stop-Process)\b/i, 'プロセスを止めています'],
+  [/^(node|python|python3|py|deno|ruby|php|tsx|ts-node)\b/i, 'スクリプトを実行しています'],
+  [/^npx\s+(tsx|ts-node)\b/i, 'スクリプトを実行しています'],
+  [/^bun\s+run\b/i, 'スクリプトを実行しています'],
+  [/^docker\b/i, 'Docker を操作しています'],
+  [/^(echo|printf|Write-Output|Write-Host)\b/i, '表示を確認しています'],
+];
+
+/**
+ * コマンドの中身から「何をしているか」を平易な日本語で。末尾にコマンドの短い断片を括弧で添える。
+ * 例: `cd apps/web && npm run build` → `ビルドしています（cd apps/web && npm run build）`
+ */
+export function describeCommand(command: string): string {
+  const seg = mainSegment(command);
+  const line = firstLine(command.trim());
+  // 読む・表示するだけに見えて実は書き込む・消す形（ファイルへのリダイレクト、xargs、find の -exec / -delete）は表より先に決める
+  const writes = /(?:^|\s)>>?\s*(?!\/dev\/null|nul\b|&)\S/i.test(line);
+  const chains = /\bxargs\b|\s-exec\b|\s-delete\b/i.test(line);
+  let phrase = writes ? 'ファイルに書き込んでいます' : 'コマンドを実行しています';
+  for (const [re, text] of COMMAND_PHRASES) {
+    if (writes || chains) break;
+    const m = seg.match(re);
+    if (!m) continue;
+    phrase = typeof text === 'function' ? text(m) : text;
+    break;
+  }
+  // 改行や制御文字は空白に潰して 1 行に
+  const snippet = command.replace(/[\s\x00-\x1f\x7f]+/g, ' ').trim();
+  return snippet ? `${phrase}（${str(snippet, 40)}）` : phrase;
+}
+
+/** description が日本語ならそれ、英語や空ならコマンドの中身から作った日本語 */
+function commandActivity(input: Record<string, unknown>): string {
+  const desc = typeof input.description === 'string' ? input.description : '';
+  return desc && hasJapanese(desc) ? str(desc, 60) : describeCommand(String(input.command ?? ''));
+}
+
 /** 「今やってること」1行 */
 export function describeActivity(toolName: string, input: Record<string, unknown>): string {
   switch (toolName) {
@@ -55,16 +162,18 @@ export function describeActivity(toolName: string, input: Record<string, unknown
       return `${base(input.notebook_path)} を編集しています`;
     case 'Bash':
     case 'PowerShell':
-      return input.description
-        ? str(input.description, 60)
-        : `コマンド実行中: ${str(firstLine(String(input.command ?? '')), 60)}`;
+      return commandActivity(input);
     case 'WebFetch':
       return `Webページを読んでいます (${str(input.url, 50)})`;
     case 'WebSearch':
       return `Web検索中 (${str(input.query, 40)})`;
     case 'Task':
-    case 'Agent':
-      return `サブエージェント: ${str(input.description, 50)}`;
+    case 'Agent': {
+      // サブエージェントの説明も英語のままなら見せず、日本語の一言に断片を添える
+      const desc = typeof input.description === 'string' ? input.description : '';
+      if (desc && hasJapanese(desc)) return `サブエージェント: ${str(desc, 50)}`;
+      return desc ? `サブエージェントを動かしています（${str(desc, 50)}）` : 'サブエージェントを動かしています';
+    }
     case 'TodoWrite':
       return '作業計画を整理しています';
     case 'AskUserQuestion':
@@ -84,9 +193,11 @@ export function describePermission(
   switch (toolName) {
     case 'Bash':
     case 'PowerShell': {
+      // 見出しは日本語の description があればそれ、無ければ（英語なら）コマンドの中身から作る。詳細はコマンド全文
       const cmd = String(input.command ?? '');
-      const desc = input.description ? String(input.description) : '';
-      return { headline: desc ? `コマンドを実行したい: ${desc}` : 'コマンドを実行したい', detail: cmd };
+      const desc = typeof input.description === 'string' ? input.description : '';
+      const what = desc && hasJapanese(desc) ? desc : describeCommand(cmd);
+      return { headline: `コマンドを実行したい: ${what}`, detail: cmd };
     }
     case 'Edit':
     case 'MultiEdit': {

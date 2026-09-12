@@ -24,6 +24,7 @@ import type {
   TimelineItem,
   TowerSettings,
   TreeResponse,
+  UsageSummary,
 } from '@tower/shared';
 
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
@@ -44,6 +45,8 @@ export const api = {
   agents: (refresh = false) => req<Record<AgentKind, AgentAvailability>>(`/api/agents${refresh ? '?refresh=1' : ''}`),
   codexLogin: (start = false) => req<{ status: 'idle' | 'waiting' | 'success' | 'error'; url?: string; message?: string }>('/api/agents/codex/login', start ? { method: 'POST', body: '{}' } : undefined),
   sessions: () => req<Session[]>('/api/sessions'),
+  /** 使った量のまとめ（サーバー側の台帳。タスクを消しても減らない） */
+  usage: () => req<UsageSummary>('/api/usage'),
   timeline: (id: string) => req<TimelineItem[]>(`/api/sessions/${id}/timeline`),
   changes: (id: string) => req<ChangesResponse>(`/api/sessions/${id}/changes`),
   create: (body: CreateSessionBody) => req<Session>('/api/sessions', { method: 'POST', body: JSON.stringify(body) }),
