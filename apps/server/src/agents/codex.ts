@@ -11,7 +11,8 @@ import { Codex, type Input, type Thread, type ThreadEvent, type ThreadItem } fro
 import { workDir, type Attachment, type Session, type TimelineKind } from '@tower/shared';
 import { attachmentNote, isInlineImage, publicRefs, type SavedAttachment } from '../attachments.ts';
 import type { Hub } from '../hub.ts';
-import { firstLine } from '../humanize.ts';
+import { CODEX_MISSING, findCodexBin } from '../codex-bin.ts';
+import { describeCommand, firstLine } from '../humanize.ts';
 import { previewNote } from '../preview.ts';
 import { scheduleReformat } from '../reformat.ts';
 import { REPORT_INSTRUCTIONS, fallbackReport, parseReport } from '../report.ts';
@@ -36,7 +37,7 @@ function friendlyError(msg: string): string {
     return 'Codex にログインしていません。左端の「設定」→「Codexにログイン」で接続してから、もう一度指示を送ってください。';
   }
   if (m.includes('enoent') || m.includes('not found')) {
-    return 'Codex の実行ファイルが見つかりません。`npm install` をやり直してください。';
+    return CODEX_MISSING;
   }
   return msg;
 }
@@ -61,7 +62,9 @@ export class CodexRunner implements AgentRunner {
 
   start(firstMessage: string, resumeFrom?: string, attachments: SavedAttachment[] = []) {
     const s = this.session;
-    const codex = new Codex();
+    // 本体は VS Code の Codex 拡張のもの（インストーラには入れていない）。開発中で拡張が無ければ node_modules のものを SDK が自分で探す
+    const bin = findCodexBin();
+    const codex = new Codex(bin?.exe ? { codexPathOverride: bin.exe } : {});
     const opts = {
       workingDirectory: workDir(s),
       skipGitRepoCheck: true,
@@ -218,10 +221,11 @@ export class CodexRunner implements AgentRunner {
         if (phase === 'item.started') this.hub.update(this.id, { activity: '考えをまとめています' });
         return {};
       case 'command_execution': {
-        const cmd = firstLine(item.command).slice(0, 60);
+        // Claude と同じく、コマンドの中身から日本語の一言を作る（PowerShell の包みは外す）
+        const what = describeCommand(item.command);
         if (phase === 'item.started') {
-          this.hub.update(this.id, { activity: `コマンド実行中: ${cmd}`, toolCalls: cur.toolCalls + 1 });
-          this.timeline('tool_use', `コマンド実行中: ${cmd}`, item.command, 'Bash');
+          this.hub.update(this.id, { activity: what, toolCalls: cur.toolCalls + 1 });
+          this.timeline('tool_use', what, item.command, 'Bash');
         } else if (phase === 'item.completed') {
           const ok = item.exit_code === 0;
           const tail = item.aggregated_output.trim().split(/\r?\n/).slice(-1)[0] ?? '';

@@ -48,7 +48,7 @@ npm run deploy       # 直したものを使う: 画面ビルド → インス�
 - `packages/shared/src/index.ts` — フロント⇔サーバーの契約。`Session` / `TimelineItem` / `PendingRequest` / `Report` / `ServerEvent` / `UsageSummary` / `TowerSettings`。**ここを変えたら両側を直す**
 - `apps/server/src/agents/types.ts` — `AgentRunner` インターフェース。Manager はこれだけを見る
 - `apps/server/src/agents/claude.ts` — Agent SDK の `query()` を1セッション分ラップ。生の `SDKMessage` を `Session` の状態と `TimelineItem` に翻訳する
-- `apps/server/src/agents/codex.ts` — Codex SDK（codex exec）の同等品。許可確認は無く砂場で動く。`codex-login.ts` — 画面からのログイン（同梱の codex を起動して URL を出す）
+- `apps/server/src/agents/codex.ts` — Codex SDK（codex exec）の同等品。許可確認は無く砂場で動く。`codex-login.ts` — 画面からのログイン（codex を起動して URL を出す）。`codex-bin.ts` — Codex の本体を探す（インストーラには入れないので VS Code の Codex 拡張の codex.exe を使う。ログインは ~/.codex を共有。開発中は node_modules）
 - `apps/server/src/bridge.ts` + `apps/server/hooks/tower-hook.mjs` — VS Code / ターミナルの Claude Code を hooks で観測・許可の橋渡し
 - `apps/server/src/verify.ts` — 報告の裏取り（テスト実行）。`apps/server/src/diff.ts` — 差分と履歴（Git グラフ用）
 - `apps/server/src/worktree.ts` — 別の作業場所（git worktree）の作成・取り込み（merge）・後片付け。cwd は必ず `workDir(session)` で取る

@@ -542,6 +542,8 @@ export interface AgentAvailability {
   available: boolean;
   /** 使えない理由（利用者向けの日本語） */
   reason?: string;
+  /** どれを使うか（例: 「VS Code の Codex 拡張（26.908.40401）を使います」） */
+  note?: string;
 }
 
 // ---- 気づいたこと（利用者が使いながら書き残す不満・要望・不具合・良かった点） ----

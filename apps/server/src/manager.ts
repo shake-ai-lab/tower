@@ -25,6 +25,7 @@ import type { AgentRunner } from './agents/types.ts';
 import { checkUploads, removeAttachments, saveAttachments } from './attachments.ts';
 import type { Hub } from './hub.ts';
 import { SHOTS_DIR, capture, detectPreview, laterPreviewLabel, targetLabel } from './preview.ts';
+import { CODEX_MISSING, findCodexBin } from './codex-bin.ts';
 import { detectVerifyCommand, runVerify } from './verify.ts';
 import { createWorktree, mergeWorktree, removeWorktree } from './worktree.ts';
 
@@ -66,21 +67,27 @@ export function pickInterrupted(sessions: Session[], since: number): Session[] {
 
 const require = createRequire(import.meta.url);
 
-/** Codex のログイン状態（60秒キャッシュ）。バイナリは @openai/codex に同梱 */
+/** Codex のログイン状態（60秒キャッシュ）。本体は VS Code の Codex 拡張のもの（codex-bin.ts。インストーラには入れていない） */
 let codexCache: { at: number; value: AgentAvailability } | null = null;
 function codexAvailability(): AgentAvailability {
   if (codexCache && Date.now() - codexCache.at < 60_000) return codexCache.value;
   let value: AgentAvailability;
-  try {
-    const bin = require.resolve('@openai/codex/bin/codex.js');
-    const r = spawnSync(process.execPath, [bin, 'login', 'status'], { encoding: 'utf8', timeout: 15_000 });
+  const bin = findCodexBin();
+  if (!bin) value = { available: false, reason: CODEX_MISSING };
+  else {
+    const r = spawnSync(bin.command, [...bin.args, 'login', 'status'], { encoding: 'utf8', timeout: 15_000, windowsHide: true });
     const out = `${r.stdout ?? ''}${r.stderr ?? ''}`.trim();
+    const note = `${bin.label}を使います`;
     value =
       r.status === 0 && !/not logged in/i.test(out)
-        ? { available: true }
-        : { available: false, reason: 'Codex にログインしていません。「Codexにログイン」ボタンから接続してください。設定画面からもログインできます。' };
-  } catch (e) {
-    value = { available: false, reason: `Codex が見つかりません: ${e instanceof Error ? e.message : String(e)}` };
+        ? { available: true, note }
+        : {
+            available: false,
+            note,
+            reason: r.error
+              ? `Codex を起動できませんでした: ${r.error.message}`
+              : 'Codex にログインしていません。「Codexにログイン」から接続してください（VS Code の Codex でログインしても使えるようになります）',
+          };
   }
   codexCache = { at: Date.now(), value };
   return value;

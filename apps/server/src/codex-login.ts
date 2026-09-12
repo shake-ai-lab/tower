@@ -1,6 +1,5 @@
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
-import { createRequire } from 'node:module';
-const require = createRequire(import.meta.url);
+import { CODEX_MISSING, findCodexBin } from './codex-bin.ts';
 export interface LoginState { status: 'idle' | 'waiting' | 'success' | 'error'; url?: string; message?: string }
 let state: LoginState = { status: 'idle' };
 let child: ChildProcess | null = null;
@@ -24,9 +23,11 @@ export function authorizationUrl(output: string): string | undefined {
 
 export function startCodexLogin(): LoginState {
   if (child) return codexLoginState();
-  const bin = require.resolve('@openai/codex/bin/codex.js');
+  // 本体は VS Code の Codex 拡張のもの（ログインは ~/.codex を VS Code と共有）
+  const bin = findCodexBin();
+  if (!bin) throw new Error(CODEX_MISSING);
   state = { status: 'waiting' };
-  const proc = spawn(process.execPath, [bin, 'login'], { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
+  const proc = spawn(bin.command, [...bin.args, 'login'], { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
   child = proc;
   let output = '';
   const timer = setTimeout(() => {

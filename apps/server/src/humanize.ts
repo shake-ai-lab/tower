@@ -62,6 +62,18 @@ export function hasJapanese(s: string): boolean {
   return /[぀-ヿ㐀-鿿]/.test(s);
 }
 
+/**
+ * シェルで包まれたコマンドから中身を取り出す。Codex は `"C:\…\powershell.exe" -Command 'npm test'` の形で動かすので、
+ * そのままだと「powershell を動かしています」にしかならない。包まれていなければそのまま返す
+ */
+export function unwrapShell(command: string): string {
+  const m = command
+    .trim()
+    .match(/^(?:"[^"]*?(?:powershell|pwsh|cmd|bash|sh)(?:\.exe)?"|\S*?(?:powershell|pwsh|cmd|bash|sh)(?:\.exe)?)\s+(?:\S+\s+)*?(?:-Command|-c|\/c|-lc)\s+([\s\S]+)$/i);
+  if (!m) return command;
+  return m[1].trim().replace(/^["']/, '').replace(/["']$/, '').trim();
+}
+
 /** 先頭のコマンド名を正規化する。パス付き・拡張子付き・引用符付きでも `vitest` `python` のように見えるようにする */
 function commandHead(segment: string): string {
   const [first = '', ...rest] = segment.split(/\s+/);
@@ -85,7 +97,8 @@ function mainSegment(command: string): string {
       .trim();
     if (!seg) continue;
     // `set` は前置きだが PowerShell の `Set-Content` などは主役なので残す
-    if (/^(cd|pushd|Set-Location|sl|export|set)\b(?!-)/i.test(seg) || /^\$env:/i.test(seg)) continue;
+    // 今いる場所を出すだけの Get-Location / pwd も前置き（Codex がよく先頭に付ける）
+    if (/^(cd|pushd|Set-Location|sl|export|set|Get-Location|pwd)\b(?!-)/i.test(seg) || /^\$env:/i.test(seg)) continue;
     return commandHead(seg);
   }
   return '';
@@ -140,6 +153,7 @@ const COMMAND_PHRASES: Array<[RegExp, string | ((m: RegExpMatchArray) => string)
  * 例: `cd apps/web && npm run build` → `ビルドしています（cd apps/web && npm run build）`
  */
 export function describeCommand(command: string): string {
+  command = unwrapShell(command);
   const seg = mainSegment(command);
   const line = firstLine(command.trim());
   // 読む・表示するだけに見えて実は書き込む・消す形（ファイルへのリダイレクト、xargs、find の -exec / -delete）は表より先に決める

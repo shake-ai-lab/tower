@@ -134,7 +134,7 @@ app.use('/api/agents/codex/login', async (c, next) => {
 app.get('/api/agents/codex/login', (c) => c.json(codexLoginState()));
 app.post('/api/agents/codex/login', (c) => {
   try { return c.json(startCodexLogin()); }
-  catch { return c.json({ error: '同梱のCodexを起動できませんでした。Towerを再インストールしてください。' }, 500); }
+  catch (e) { return c.json({ error: e instanceof Error ? e.message : 'Codex を起動できませんでした' }, 500); }
 });
 app.get('/api/sessions', (c) => c.json(hub.list()));
 // 使った量のまとめ。サーバー側の台帳から集計するので、タスクを消しても減らない
