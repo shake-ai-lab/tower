@@ -65,8 +65,42 @@ export function detectPreview(dir: string): PreviewTarget | null {
     }
     return null;
   }
-  if (fs.existsSync(path.join(dir, 'index.html'))) return { kind: 'static', dir };
-  return null;
+  const index = path.join(dir, 'index.html');
+  if (!fs.existsSync(index)) return null;
+  if (!isDevEntry(dir, index)) return { kind: 'static', dir };
+  // Vite などの開発用の入口（<script type="module" src="/src/main.tsx">）は、ファイルのまま配っても真っ白になる。
+  // 組み立て済み（dist/ など）があればそれを撮り、無ければ手元の vite で開発サーバーを立てて撮る。どちらも無ければ撮らない
+  for (const out of ['dist', 'build']) {
+    if (fs.existsSync(path.join(dir, out, 'index.html'))) return { kind: 'static', dir: path.join(dir, out) };
+  }
+  return viteServer(dir);
+}
+
+/** index.html が開発用の入口か: ソースの .ts / .tsx / .jsx を module で直接読む、または vite の設定があって /src/ を読む */
+function isDevEntry(dir: string, index: string): boolean {
+  let html = '';
+  try {
+    html = fs.readFileSync(index, 'utf8');
+  } catch {
+    return false;
+  }
+  const hasVite = ['vite.config.ts', 'vite.config.js', 'vite.config.mjs', 'vite.config.mts'].some((f) => fs.existsSync(path.join(dir, f)));
+  for (const tag of html.match(/<script\b[^>]*>/gi) ?? []) {
+    if (!/type=["']module["']/i.test(tag)) continue;
+    const src = tag.match(/src=["']([^"']+)["']/i)?.[1] ?? '';
+    if (/\.(?:tsx?|jsx|mts)$/i.test(src) || (hasVite && /^\/?src\//.test(src))) return true;
+  }
+  return false;
+}
+
+/** 手元に vite があれば、フォルダごとに決まる番号で開発サーバーを立てる（撮り終わったら止める）。無ければ撮らない */
+function viteServer(dir: string): PreviewTarget | null {
+  const bin = path.join(dir, 'node_modules', '.bin', process.platform === 'win32' ? 'vite.cmd' : 'vite');
+  if (!fs.existsSync(bin)) return null;
+  let h = 0;
+  for (const c of path.resolve(dir)) h = (h * 31 + c.charCodeAt(0)) >>> 0;
+  const port = 5300 + (h % 600);
+  return { kind: 'url', url: `http://127.0.0.1:${port}/`, command: `"${bin}" --host 127.0.0.1 --port ${port} --strictPort`, readySeconds: 60 };
 }
 
 export const targetLabel = (t: PreviewTarget): string => (t.kind === 'url' ? t.url : 'index.html');
@@ -257,6 +291,21 @@ export async function capture(sessionId: string, dir: string, target: PreviewTar
           throw new Error(target.kind === 'url' ? `${url} を開けませんでした: ${why}` : `ページを開けませんでした: ${why}`);
         }
         await page.waitForTimeout(300); // フォントや遅延描画を少し待つ
+        // 何も描かれないページ（開発用の入口をそのまま開いた等）は、真っ白な写真を見せずに理由を出す
+        // ブラウザの中で評価する式（サーバー側の型には document が無いので文字列で渡す）
+        const drawn = await page
+          .waitForFunction(
+            "!!document.body && (document.body.innerText.trim().length > 0 || !!document.body.querySelector('img,svg,canvas,video,iframe,input,button,textarea,select'))",
+            undefined,
+            { timeout: 3000 },
+          )
+          .then(
+            () => true,
+            () => false,
+          );
+        if (!drawn) {
+          throw new Error('ページに何も表示されませんでした（真っ白）。開発サーバーで動くページなら、.tower.json の preview に URL と command を書くと撮れます');
+        }
         const file = `${label}-${scheme}-${at}.png`;
         const full = path.join(outDir, file);
         await page.screenshot({ path: full, fullPage: true });

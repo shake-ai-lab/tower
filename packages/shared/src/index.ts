@@ -80,6 +80,8 @@ export interface Report {
   changedFiles: string[];
   needsDecision: string | null;
   nextStep: string | null;
+  /** 決まった欄の外に書かれていた補足（一覧や説明）。「判断が必要」が「上の〜」と指す中身はここに入る */
+  details?: string;
   /** 整形前の原文 */
   raw: string;
   generatedAt: number;

@@ -42,8 +42,9 @@ export function detectVerifyCommand(projectPath: string): string | null {
   if (test && !/no test specified/i.test(test)) return 'npm test';
 
   const pyproject = path.join(projectPath, 'pyproject.toml');
-  if (fs.existsSync(path.join(projectPath, 'pytest.ini'))) return 'python -m pytest -q';
-  if (fs.existsSync(pyproject) && /pytest/.test(fs.readFileSync(pyproject, 'utf8'))) return 'python -m pytest -q';
+  // -q は付けない。プロジェクトの設定（addopts）にも -q があると二重になり、pytest が最後の件数の行を出さなくなる
+  if (fs.existsSync(path.join(projectPath, 'pytest.ini'))) return 'python -m pytest';
+  if (fs.existsSync(pyproject) && /pytest/.test(fs.readFileSync(pyproject, 'utf8'))) return 'python -m pytest';
   if (hasPyTests(projectPath)) return 'python -m unittest -q';
   if (fs.existsSync(path.join(projectPath, 'Cargo.toml'))) return 'cargo test';
   if (fs.existsSync(path.join(projectPath, 'go.mod'))) return 'go test ./...';
@@ -82,7 +83,11 @@ export function summarizeTestOutput(output: string, ok: boolean): string | null 
       }
     }
   }
-  if (pass === null || fail === null) return null;
+  if (pass === null || fail === null) {
+    // 件数の行が無い（pytest を -qq で走らせた時など）: 失敗したテストの名前の行だけでも数える
+    const failed = ok ? 0 : failedTests(output).length;
+    return failed ? `失敗 ${failed} 件（全体の件数は出ていません）` : null;
+  }
   if (fail === 0) return pass > 0 ? `全部成功（${pass} 件）` : ok ? '成功' : '失敗';
   return `失敗 ${fail} 件${pass ? `・成功 ${pass} 件` : ''}`;
 }

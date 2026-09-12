@@ -37,6 +37,26 @@ export function describeTaskNotification(p: string): string | null {
   return `${subject}が終わりました`;
 }
 
+const SUBAGENT_VERB: Record<string, string> = {
+  Read: 'ファイルを読んで',
+  Grep: 'コードを検索して',
+  Glob: 'ファイルを探して',
+  Bash: 'コマンドを実行して',
+  PowerShell: 'コマンドを実行して',
+  Edit: 'ファイルを直して',
+  MultiEdit: 'ファイルを直して',
+  Write: 'ファイルを書いて',
+  WebFetch: 'Web ページを読んで',
+  WebSearch: 'Web を検索して',
+};
+
+/** サブエージェントの途中経過（SDK の task_progress の一言）。英語のままなら、使っている道具から日本語の一言を作って断片を添える */
+export function describeSubagentProgress(summary: string, lastTool?: string): string {
+  if (hasJapanese(summary)) return `サブエージェント: ${str(summary, 60)}`;
+  const verb = (lastTool && SUBAGENT_VERB[lastTool]) || '作業して';
+  return `サブエージェントが${verb}います（${str(summary, 50)}）`;
+}
+
 /** ひらがな・カタカナ・漢字を含むか（英語のままの description を使わない判定） */
 export function hasJapanese(s: string): boolean {
   return /[぀-ヿ㐀-鿿]/.test(s);
@@ -334,6 +354,12 @@ export function summarizeToolResult(content: unknown, toolName?: string, input?:
       return `${base(input?.file_path)} を書きました`;
     case 'TodoWrite':
       return '作業計画を更新しました';
+    case 'Task':
+    case 'Agent':
+      // 裏で動かし始めた時の結果は内部向けの英文（"Async agent launched successfully…"）なので見せない
+      return /async agent launched/i.test(text)
+        ? 'サブエージェントを裏で動かし始めました（終わると続きを書きます）'
+        : `サブエージェントが結果を返しました${lines.length ? `（${lines.length} 行）` : ''}`;
     case 'Bash':
     case 'PowerShell':
       return lines.length ? `${lines[0].trim().slice(0, 120)}${rest}` : '(出力なし)';

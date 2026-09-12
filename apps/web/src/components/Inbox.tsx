@@ -14,6 +14,12 @@ function ReportDecisionCard({ s }: { s: Session }) {
       <div className="leading-relaxed whitespace-pre-wrap break-words">
         {r.needsDecision ?? r.summary[0] ?? '報告を見て、続きの指示を出してください'}
       </div>
+      {r.details && (
+        <details className="text-xs text-zinc-300">
+          <summary className="cursor-pointer text-zinc-400">報告の補足を見る</summary>
+          <div className="mt-1 max-h-60 overflow-auto whitespace-pre-wrap break-words leading-relaxed">{r.details}</div>
+        </details>
+      )}
       {r.nextStep && (
         <div className="text-xs text-zinc-400 leading-relaxed break-words">
           <span className="text-zinc-500">エージェントの提案: </span>

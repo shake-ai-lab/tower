@@ -1,15 +1,21 @@
 // 「コードを読まない利用者」が Tower に投げそうな仕事のシナリオ集。
 // template は playground/templates/<name> をコピーして使う（毎回まっさらな状態から始める）。
+// source は本物のプロジェクト（real-scenarios.ts）。写しを作って動かすので、元のフォルダには触らない。
 import type { PermissionChoice } from '@tower/shared';
 
 export interface Scenario {
   key: string;
-  template: string;
+  /** playground/templates/<name> */
+  template?: string;
+  /** 本物のプロジェクトのフォルダ。git なら clone（書きかけの変更・枝・元のフォルダには触らない）、git でなければコピー */
+  source?: string;
   prompt: string;
   permissionMode: PermissionChoice;
   model?: string;
   /** 一致する許可要求を1回だけ拒否してみる（拒否後にエージェントが立て直せるかを見る） */
   denyOnce?: { match: RegExp; reason: string };
+  /** 一致する許可要求は毎回拒否する（パソコン全体に効くパッケージの導入など、写しの外を変える操作） */
+  denyAlways?: { match: RegExp; reason: string; /** この道具の許可だけに効かせる（README の本文に書かれたコマンドで編集を断らない） */ tools?: string[] }[];
   /** 報告が来たら順に送る追加指示 */
   followUps?: string[];
   /** 質問された時の好み（利用者役のAIに渡す） */

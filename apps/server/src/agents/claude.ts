@@ -28,7 +28,9 @@ import {
   assessRisk,
   describeActivity,
   describePermission,
+  describeSubagentProgress,
   firstLine,
+  hasJapanese,
   readImage,
   summarizeToolResult,
   toolDetail,
@@ -36,6 +38,9 @@ import {
 } from '../humanize.ts';
 import { previewNote } from '../preview.ts';
 import { scheduleReformat } from '../reformat.ts';
+
+/** サブエージェント・ワークフローの裏の作業か（コマンドの裏実行は含めない） */
+const isAgentTask = (type?: string) => /agent|workflow/i.test(type ?? '');
 import { REPORT_INSTRUCTIONS, fallbackReport, parseReport } from '../report.ts';
 import { detectVerifyCommand, runVerify } from '../verify.ts';
 import { workspaceNote } from '../worktree.ts';
@@ -112,6 +117,10 @@ export class ClaudeRunner implements AgentRunner {
   private lastContext = 0;
   /** tool_use の id → 名前と入力。結果（tool_result）を人向けに要約する時に引く */
   private toolUses = new Map<string, { name: string; input: Record<string, unknown> }>();
+  /** 始まった裏の作業（task_id → 種類・説明） */
+  private tasks = new Map<string, { type: string; description: string }>();
+  /** 裏で動いているサブエージェント（task_id）。手番が終わってもこれが残っていれば、報告にせず続きを待つ */
+  private bgAgents = new Set<string>();
   /** query() は再開のたびに集計がゼロから始まるので、開始時点の値を土台にして足す */
   private usageBase: Usage = { input: 0, cacheRead: 0, output: 0 };
   private costBase = 0;
@@ -441,7 +450,24 @@ export class ClaudeRunner implements AgentRunner {
         } else if (m.subtype === 'permission_denied') {
           this.timeline('system', `自動拒否: ${m.tool_name}`, m.message, m.tool_name);
         } else if (m.subtype === 'task_progress' && m.summary) {
-          this.hub.update(this.id, { activity: `サブエージェント: ${m.summary}` });
+          this.hub.update(this.id, { activity: describeSubagentProgress(m.summary, m.last_tool_name) });
+        } else if (m.subtype === 'task_started') {
+          // 待つのは裏で動くサブエージェントだけ（裏で動かしっぱなしのコマンド＝開発サーバーなどは終わらないので待たない）
+          this.tasks.set(m.task_id, { type: m.task_type ?? '', description: m.description });
+          if (isAgentTask(m.task_type) && m.is_backgrounded && !m.ambient) this.bgAgents.add(m.task_id);
+        } else if (m.subtype === 'task_updated') {
+          const t = this.tasks.get(m.task_id);
+          if (m.patch.is_backgrounded && t && isAgentTask(t.type)) this.bgAgents.add(m.task_id);
+          if (m.patch.status && !['pending', 'running', 'paused'].includes(m.patch.status)) this.bgAgents.delete(m.task_id);
+        } else if (m.subtype === 'task_notification') {
+          const t = this.tasks.get(m.task_id);
+          const waited = this.bgAgents.delete(m.task_id);
+          this.tasks.delete(m.task_id);
+          if (waited) {
+            const label = t && hasJapanese(t.description) ? `（${t.description.slice(0, 60)}）` : '';
+            const done = m.status === 'completed' ? 'が終わりました' : m.status === 'failed' ? 'が失敗しました' : 'を止めました';
+            this.timeline('system', `裏のサブエージェント${label}${done}`);
+          }
         }
         break;
       }
@@ -510,6 +536,19 @@ export class ClaudeRunner implements AgentRunner {
         const isError = m.subtype !== 'success' || m.is_error;
         const text = m.subtype === 'success' ? m.result : this.lastAssistantText;
         const errors = 'errors' in m && Array.isArray(m.errors) ? (m.errors as string[]).join('\n') : '';
+        // 裏のサブエージェントがまだ動いている: 「少し待って」のような途中の一言なので報告にしない（整形・裏取りもしない）。
+        // 終わると SDK が知らせを差し込み、エージェントが続きを書く
+        if (!isError && this.bgAgents.size > 0) {
+          this.hub.update(this.id, {
+            status: 'running',
+            activity: `裏でサブエージェントが作業中です（${this.bgAgents.size} 件）。終わると続きを書きます`,
+            turns: cur.turns + 1,
+            costUsd: this.costBase + (m.total_cost_usd ?? 0),
+            usage: this.sumUsage(m),
+          });
+          this.timeline('system', '裏でサブエージェントが作業を続けています。終わると続きを書きます');
+          break;
+        }
         const report =
           parseReport(text || '', cur.prompt) ?? fallbackReport(text || errors || '(出力なし)', cur.prompt, isError);
         // 報告に書かれたファイル名は相対パスのことが多いので、既に追跡済み（絶対パス）のものと二重計上しない

@@ -52,7 +52,20 @@ function section(body: string, label: string): string {
   return m ? m[1].trim() : '';
 }
 
-const isNone = (s: string) => !s || /^[（(]?(なし|特になし)[）)]?$/.test(s.trim());
+// 「なし」「なし（確認だけで、変更はしていません）」も無し扱い
+const isNone = (s: string) => !s || /^[（(]?(?:なし|特になし|無し|ありません)(?:[）)]|[（(][^）)]*[）)])?[。.]?$/.test(s.trim());
+
+/**
+ * 欄の中身を「最初のまとまり」と「空行のあとに続く補足」に分ける。
+ * 決まった欄の外に書かれた一覧や説明（「■ フォルダの中身」「削除候補 1. …」など）が、次の欄の見出しまで吸い込まれるのを防ぐ
+ */
+function splitBlock(block: string): { head: string; extra: string } {
+  const m = block.match(/^(\s*\S[\s\S]*?)\n[ \t]*\r?\n([\s\S]*)$/);
+  return m ? { head: m[1], extra: m[2].trim() } : { head: block, extra: '' };
+}
+
+/** 変更ファイルとして載せてよい形か（パス・ファイル名。日本語の説明文や見出しは除く） */
+const looksLikePath = (f: string) => /[\\/]/.test(f) || /^[\w.-]+$/.test(f);
 
 /** 「〜を確認してください」「ブラウザで開いて見てください」のような、利用者の目視を頼む文 */
 export const ASKS_CHECK = /(確認|見て|開いて|試して|チェック)(して|し|を)?(みて)?(ください|下さい|ほしい|欲しい|いただけ|もらえ)/;
@@ -87,7 +100,11 @@ export function parseReport(finalText: string, fallbackRequest: string): Report 
   const needs = section(body, '判断が必要');
   const next = section(body, '次の一手');
   let outcome = OUTCOME_MAP[outcomeRaw] ?? 'unknown';
-  const summary = bullets(section(body, 'やったこと'));
+  const did = splitBlock(section(body, 'やったこと'));
+  const files = splitBlock(section(body, '変更ファイル'));
+  const summary = bullets(did.head);
+  // 欄の外に書かれていた一覧・説明。「判断が必要」が「上の〜」と指す中身がここに入るので、カードに「補足」として出す
+  const details = [did.extra, files.extra].filter(Boolean).join('\n\n').replace(/\*\*/g, '').replace(/`/g, '').trim();
   // 「完了」なのに利用者にブラウザ等での目視確認を頼んでいる = 実際は一部完了。ルールで禁じているが守られない時の保険。
   // Tower の画面に添付されたスクリーンショットを見てもらうだけなら、その場で済むので完了のまま
   const asksCheck = (s: string) => !isNone(s) && ASKS_CHECK.test(s) && !/スクリーンショット|添付/.test(s);
@@ -100,9 +117,10 @@ export function parseReport(finalText: string, fallbackRequest: string): Report 
     request: section(body, '依頼') || fallbackRequest,
     outcome,
     summary,
-    changedFiles: bullets(section(body, '変更ファイル')).map(cleanFileName).filter(Boolean),
+    changedFiles: bullets(files.head).map(cleanFileName).filter((f) => f && looksLikePath(f)),
     needsDecision: isNone(needs) ? null : needs,
     nextStep: isNone(next) ? null : next,
+    ...(details ? { details } : {}),
     raw: finalText,
     generatedAt: Date.now(),
   };

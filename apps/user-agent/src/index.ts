@@ -3,6 +3,7 @@
 //   npm run dogfood                 全シナリオ
 //   npm run dogfood -- --only todo-fix,site-dark
 //   npm run dogfood -- --model sonnet
+//   npm run dogfood -- --real       本物のプロジェクトの写しで（real-scenarios.ts。TOWER_API で本番と別の Tower を指す）
 //
 // 結果は docs/dogfood/<runId>.md に書く。作業フォルダは ~/.tower/dogfood/<runId>/。
 import { spawnSync } from 'node:child_process';
@@ -13,6 +14,7 @@ import { fileURLToPath } from 'node:url';
 import type { ChangesResponse, MergeResult, PendingPermission, PendingQuestion, Report, Session, TimelineItem } from '@tower/shared';
 import { llmJson, type LlmImage } from './llm.ts';
 import { SCENARIOS, type Scenario } from './scenarios.ts';
+import { REAL_SCENARIOS } from './real-scenarios.ts';
 
 const API = process.env.TOWER_API ?? 'http://127.0.0.1:4800/api';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
@@ -96,6 +98,8 @@ function decidePermission(tr: Track, p: PendingPermission): { decision: 'allow' 
     tr.denyOnceUsed = true;
     return { decision: 'deny', reason: sc.denyOnce.reason };
   }
+  const always = sc.denyAlways?.find((d) => (!d.tools || d.tools.includes(p.toolName)) && (d.match.test(p.detail) || d.match.test(p.headline)));
+  if (always) return { decision: 'deny', reason: always.reason };
   if (p.risk === 'high') return { decision: 'deny', reason: '危なそうな操作なので止めます。もっと安全な方法でお願いします' };
   const n = (tr.allowedCount[p.toolName] = (tr.allowedCount[p.toolName] ?? 0) + 1);
   // 同じ種類の許可が3回目なら「以後も許可」を試す（UI上の導線の検証）
@@ -323,20 +327,30 @@ async function main() {
   await api('/health').catch(() => {
     throw new Error(`Tower サーバーに繋がりません: ${API}。先に npm run dev で起動してください`);
   });
-  const runId = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+  const real = args.includes('--real');
+  const runId = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19) + (real ? '-real' : '');
   // リポジトリの外に置く。中だと Claude Code が Tower 自身の CLAUDE.md や git を「プロジェクト」として拾ってしまう
   const runsDir = path.join(os.homedir(), '.tower', 'dogfood', runId);
-  const scenarios = SCENARIOS.filter((s) => !only || only.includes(s.key));
+  const scenarios = (real ? REAL_SCENARIOS : SCENARIOS).filter((s) => !only || only.includes(s.key));
   if (scenarios.length === 0) throw new Error('シナリオがありません');
   console.log(`run ${runId}: ${scenarios.map((s) => s.key).join(', ')}`);
 
   const tracks: Track[] = [];
   for (const sc of scenarios) {
     const dir = path.join(runsDir, sc.key);
-    fs.cpSync(path.join(ROOT, 'playground/templates', sc.template), dir, { recursive: true });
-    // git 管理にしておくと Tower の「差分を見る」が使える（本物のプロジェクトと同じ条件にする）
-    for (const a of [['init', '-q'], ['add', '-A'], ['-c', 'user.name=tower', '-c', 'user.email=tower@local', 'commit', '-qm', 'init']]) {
-      spawnSync('git', a, { cwd: dir, stdio: 'ignore' });
+    if (sc.source && fs.existsSync(path.join(sc.source, '.git'))) {
+      // 本物のプロジェクトは clone で写す。送り先（origin）は外して、写しから元のリポジトリへ push できないようにする
+      const r = spawnSync('git', ['clone', '-q', sc.source, dir], { encoding: 'utf8' });
+      if (r.status !== 0) throw new Error(`${sc.key}: 写しを作れませんでした: ${r.stderr}`);
+      spawnSync('git', ['remote', 'remove', 'origin'], { cwd: dir, stdio: 'ignore' });
+    } else {
+      const from = sc.source ?? path.join(ROOT, 'playground/templates', sc.template ?? '');
+      // .mcp.json は写さない（Blender などの道具を立ち上げる設定。写しの確認で本物の道具を動かさない）
+      fs.cpSync(from, dir, { recursive: true, filter: (p) => !/[\\/](node_modules|\.venv|venv|__pycache__|\.git)([\\/]|$)|[\\/]\.mcp\.json$/.test(p) });
+      // git 管理にしておくと Tower の「差分を見る」が使える（本物のプロジェクトと同じ条件にする）
+      for (const a of [['init', '-q'], ['add', '-A'], ['-c', 'user.name=tower', '-c', 'user.email=tower@local', 'commit', '-qm', 'init']]) {
+        spawnSync('git', a, { cwd: dir, stdio: 'ignore' });
+      }
     }
     const s = await api<Session>('/sessions', {
       method: 'POST',

@@ -470,6 +470,13 @@ function ReportCard({ r, onFileClick }: { r: Report; onFileClick?: () => void })
           </ul>
         </Row>
       )}
+      {r.details && (
+        <Row label="補足">
+          <div className="text-xs leading-relaxed whitespace-pre-wrap break-words text-zinc-300 max-h-64 overflow-auto">
+            <Linkify text={r.details} />
+          </div>
+        </Row>
+      )}
       {r.needsDecision && (
         <Row label="判断が必要" highlight>
           <Linkify text={r.needsDecision} />
