@@ -304,11 +304,12 @@ export function FileEditor({
               変わった所 {blocks} か所 ↓
             </button>
           )}
-          <div className="ml-auto flex gap-1.5">
+          {/* 狭い欄では、ボタンの文字を途中で折らずにボタンごと次の行へ送る */}
+          <div className="ml-auto flex flex-wrap justify-end gap-1.5">
             {isMarkdown && orig !== null && (
-              <div role="group" aria-label="Markdown の表示" className="flex overflow-hidden rounded border border-zinc-700 text-xs">
+              <div role="group" aria-label="Markdown の表示" className="flex shrink-0 overflow-hidden rounded border border-zinc-700 text-xs">
                 {(['preview', 'edit'] as const).map((m) => (
-                  <button key={m} aria-pressed={mode === m} onClick={() => setMode(m)} className={`px-2 py-0.5 ${mode === m ? 'bg-sky-900 text-sky-100' : 'text-zinc-400 hover:bg-zinc-800'}`}>
+                  <button key={m} aria-pressed={mode === m} onClick={() => setMode(m)} className={`whitespace-nowrap px-2 py-0.5 ${mode === m ? 'bg-sky-900 text-sky-100' : 'text-zinc-400 hover:bg-zinc-800'}`}>
                     {m === 'preview' ? '読みやすく表示' : readOnly ? '文字のまま' : '編集'}
                   </button>
                 ))}
@@ -317,10 +318,10 @@ export function FileEditor({
             {isImage && <select aria-label="画像の倍率" value={zoom} onChange={(e) => setZoom(e.target.value)} className="bg-zinc-800 text-xs rounded px-2">
               <option value="fit">全体表示</option>{['50', '100', '200', '400'].map((n) => <option key={n} value={n}>{n}%</option>)}
             </select>}
-            {!isImage && <button disabled={readOnly || !dirty || busy} onClick={save} className={`${btn.base} ${btn.primary} !py-1 !text-xs`}>
+            {!isImage && <button disabled={readOnly || !dirty || busy} onClick={save} className={`${btn.base} ${btn.primary} whitespace-nowrap !py-1 !text-xs`}>
               {busy ? '保存中…' : '保存（Ctrl+S）'}
             </button>}
-            {!windowed && <button onClick={onClose} className={`${btn.base} ${btn.ghost} !py-1 !text-xs`}>
+            {!windowed && <button onClick={onClose} className={`${btn.base} ${btn.ghost} whitespace-nowrap !py-1 !text-xs`}>
               閉じる
             </button>}
           </div>
@@ -390,7 +391,7 @@ export function FileEditor({
           )}
         </div>
         <footer className={`${windowed && !err ? 'hidden' : 'flex'} px-4 py-2 border-t border-zinc-800 text-[11px] text-zinc-500 items-center gap-3`}>
-          <span>{isImage ? '画像プレビュー' : preview ? '見出し・表・チェック欄を整えて表示しています。リンクを押すと、そのファイルを開きます。' : readOnly ? '作業中・外部タスクのファイルは閲覧のみです。' : '保存すると、次の指示で手動変更をAIに伝えます。テストがあれば裏取りも走ります。'}</span>
+          <span>{isImage ? '画像プレビュー' : preview ? '見出し・表・チェック欄を整えて表示しています。リンクを押すと、そのファイルを開きます。' : readOnly ? 'エージェントが作業している間は閲覧のみです。終わると直せます。' : '保存すると、次に Tower から指示を送る時、手で直したことを AI に伝えます。テストがあれば裏取りも走ります。'}</span>
           {err && orig !== null && <span className="text-red-300 ml-auto">{err}</span>}
         </footer>
     </div>

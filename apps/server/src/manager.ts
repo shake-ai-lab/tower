@@ -425,7 +425,11 @@ export class SessionManager {
       manualEdits: [...new Set([...(s.manualEdits ?? []), rel])],
       changedFiles: already ? s.changedFiles : [...s.changedFiles, abs],
     });
-    this.note(id, 'system', `画面から直接編集しました: ${rel}`, '次に指示を送る時、このファイルを手で直したことをエージェントに自動で伝えます');
+    // 外部（VS Code など）のセッションは、Tower から指示を送って引き継いだ時だけ伝えられる
+    const detail = s.origin === 'external'
+      ? `次に Tower から指示を送る時、このファイルを手で直したことをエージェントに伝えます（${s.externalHint ?? '元の画面'} で続ける場合は伝わりません）`
+      : '次に指示を送る時、このファイルを手で直したことをエージェントに自動で伝えます';
+    this.note(id, 'system', `画面から直接編集しました: ${rel}`, detail);
     void this.verifyNow(id);
   }
 

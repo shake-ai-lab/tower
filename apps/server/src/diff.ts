@@ -60,6 +60,29 @@ export function lineMarks(dir: string, rel: string, base = 'HEAD'): LineMark[] |
   return parseLineMarks(git(dir, ['diff', '--no-color', '--no-ext-diff', '-U0', base, '--', p]).out);
 }
 
+/**
+ * まとめて取った差分（--relative 付き）をファイルごとに分ける。キーは新しい側のパス。
+ * 見出しから名前を読めないもの（git が引用符で包んだ名前など）は入れない（呼び出し側が 1 件ずつ取り直す）
+ */
+export function splitDiff(all: string): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const chunk of all.split(/^(?=diff --git )/m)) {
+    if (!chunk.startsWith('diff --git ')) continue;
+    // 名前は最初の @@ より前（見出し）からだけ読む。本文に「+++ b/…」に見える行があっても取り違えない
+    const at = chunk.search(/^@@/m);
+    const head = at < 0 ? chunk : chunk.slice(0, at);
+    const field = (re: RegExp) => re.exec(head)?.[1]?.replace(/\r$/, '');
+    const nl = head.indexOf('\n');
+    const first = head.slice('diff --git '.length, nl < 0 ? undefined : nl).replace(/\r$/, '');
+    // 「a/名前 b/名前」で左右が同じなら見出し行から読める（名前に空白があっても）。種類だけ変わった時など
+    const half = (first.length - 1) / 2;
+    const same = first.startsWith('a/') && Number.isInteger(half) && first.slice(2, half) === first.slice(half + 3) ? first.slice(2, half) : undefined;
+    const name = field(/^\+\+\+ b\/(.*)$/m) ?? field(/^rename to (.*)$/m) ?? (/^\+\+\+ \/dev\/null\r?$/m.test(head) ? field(/^--- a\/(.*)$/m) : undefined) ?? same;
+    if (name && !name.startsWith('"')) out.set(name, chunk.trimEnd());
+  }
+  return out;
+}
+
 /** 未追跡ファイルを「全行追加」の diff に見せる */
 function pseudoAddDiff(rel: string, content: string): string {
   const lines = content.split(/\r?\n/);
@@ -115,6 +138,16 @@ export function collectChanges(dir: string, touched: string[], base = 'HEAD'): C
     // 作業フォルダがリポジトリの途中（サブフォルダや分離した作業場所の一部）でも、パスは作業フォルダからの相対にする
     const prefix = git(dir, ['rev-parse', '--show-prefix']).out.trim();
     const named = git(dir, ['diff', '--name-status', '-M', '--relative', base]).out;
+    // 差分は 1 回でまとめて取ってファイルごとに分ける。ファイルごとに git を起こすと 1 件 0.1 秒ほどかかり、
+    // 変更が多いと Git の欄が「読み込み中」のまま待たされた。分けられなかったものだけ 1 件ずつ取り直す
+    const whole = git(dir, ['diff', '--no-color', '--no-ext-diff', '-M', '--relative', base]);
+    const chunks = whole.ok ? splitDiff(whole.out) : new Map<string, string>();
+    const diffOf = (rel: string) => {
+      const d = chunks.get(rel);
+      if (d === undefined) return git(dir, ['diff', base, '--', rel]).out;
+      const from = /^rename from (.*)$/m.exec(d)?.[1];
+      return from && !/^@@/m.test(d) ? `(名前だけ変わりました: ${from} → ${rel})` : d;
+    };
     for (const line of named.split(/\r?\n/)) {
       if (!line.trim()) continue;
       const parts = line.split('\t');
@@ -122,9 +155,9 @@ export function collectChanges(dir: string, touched: string[], base = 'HEAD'): C
       const rel = parts[parts.length - 1];
       seen.add(rel);
       if (code === 'D') {
-        push({ path: rel, status: 'D', diff: git(dir, ['diff', base, '--', rel]).out });
+        push({ path: rel, status: 'D', diff: diffOf(rel) });
       } else {
-        const d = git(dir, ['diff', base, '--', rel]).out;
+        const d = diffOf(rel);
         push({ path: rel, status: code === 'A' ? 'A' : 'M', diff: d || '(差分なし: 内容は同じ)' });
       }
     }
