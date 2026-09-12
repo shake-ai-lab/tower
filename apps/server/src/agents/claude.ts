@@ -445,7 +445,8 @@ export class ClaudeRunner implements AgentRunner {
           this.hub.update(this.id, {
             agentSessionId: m.session_id,
             status: 'running',
-            activity: '準備完了。作業を始めます',
+            // 2 回目以降（追加の指示・裏の作業が終わった後の続き）は「始めます」ではなく続き
+            activity: cur.turns > 0 ? '続きを始めます' : '準備完了。作業を始めます',
           });
         } else if (m.subtype === 'permission_denied') {
           this.timeline('system', `自動拒否: ${m.tool_name}`, m.message, m.tool_name);

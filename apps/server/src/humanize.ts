@@ -158,6 +158,11 @@ export function describeCommand(command: string): string {
   return snippet ? `${phrase}（${str(snippet, 40)}）` : phrase;
 }
 
+/** 「〜しています」「〜を見ています」「取り込んでいます」を、許可の見出し向けの「〜したい」にする（上の表の言い回しに合わせた変換） */
+export function wantPhrase(activity: string): string {
+  return activity.replace(/込んでいます$/, '込みたい').replace(/ています$/, 'たい');
+}
+
 /** description が日本語ならそれ、英語や空ならコマンドの中身から作った日本語 */
 function commandActivity(input: Record<string, unknown>): string {
   const desc = typeof input.description === 'string' ? input.description : '';
@@ -216,8 +221,11 @@ export function describePermission(
       // 見出しは日本語の description があればそれ、無ければ（英語なら）コマンドの中身から作る。詳細はコマンド全文
       const cmd = String(input.command ?? '');
       const desc = typeof input.description === 'string' ? input.description : '';
-      const what = desc && hasJapanese(desc) ? desc : describeCommand(cmd);
-      return { headline: `コマンドを実行したい: ${what}`, detail: cmd };
+      if (desc && hasJapanese(desc)) return { headline: `コマンドを実行したい: ${desc}`, detail: cmd };
+      // コマンドの中身から作った一言は「〜しています」なので、見出しでは「〜したい」にする（「実行したい: 実行しています」と重ねない）
+      const what = describeCommand(cmd);
+      const i = what.indexOf('（');
+      return { headline: wantPhrase(i >= 0 ? what.slice(0, i) : what) + (i >= 0 ? what.slice(i) : ''), detail: cmd };
     }
     case 'Edit':
     case 'MultiEdit': {

@@ -3,7 +3,17 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { detectPreview } from './preview.ts';
+import { detectPreview, laterPreviewLabel } from './preview.ts';
+
+test('開発用のページは、今撮れなくても「撮る予定」として呼び名を返す（普通のページ・ページ無しは返さない）', () => {
+  const dev = fs.mkdtempSync(path.join(os.tmpdir(), 'tower-preview-'));
+  fs.writeFileSync(path.join(dev, 'index.html'), '<script type="module" src="/src/main.tsx"></script>');
+  assert.match(laterPreviewLabel(dev) ?? '', /開発用のページ/);
+  const plain = fs.mkdtempSync(path.join(os.tmpdir(), 'tower-preview-'));
+  fs.writeFileSync(path.join(plain, 'index.html'), '<h1>hi</h1>');
+  assert.equal(laterPreviewLabel(plain), null);
+  assert.equal(laterPreviewLabel(fs.mkdtempSync(path.join(os.tmpdir(), 'tower-preview-'))), null);
+});
 
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'tower-preview-'));
 

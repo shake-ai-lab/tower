@@ -76,6 +76,15 @@ export function detectPreview(dir: string): PreviewTarget | null {
   return viteServer(dir);
 }
 
+/**
+ * 今は撮れないが、依存パッケージを入れる・組み立てると撮れるページ（開発用の入口の index.html）なら、その呼び名。
+ * 作業の最初に「撮る予定」として扱い、エージェントに「Tower が撮るので自分でブラウザを入れない」と伝える（修正後は報告の時に撮り直す）
+ */
+export function laterPreviewLabel(dir: string): string | null {
+  const index = path.join(dir, 'index.html');
+  return fs.existsSync(index) && isDevEntry(dir, index) ? 'index.html（依存パッケージが入ると撮れる開発用のページ）' : null;
+}
+
 /** index.html が開発用の入口か: ソースの .ts / .tsx / .jsx を module で直接読む、または vite の設定があって /src/ を読む */
 function isDevEntry(dir: string, index: string): boolean {
   let html = '';

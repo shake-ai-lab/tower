@@ -18,6 +18,7 @@ npm run installer    # インストーラだけ作る（apps/desktop/build.mjs�
 ```bash
 npm run dogfood                        # 利用者役AIで全シナリオを回し docs/dogfood/<runId>.md に所見を書く
 npm run dogfood -- --only todo-fix     # 一部だけ
+npm run dogfood -- --real              # 本物のプロジェクト（~/project/*）の写しで回す。TOWER_API で本番と別に起動した Tower を指す
 npm run dogfood:ui                     # 実物の画面をブラウザで操作してエディタの使い勝手を確かめる（Vite 5173 が要る。--explore で AI の自由探索）
 ```
 

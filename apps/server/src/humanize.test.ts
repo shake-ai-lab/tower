@@ -133,7 +133,7 @@ test('describeCommand: 括弧の中はコマンドの先頭 40 文字、改行�
 test('describePermission: 英語 description でも見出しは日本語、詳細はコマンド全文', () => {
   const cmd = 'cd apps/web && npm run build';
   const r = describePermission('Bash', { command: cmd, description: 'Build the web app' });
-  assert.equal(r.headline, `コマンドを実行したい: ビルドしています（${cmd}）`);
+  assert.equal(r.headline, `ビルドしたい（${cmd}）`);
   assert.equal(r.detail, cmd);
   assert.equal(hasJapanese(r.headline), true);
 });

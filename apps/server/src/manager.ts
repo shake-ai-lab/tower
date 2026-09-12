@@ -24,7 +24,7 @@ import { CodexRunner } from './agents/codex.ts';
 import type { AgentRunner } from './agents/types.ts';
 import { checkUploads, removeAttachments, saveAttachments } from './attachments.ts';
 import type { Hub } from './hub.ts';
-import { SHOTS_DIR, capture, detectPreview, targetLabel } from './preview.ts';
+import { SHOTS_DIR, capture, detectPreview, laterPreviewLabel, targetLabel } from './preview.ts';
 import { detectVerifyCommand, runVerify } from './verify.ts';
 import { createWorktree, mergeWorktree, removeWorktree } from './worktree.ts';
 
@@ -168,7 +168,10 @@ export class SessionManager {
     const isolated = body.isolate ? createWorktree(projectPath, id) : null;
 
     const now = Date.now();
-    const previewTarget = detectPreview(isolated?.workspace.path ?? projectPath);
+    const previewDir = isolated?.workspace.path ?? projectPath;
+    const previewTarget = detectPreview(previewDir);
+    // 今は撮れなくても（開発用のページで依存パッケージが未導入）、撮る予定にしておく。修正前は飛ばし、報告の時に撮る
+    const previewLabel = previewTarget ? targetLabel(previewTarget) : laterPreviewLabel(previewDir);
     const session: Session = {
       id,
       agent,
@@ -177,7 +180,7 @@ export class SessionManager {
       // 「比べる」の時は自動取り込みをしない（複数の案が勝手に取り込まれるとぶつかる）
       workspace: isolated ? { ...isolated.workspace, autoMerge: body.autoMerge === true && !body.compare } : null,
       compare: body.compare ?? null,
-      preview: previewTarget ? { target: targetLabel(previewTarget), before: null, after: null, taking: false, error: null } : null,
+      preview: previewLabel ? { target: previewLabel, before: null, after: null, taking: false, error: null } : null,
       title: prompt.split(/\r?\n/)[0].slice(0, 60),
       prompt,
       model: body.model ?? null,

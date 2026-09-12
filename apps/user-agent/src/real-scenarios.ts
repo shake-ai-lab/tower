@@ -8,7 +8,8 @@ import type { Scenario } from './scenarios.ts';
 const P = (name: string) => path.join(os.homedir(), 'project', name);
 const NO_GLOBAL = [
   {
-    match: /\bpip3?\s+install\b|\bpython\s+-m\s+pip\s+install\b|\buv\s+pip\b|\bconda\s+install\b|\bnpm\s+(?:i|install)\s+(?:-g|--global)\b|\bwinget\b|\bchoco\s+install\b/i,
+    // ブラウザのダウンロード（playwright install など）もパソコン全体の置き場に入るので断る
+    match: /\bpip3?\s+install\b|\bpython\s+-m\s+pip\s+install\b|\buv\s+pip\b|\bconda\s+install\b|\bnpm\s+(?:i|install)\s+(?:-g|--global)\b|\bwinget\b|\bchoco\s+install\b|\bplaywright\s+install\b|\bpuppeteer\b.*\bbrowsers?\b/i,
     reason: 'パソコン全体に入れるのはやめて。今入っているものだけで確かめられる範囲でお願いします',
     tools: ['Bash', 'PowerShell'],
   },
