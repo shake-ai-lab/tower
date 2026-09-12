@@ -48,7 +48,11 @@ export async function llmJson<T>(
   });
   for await (const m of q) {
     if (m.type === 'result') {
-      if (m.subtype === 'success') out = m.structured_output ?? tryParse(m.result);
+      if (m.subtype === 'success') {
+        if (m.is_error) throw new Error(`llm failed: ${m.result.slice(0, 300)}`);
+        out = m.structured_output ?? tryParse(m.result);
+        if (out === undefined) throw new Error(`llm: JSON response missing: ${m.result.slice(0, 300)}`);
+      }
       else throw new Error(`llm failed: ${m.subtype}`);
       break; // 入力ストリーム方式だと終わりを待ち続けるので、結果が来たら抜ける
     }
