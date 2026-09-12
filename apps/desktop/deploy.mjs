@@ -113,7 +113,15 @@ console.log(`開きます: ${installed}`);
 // Electronベースの開発環境から実行しても、アプリをNodeモードで起動しない。
 const launchEnv = { ...process.env };
 delete launchEnv.ELECTRON_RUN_AS_NODE;
-spawn(installed, [], { detached: true, stdio: 'ignore', cwd: path.dirname(installed), env: launchEnv }).unref();
+// 呼び出し元（ターミナルやエディタの裏の作業）の子にしない。子のままだと、呼び出し元が片付けられた時に
+// Tower のサーバー（Tower.exe の子の node）まで一緒に止まり、窓だけ残ってつながらなくなる（2026-09-12 に発生）。
+// WMI から起動すると親が WMI になり、呼び出し元とは無関係に動き続ける。使えない時だけ従来の起動
+const viaWmi = spawnSync(
+  'powershell',
+  ['-NoProfile', '-Command', `$r = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{ CommandLine = '"${installed}"'; CurrentDirectory = '${path.dirname(installed)}' }; exit $r.ReturnValue`],
+  { stdio: 'ignore' },
+);
+if (viaWmi.status !== 0) spawn(installed, [], { detached: true, stdio: 'ignore', cwd: path.dirname(installed), env: launchEnv }).unref();
 let h = null;
 for (let i = 0; i < 120 && !(h = await health()); i++) await sleep(500);
 if (!h) fail('起動しましたが、サーバーが応答しません（Tower の窓にエラーが出ていないか見てください）');
