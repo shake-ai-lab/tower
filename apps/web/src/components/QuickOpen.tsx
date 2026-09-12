@@ -1,5 +1,5 @@
 // ファイル名で開く（VS Code の Ctrl+P）。名前の一部・飛び飛びの文字・空白区切りの複数語で絞り込む
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { FileListResponse, Session } from '@tower/shared';
 import { api } from '../api';
 import { rankFiles } from '../editor-tools';
@@ -33,11 +33,19 @@ export function QuickOpen({ session, onClose }: { session: Session | undefined; 
   const [err, setErr] = useState('');
   const [index, setIndex] = useState(0);
   const listRef = useRef<HTMLUListElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const listId = useId();
+  const returnFocus = useRef(document.activeElement instanceof HTMLElement ? document.activeElement : null);
+  const chosen = useRef(false);
+  const restoreFrame = useRef<number | null>(null);
   const open = useEditorWorkspace((s) => s.open);
 
   useEffect(() => {
     if (!session) return;
     let alive = true;
+    setFiles(null);
+    setErr('');
+    setIndex(0);
     api
       .allFiles(session.id)
       .then((r) => alive && setFiles(r))
@@ -47,6 +55,16 @@ export function QuickOpen({ session, onClose }: { session: Session | undefined; 
     };
   }, [session?.id]);
 
+  useEffect(() => {
+    // StrictMode の疑似アンマウントでは復元せず、本当に閉じたときだけ戻す。
+    if (restoreFrame.current !== null) cancelAnimationFrame(restoreFrame.current);
+    return () => {
+      restoreFrame.current = requestAnimationFrame(() => {
+        if (!chosen.current && returnFocus.current?.isConnected && !document.querySelector('[role="dialog"]')) returnFocus.current.focus();
+      });
+    };
+  }, []);
+
   const list = useMemo(() => (files ? rankFiles(files.files, q) : []), [files, q]);
   useEffect(() => setIndex(0), [q]);
   useEffect(() => {
@@ -55,6 +73,7 @@ export function QuickOpen({ session, onClose }: { session: Session | undefined; 
 
   const choose = (path: string | undefined) => {
     if (!session || !path) return;
+    chosen.current = true;
     open(session.id, path);
     onClose();
   };
@@ -67,9 +86,10 @@ export function QuickOpen({ session, onClose }: { session: Session | undefined; 
       if (e.isComposing) return;
       const s = latest.current;
       if (e.key === 'Escape') s.onClose();
-      else if (e.key === 'ArrowDown') setIndex((i) => Math.min(s.list.length - 1, i + 1));
+      else if (e.key === 'ArrowDown') setIndex((i) => Math.max(0, Math.min(s.list.length - 1, i + 1)));
       else if (e.key === 'ArrowUp') setIndex((i) => Math.max(0, i - 1));
       else if (e.key === 'Enter') s.choose(s.list[s.index]?.path);
+      else if (e.key === 'Tab') inputRef.current?.focus();
       else return;
       e.preventDefault();
       e.stopPropagation();
@@ -80,10 +100,16 @@ export function QuickOpen({ session, onClose }: { session: Session | undefined; 
 
   return (
     <div className="fixed inset-0 z-[1000] flex items-start justify-center bg-black/40 pt-[12vh]" onClick={onClose}>
-      <div role="dialog" aria-label="ファイル名で開く" className="w-[min(640px,92vw)] border border-zinc-600 bg-zinc-900 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+      <div role="dialog" aria-modal="true" aria-label="ファイル名で開く" className="w-[min(640px,92vw)] border border-zinc-600 bg-zinc-900 shadow-2xl" onClick={(e) => e.stopPropagation()}>
         <p className="px-3 pt-2 text-xs text-zinc-500">{session ? `${session.project.name} のファイルを名前で開く` : 'ファイル名で開く'}</p>
         <input
           autoFocus
+          ref={inputRef}
+          role="combobox"
+          aria-autocomplete="list"
+          aria-expanded={!!files && !err}
+          aria-controls={files && !err ? listId : undefined}
+          aria-activedescendant={list[index] ? `${listId}-${index}` : undefined}
           aria-label="開くファイルの名前"
           placeholder="ファイル名の一部を入力（例: app tsx）"
           value={q}
@@ -97,13 +123,14 @@ export function QuickOpen({ session, onClose }: { session: Session | undefined; 
         ) : !files ? (
           <p className="px-3 pb-3 text-sm text-zinc-500">ファイルの一覧を読み込み中…</p>
         ) : (
-          <ul ref={listRef} role="listbox" aria-label="候補" className="max-h-[50vh] overflow-y-auto pb-1">
+          <ul id={listId} ref={listRef} role="listbox" aria-label="候補" className="max-h-[50vh] overflow-y-auto pb-1">
             {list.map((f, i) => {
               const cut = f.path.lastIndexOf('/');
               const hits = new Set(f.hits);
               return (
                 <li
                   key={f.path}
+                  id={`${listId}-${i}`}
                   role="option"
                   aria-selected={i === index}
                   onMouseMove={() => setIndex(i)}

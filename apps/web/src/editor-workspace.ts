@@ -2,7 +2,7 @@ import { create } from 'zustand';
 
 /** 開いた時に見せる場所（検索結果から開いた時など）。at が変わるたびにそこへ移る */
 export type Reveal = { line: number; column: number; length: number; at: number };
-export type OpenFile = { id: string; sessionId: string; path: string; pane: number; dirty: boolean; onSaved?: () => void; reveal?: Reveal };
+export type OpenFile = { id: string; sessionId: string; path: string; pane: number; dirty: boolean; onSaved?: () => void; reveal?: Reveal; focusRequest?: number };
 type Workspace = {
   files: OpenFile[]; selected: (string | null)[]; pane: number; visible: boolean;
   layout: 'single' | 'columns' | 'rows' | 'desk';
@@ -21,9 +21,11 @@ export const useEditorWorkspace = create<Workspace>((set, get) => ({
     const file = s.files.find((f) => f.id === id);
     const pane = file?.pane ?? s.pane;
     const reveal = at ? { line: at.line, column: at.column ?? 1, length: at.length ?? 0, at: Date.now() } : undefined;
+    // 同じファイルを Ctrl+P で選び直した場合も、入力先を本文へ戻す。
+    const focusRequest = (file?.focusRequest ?? 0) + 1;
     const files = file
-      ? s.files.map((f) => f.id === id ? { ...f, reveal: reveal ?? f.reveal, onSaved: onSaved ?? f.onSaved } : f)
-      : [...s.files, { id, sessionId, path, pane, dirty: false, onSaved, reveal }];
+      ? s.files.map((f) => f.id === id ? { ...f, reveal: reveal ?? f.reveal, onSaved: onSaved ?? f.onSaved, focusRequest } : f)
+      : [...s.files, { id, sessionId, path, pane, dirty: false, onSaved, reveal, focusRequest }];
     set({ visible: true, pane, files, selected: s.selected.map((v, i) => i === pane ? id : v) });
   },
   close: (id) => {

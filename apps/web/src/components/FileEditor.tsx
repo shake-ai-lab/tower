@@ -63,6 +63,7 @@ export function FileEditor({
   windowed = false,
   fontScale = 1,
   reveal,
+  focusRequest,
 }: {
   sessionId: string;
   path: string;
@@ -75,6 +76,8 @@ export function FileEditor({
   fontScale?: number;
   /** 検索結果などから開いた時に見せる場所 */
   reveal?: Reveal;
+  /** 名前で開く操作ごとに変わる。既に開いているファイルでも入力先を戻す。 */
+  focusRequest?: number;
 }) {
   const [orig, setOrig] = useState<string | null>(null);
   const [value, setValue] = useState('');
@@ -197,6 +200,18 @@ export function FileEditor({
   }, [active, save]);
 
   const preview = isMarkdown && mode === 'preview';
+  useEffect(() => {
+    if (!active || !ready || preview) return;
+    const frame = requestAnimationFrame(() => {
+      // 読み込み中に別のダイアログを開いた場合は入力を奪わない。
+      if (document.querySelector('[role="dialog"]')) return;
+      const focused = document.activeElement;
+      if (focused instanceof HTMLElement && focused.closest('input, textarea, select, [contenteditable="true"], [role="textbox"]') && !focused.closest('.monaco-editor')) return;
+      editorRef.current?.layout();
+      editorRef.current?.focus();
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [active, ready, preview, focusRequest]);
   // 中身の入れ物ごと覚えておく。毎回作り直すと React が表示を差し替え、押している途中のリンクが消えて押せない
   const html = useMemo(
     () => ({ __html: preview && orig !== null ? renderMarkdown(value, path, (p) => api.rawUrl(sessionId, p)) : '' }),

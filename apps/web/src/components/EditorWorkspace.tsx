@@ -12,7 +12,7 @@ function Document({ file, active, windowed, fontScale }: { file: OpenFile; activ
   const session = useStore((s) => s.sessions[file.sessionId]);
   const dirty = useEditorWorkspace((s) => s.dirty);
   const onDirty = useCallback((value: boolean) => dirty(file.id, value), [dirty, file.id]);
-  return <FileEditor sessionId={file.sessionId} path={file.path} active={active} onDirty={onDirty} windowed={windowed} fontScale={fontScale} reveal={file.reveal}
+  return <FileEditor sessionId={file.sessionId} path={file.path} active={active} onDirty={onDirty} windowed={windowed} fontScale={fontScale} reveal={file.reveal} focusRequest={file.focusRequest}
     readOnly={!session || session.origin === 'external' || ['starting', 'running', 'waiting_permission', 'waiting_question'].includes(session.status)}
     onClose={() => useEditorWorkspace.getState().close(file.id)} onSaved={file.onSaved} />;
 }
