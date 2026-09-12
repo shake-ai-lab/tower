@@ -6,7 +6,6 @@ import { fileURLToPath } from 'node:url';
 import { serve } from '@hono/node-server';
 import { serveStatic } from '@hono/node-server/serve-static';
 import { Hono } from 'hono';
-import { cors } from 'hono/cors';
 import { WebSocketServer } from 'ws';
 import {
   workDir,
@@ -25,7 +24,8 @@ import {
 } from '@tower/shared';
 import { isInlineImage, readAttachment } from './attachments.ts';
 import { Bridge, type HookInput } from './bridge.ts';
-import { CONFIG_PATH, loadConfig, saveConfig, validateSettings } from './config.ts';
+import { CONFIG_PATH, applyEnvOverrides, loadConfig, saveConfig, validateSettings } from './config.ts';
+import { apiCors, apiGuard } from './guard.ts';
 import { Db } from './db.ts';
 import { collectChanges, lineMarks } from './diff.ts';
 import { listAllFiles, searchText } from './search.ts';
@@ -64,7 +64,7 @@ function settingsStatus(): SettingsStatus {
 /** 画面からの設定変更をファイルに書き、再起動が要らないものはその場で反映する */
 function applySettings(patch: Partial<TowerSettings>) {
   const saved = saveConfig(patch);
-  Object.assign(config, saved);
+  Object.assign(config, applyEnvOverrides(saved));
   setVerifyEnabled(config.autoVerify);
   setReformatEnabled(config.reformatReports);
   if (feedback.file !== config.feedbackFile) feedback = new FeedbackFile(config.feedbackFile);
@@ -100,7 +100,9 @@ function listProjects(): ProjectInfo[] {
 }
 
 const app = new Hono();
-app.use('/api/*', cors());
+// 他のサイトからブラウザ越しに Tower を操作されないようにする（guard.ts）
+app.use('/api/*', apiCors);
+app.use('/api/*', apiGuard);
 
 app.get('/api/health', (c) => c.json({ ok: true, sessions: hub.sessions.size, version: VERSION }));
 app.get('/api/config', (c) => c.json(config));
@@ -328,6 +330,7 @@ app.post('/api/sessions/:id/message', async (c) => {
 
 app.post('/api/sessions/:id/permission', async (c) => {
   const body = (await c.req.json()) as PermissionDecisionBody;
+  if (!['allow', 'allow_always', 'deny', 'defer'].includes(body.decision)) return c.json({ error: '許可の答えが不正です' }, 400);
   const r = manager.runner(c.req.param('id'));
   let ok: boolean;
   if (r) ok = body.decision === 'defer' ? false : r.resolvePermission(body.requestId, body.decision, body.message);

@@ -10,11 +10,13 @@ export class Hub {
 
   constructor(private db: Db) {
     for (const s of db.loadSessions()) {
-      // サーバー再起動でプロセスは死んでいるので、生きていた扱いのものは止まった扱いにする
+      // サーバー再起動でプロセスは死んでいるので、作業中だったものは止まった扱いにする。
+      // 報告あり（idle）はそのまま残す: 報告で判断を求めているものを判断待ちから落とさないため。
+      // プロセスが無くても、指示を送れば manager.message が続きから再開する
       // （外部セッションは Tower の子プロセスではないので触らない）
       if (
         s.origin !== 'external' &&
-        ['starting', 'running', 'waiting_permission', 'waiting_question', 'idle'].includes(s.status)
+        ['starting', 'running', 'waiting_permission', 'waiting_question'].includes(s.status)
       ) {
         s.status = 'stopped';
         s.pending = null;

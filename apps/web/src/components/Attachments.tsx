@@ -90,8 +90,15 @@ export function useAttachments() {
       }
     }
     if (files.length > room) problems.push(`添えられるのは 1 回に ${ATTACH_LIMITS.count} 個までです`);
-    if (problems.length) setError(problems.join('。'));
-    setItems((cur) => [...cur, ...added]);
+    // 読み込んでいる間に別の貼り付け・ドロップが重なっても上限を超えないように、足す時点でもう一度切る
+    let dropped = 0;
+    setItems((cur) => {
+      const next = [...cur, ...added].slice(0, ATTACH_LIMITS.count);
+      dropped = cur.length + added.length - next.length;
+      return next;
+    });
+    if (dropped > 0) problems.push(`添えられるのは 1 回に ${ATTACH_LIMITS.count} 個までです`);
+    if (problems.length) setError([...new Set(problems)].join('。'));
   };
 
   return {
@@ -120,7 +127,11 @@ export function useAttachments() {
         e.preventDefault();
         setDragging(true);
       },
-      onDragLeave: () => setDragging(false),
+      onDragLeave: (e: React.DragEvent) => {
+        // 子要素（入力欄など）の上に移っただけでは消さない
+        if (e.relatedTarget instanceof Node && e.currentTarget.contains(e.relatedTarget)) return;
+        setDragging(false);
+      },
       onDrop: (e: React.DragEvent) => {
         setDragging(false);
         const files = [...e.dataTransfer.files];

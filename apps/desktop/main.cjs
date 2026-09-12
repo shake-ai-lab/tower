@@ -7,10 +7,21 @@ const { app, BrowserWindow, Tray, Menu, dialog, nativeImage, shell } = require('
 const { spawn, spawnSync } = require('node:child_process');
 const fs = require('node:fs');
 const http = require('node:http');
+const os = require('node:os');
 const path = require('node:path');
 
 const ROOT = path.resolve(__dirname, '../..');
-const PORT = Number(process.env.TOWER_PORT ?? 4800);
+/** サーバーと同じ設定（~/.tower/config.json）のポートを見る。画面の設定でポートを変えても次回ちゃんと開けるように */
+function configuredPort() {
+  try {
+    const p = Number(JSON.parse(fs.readFileSync(path.join(os.homedir(), '.tower', 'config.json'), 'utf8')).port);
+    if (p > 0) return p;
+  } catch {
+    /* 設定が無い・壊れている: 既定 */
+  }
+  return 4800;
+}
+const PORT = Number(process.env.TOWER_PORT) > 0 ? Number(process.env.TOWER_PORT) : configuredPort();
 const SMOKE = process.env.TOWER_DESKTOP_SMOKE === '1';
 // サインイン時の自動起動（--hidden）では窓を出さずトレイだけにする
 const HIDDEN = process.argv.includes('--hidden');
@@ -46,7 +57,8 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 async function ensureServer() {
   const health = `http://127.0.0.1:${PORT}/api/health`;
   if (await up(health)) return 'external';
-  const nodeCheck = spawnSync('node', ['--version'], { encoding: 'utf8', shell: process.platform === 'win32' });
+  // shell は使わない（使うと引用符無しで連結され、パスに空白があると起動できない）
+  const nodeCheck = spawnSync('node', ['--version'], { encoding: 'utf8' });
   const ver = (nodeCheck.stdout ?? '').trim();
   const [major, minor] = ver.replace(/^v/, '').split('.').map(Number);
   if (nodeCheck.status !== 0 || !(major > 22 || (major === 22 && minor >= 13))) {
@@ -58,18 +70,44 @@ async function ensureServer() {
     ? [BUNDLED_SERVER]
     : [path.join(ROOT, 'node_modules/tsx/dist/cli.mjs'), path.join(ROOT, 'apps/server/src/index.ts')];
   const env = { ...process.env };
+  // こちらが待つポートとサーバーが開くポートを必ず一致させる
+  env.TOWER_PORT = String(PORT);
   if (BUNDLED) {
     env.TOWER_WEB_DIST = path.join(__dirname, 'web');
     env.TOWER_HOOK_SCRIPT = path.join(__dirname, 'app', 'hooks', 'tower-hook.mjs');
   }
-  serverProc = spawn('node', args, {
+  const child = spawn('node', args, {
     cwd: BUNDLED ? __dirname : ROOT,
-    shell: process.platform === 'win32',
-    stdio: 'inherit',
+    stdio: ['ignore', 'inherit', 'pipe'],
     env,
   });
+  serverProc = child;
+  // すぐ落ちた時に 60 秒待たずに理由を出せるよう、終了と stderr の末尾を覚えておく
+  const tail = [];
+  child.stderr?.on('data', (d) => {
+    process.stderr.write(d);
+    tail.push(String(d));
+    while (tail.length > 30) tail.shift();
+  });
+  let started = false;
+  let exited = null;
+  child.once('error', (e) => { exited = { error: e.message }; });
+  child.once('exit', (code, signal) => {
+    exited = { code, signal };
+    if (serverProc === child) serverProc = null;
+    if (!quitting && started && !SMOKE) {
+      dialog.showErrorBox('Tower のサーバーが止まりました', `終了コード ${code ?? signal ?? '?'}\n${tail.join('').trim().slice(-600)}\n\nTower を開き直してください`);
+    }
+  });
   for (let i = 0; i < 120; i++) {
-    if (await up(health)) return 'spawned';
+    if (exited) {
+      const why = exited.error ?? `終了コード ${exited.code ?? exited.signal ?? '?'}`;
+      throw new Error(`Tower のサーバーがすぐに止まりました（${why}）\n${tail.join('').trim().slice(-600)}`);
+    }
+    if (await up(health)) {
+      started = true;
+      return 'spawned';
+    }
     await sleep(500);
   }
   throw new Error('Tower のサーバーが起動しませんでした');
@@ -160,7 +198,10 @@ function watchSessions() {
   }
   const sessions = new Map();
   const refresh = () => {
-    const waiting = [...sessions.values()].filter((s) => s.pending).length;
+    // 画面の needsYou（apps/web/src/lib.ts）と同じ条件: 許可・質問か、報告で判断を求めて止まっているもの
+    const waiting = [...sessions.values()].filter(
+      (s) => s.pending || (s.status === 'idle' && s.report && (s.report.needsDecision || s.report.outcome === 'question')),
+    ).length;
     tray?.setToolTip(waiting ? `Tower — 判断待ち ${waiting} 件` : 'Tower');
   };
   const connect = () => {

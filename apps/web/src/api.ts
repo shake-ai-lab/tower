@@ -27,11 +27,16 @@ import type {
 } from '@tower/shared';
 
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(path, { headers: { 'content-type': 'application/json' }, ...init });
+  const res = await fetch(path, { headers: { 'content-type': 'application/json' }, ...init }).catch(() => {
+    throw new Error('Tower のサーバーにつながりません');
+  });
   const data = (await res.json().catch(() => ({}))) as T & { error?: string };
-  if (!res.ok) throw new Error(data.error ?? `${res.status} ${res.statusText}`);
+  if (!res.ok) throw new Error(data.error ?? `サーバーがエラーを返しました（${res.status}）`);
   return data;
 }
+
+/** 画面に出すエラー文（「Error: 」の英語の前置きを外す） */
+export const errMsg = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
 export const api = {
   projects: () => req<ProjectInfo[]>('/api/projects'),

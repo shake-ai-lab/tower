@@ -10,7 +10,7 @@ import { NewSessionDialog } from './components/NewSessionDialog';
 import { SessionCard } from './components/SessionCard';
 import { SessionDetail } from './components/SessionDetail';
 import { UsageMenu } from './components/UsageMenu';
-import { STATUS, btn, projectStyle, useTick } from './lib';
+import { STATUS, btn, needsYou, projectStyle, useTick } from './lib';
 import { useStore } from './store';
 import { projectKey } from './project-key';
 import { MultiSessionView } from './components/MultiSessionView';
@@ -39,13 +39,16 @@ const ORDER: Record<SessionStatus, number> = {
 /** 「終わったもの」= もう動かないもの。報告待ち（idle）は次の指示を出せるので含めない */
 const FINISHED: SessionStatus[] = ['stopped', 'done', 'error'];
 
+/** 判断待ちの「どれ」を知らせたか。許可・質問はその要求、報告の判断はその報告ごと */
+const needsYouKey = (s: Session) => (s.pending ? s.pending.id : `${s.id}:${s.report?.generatedAt ?? 0}`);
+
 function notify(s: Session) {
-  if (!('Notification' in window) || Notification.permission !== 'granted' || !s.pending) return;
+  if (!('Notification' in window) || Notification.permission !== 'granted' || !needsYou(s)) return;
   const p = s.pending;
-  const title = `${s.project.name}: ${p.kind === 'permission' ? '許可待ち' : '質問があります'}`;
-  const body = p.kind === 'permission' ? p.headline : (p.questions[0]?.question ?? '');
+  const title = `${s.project.name}: ${!p ? '判断が必要です' : p.kind === 'permission' ? '許可待ち' : '質問があります'}`;
+  const body = !p ? (s.report?.needsDecision ?? s.report?.summary[0] ?? '') : p.kind === 'permission' ? p.headline : (p.questions[0]?.question ?? '');
   try {
-    new Notification(title, { body, tag: p.id });
+    new Notification(title, { body, tag: needsYouKey(s) });
   } catch {
     /* ブラウザによっては投げる */
   }
@@ -77,10 +80,14 @@ export default function App() {
   useTick(15000);
 
   const list = useMemo(
-    () => Object.values(sessions).sort((a, b) => ORDER[a.status] - ORDER[b.status] || b.updatedAt - a.updatedAt),
+    () => {
+      // 報告で判断を求めて止まっているもの（idle）も、許可・質問と同じく先頭へ
+      const rank = (s: Session) => (needsYou(s) ? 0 : ORDER[s.status]);
+      return Object.values(sessions).sort((a, b) => rank(a) - rank(b) || b.updatedAt - a.updatedAt);
+    },
     [sessions],
   );
-  const waiting = list.filter((s) => s.pending).length;
+  const waiting = list.filter(needsYou).length;
   const working = list.filter((s) => s.status === 'running' || s.status === 'starting').length;
 
   // 終わったもの（停止・完了・エラー）を隠して一覧を軽くする。消すわけではないので「使った量」の集計はそのまま
@@ -143,13 +150,15 @@ export default function App() {
   }, [Object.keys(sessions).length]);
 
   // 新しく判断待ちになったものだけ通知する
+  // 報告の判断は保存されて残るので、開き直すたびに古いものを知らせないよう、来たばかりのものだけにする
   const seen = useRef(new Set<string>());
   useEffect(() => {
     for (const s of list) {
-      if (s.pending && !seen.current.has(s.pending.id)) {
-        seen.current.add(s.pending.id);
-        notify(s);
-      }
+      if (!needsYou(s)) continue;
+      const key = needsYouKey(s);
+      if (seen.current.has(key)) continue;
+      seen.current.add(key);
+      if (s.pending || Date.now() - (s.report?.generatedAt ?? 0) < 2 * 60_000) notify(s);
     }
   }, [list]);
 
@@ -164,7 +173,7 @@ export default function App() {
         e.preventDefault();
         setFeedback(true);
       }
-      if (e.key === '/' && !dialog) {
+      if (e.key === '/' && !dialog && !editorVisible) {
         e.preventDefault();
         setTab('list');
         requestAnimationFrame(() => searchRef.current?.focus());
@@ -314,8 +323,8 @@ export default function App() {
                           {project.name}
                         </h2>
                         <span className="text-xs text-zinc-400">{tasks.length} 件</span>
-                        {tasks.some((s) => s.pending) && (
-                          <span className="text-xs text-amber-300">判断待ち {tasks.filter((s) => s.pending).length}</span>
+                        {tasks.some(needsYou) && (
+                          <span className="text-xs text-amber-300">判断待ち {tasks.filter(needsYou).length}</span>
                         )}
                         <span className="w-full truncate text-xs text-zinc-500" title={project.path}>{project.path}</span>
                       </div>

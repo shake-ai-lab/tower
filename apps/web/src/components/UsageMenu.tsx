@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import type { Session } from '@tower/shared';
 import { btn, fmtTokens, fmtUsd } from '../lib';
+import { projectKey } from '../project-key';
 
 type Sum = { count: number; input: number; cacheRead: number; output: number; cost: number };
 const empty = (): Sum => ({ count: 0, input: 0, cacheRead: 0, output: 0, cost: 0 });
@@ -22,7 +23,8 @@ export function UsageMenu({ sessions }: { sessions: Session[] }) {
     const today = empty();
     const week = empty();
     const all = empty();
-    const byProject = new Map<string, Sum>();
+    // 同じ名前の別プロジェクト（場所違い）を混ぜないよう、場所で分ける
+    const byProject = new Map<string, Sum & { name: string; path: string }>();
     for (const s of sessions) {
       if (s.origin === 'external') continue; // Tower の外で動いているものは量が分からない
       add(all, s);
@@ -35,14 +37,17 @@ export function UsageMenu({ sessions }: { sessions: Session[] }) {
       const daily = sumSince(dayStart);
       merge(today, daily);
       if (daily.count) {
-        const p = byProject.get(s.project.name) ?? empty();
+        const key = projectKey(s.project.path);
+        const p = byProject.get(key) ?? { ...empty(), name: s.project.name, path: s.project.path };
         merge(p, daily);
-        byProject.set(s.project.name, p);
+        byProject.set(key, p);
       }
     }
-    const projects = [...byProject.entries()]
-      .sort((a, b) => b[1].input + b[1].output - (a[1].input + a[1].output))
-      .slice(0, 6);
+    const dup = new Set([...byProject.values()].map((p) => p.name).filter((n, i, a) => a.indexOf(n) !== i));
+    const projects: [string, Sum][] = [...byProject.values()]
+      .sort((a, b) => b.input + b.output - (a.input + a.output))
+      .slice(0, 6)
+      .map((p) => [dup.has(p.name) ? `${p.name}（${p.path}）` : p.name, p]);
     return { today, week, all, projects };
   }, [sessions]);
 

@@ -44,7 +44,7 @@ void main() {
                 sin(uv.x * 23. + u_time * .75 + uv.y * 11.) * .4);
   uv += d * sway / u_cover.zw;
   // The surface band heaves and ripples, and catches light.
-  float surf = smoothstep(.26, 0., uv.y);
+  float surf = 1. - smoothstep(0., .26, uv.y);
   vec2 wave = vec2(sin(uv.x * 30. + u_time * 1.3 + uv.y * 18.) * 6. + sin(uv.x * 11. - u_time * .5) * 5.,
                    sin(uv.x * 19. - u_time * .9 + uv.y * 35.) * 8. + sin(uv.x * 7. + u_time * .35) * 6.);
   uv += wave * surf * u_cover.z / 1600. / u_cover.zw;
@@ -62,6 +62,17 @@ void main() {
   float rays = pow(max(0., sin(s * 14. + u_time * .11) * .5 + .5), 6.) * .55 + pow(max(0., sin(s * 31. - u_time * .07 + 1.3) * .5 + .5), 9.) * .45;
   rays *= pow(1. - rp.y, 1.6) * (.6 + .4 * sin(u_time * .3 + s * 5.));
   c += vec3(.62, .9, .82) * rays * .12;
+  // Refracted light forms intersecting, broken cells on the lower aquascape.
+  vec2 floorUV = vec2(rp.x * u_size.x / max(u_size.y, 1.), rp.y) * 19.;
+  floorUV += vec2(sin(floorUV.y * .8 + u_time * .24), cos(floorUV.x * .7 - u_time * .19)) * .65;
+  float cells = sin(floorUV.x + sin(floorUV.y + u_time * .2))
+              * sin(floorUV.y - sin(floorUV.x * .83 - u_time * .17));
+  float caustic = pow(1. - abs(cells), 18.);
+  float floorLight = smoothstep(.45, .94, rp.y) * (.35 + .65 * photo.g);
+  c += vec3(.42, .68, .48) * caustic * floorLight * .13;
+  // Soft absorption toward the edges leaves the illuminated clearing luminous.
+  float edge = smoothstep(.25, .76, length((rp - vec2(.48, .43)) * vec2(1., .8)));
+  c *= 1. - edge * .18;
   gl_FragColor = vec4(c, 1.);
 }`;
 

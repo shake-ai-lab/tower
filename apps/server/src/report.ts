@@ -83,7 +83,7 @@ export function parseReport(finalText: string, fallbackRequest: string): Report 
   if (idx < 0) return null;
   const body = finalText.slice(idx + '【報告】'.length).trim();
 
-  const outcomeRaw = section(body, '結果').split(/[\s（(]/)[0] ?? '';
+  const outcomeRaw = section(body, '結果').replace(/^[\s*_`「【]+/, '').split(/[\s（(。．.、,*_`」】]/)[0] ?? '';
   const needs = section(body, '判断が必要');
   const next = section(body, '次の一手');
   let outcome = OUTCOME_MAP[outcomeRaw] ?? 'unknown';

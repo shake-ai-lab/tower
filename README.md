@@ -130,7 +130,7 @@ Claude との違い: Codex（`codex exec`）は作業中に許可を都度聞け
 ## 使い込んで良くする（ドッグフーディング）
 
 ```bash
-npm run dogfood                     # 利用者役AIが7本のシナリオを並列で投げ、許可や質問に答え、報告を採点する
+npm run dogfood                     # 利用者役AIが8本のシナリオを並列で投げ、許可や質問に答え、報告を採点する
 npm run dogfood -- --only todo-fix  # 一部だけ
 ```
 

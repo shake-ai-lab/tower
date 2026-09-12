@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { SettingsStatus, TowerSettings } from '@tower/shared';
-import { api } from '../api';
+import { api, errMsg } from '../api';
 import { btn, clearSavedWidths } from '../lib';
 import { CodexAccount } from './CodexAccount';
 
@@ -16,7 +16,7 @@ export function SettingsPanel() {
     api.settings().then((s) => {
       if (!active) return;
       setStatus(s); setDraft(s.settings); setRoots(s.settings.projectRoots.join('\n'));
-    }).catch((e) => active && setError(String(e)));
+    }).catch((e) => active && setError(errMsg(e)));
     return () => { active = false; };
   }, []);
   const input = 'w-full mt-1 rounded border border-zinc-700 bg-zinc-900 p-2 text-sm';
@@ -27,7 +27,7 @@ export function SettingsPanel() {
     try {
       const s = await api.saveSettings({ ...draft, projectRoots: roots.split(/\r?\n/).map((r) => r.trim()).filter(Boolean) });
       setStatus(s); setDraft(s.settings); setRoots(s.settings.projectRoots.join('\n')); setMessage('保存しました');
-    } catch (e) { setError(String(e)); } finally { setBusy(false); }
+    } catch (e) { setError(errMsg(e)); } finally { setBusy(false); }
   }}>
     <h2 className="font-semibold">設定</h2>
     <CodexAccount />

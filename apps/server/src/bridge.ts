@@ -9,7 +9,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { BridgeStatus, PendingPermission, PermissionChoice, Session, TimelineKind } from '@tower/shared';
 import type { Hub } from './hub.ts';
-import { assessRisk, describeActivity, describePermission, firstLine, promptTitle, readImage, toolDetail, touchedFile } from './humanize.ts';
+import { assessRisk, describeActivity, describePermission, describeTaskNotification, firstLine, promptTitle, readImage, toolDetail, touchedFile } from './humanize.ts';
 import { detectPreview, targetLabel } from './preview.ts';
 import { scheduleReformat } from './reformat.ts';
 import { fallbackReport, parseReport } from './report.ts';
@@ -226,6 +226,12 @@ export class Bridge {
       case 'UserPromptSubmit': {
         const p = (input.prompt ?? '').trim();
         if (!p) break;
+        const notice = describeTaskNotification(p);
+        if (notice) {
+          // 利用者の発言ではない（裏の作業の終了通知）。題名や状態は変えずに年表へ一言だけ
+          this.timeline(id, 'system', notice, p);
+          break;
+        }
         this.timeline(id, 'user', p);
         const patch: Partial<Session> = {
           status: 'running',

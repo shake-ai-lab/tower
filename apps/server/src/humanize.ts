@@ -21,6 +21,22 @@ export function promptTitle(p: string, max = 60): string {
   return line.slice(0, max);
 }
 
+/**
+ * 裏で動かしていたコマンドが終わった時、Claude Code は <task-notification>…</task-notification> を
+ * 利用者の発言として差し込んでくる。記号のまま見せず「終わりました」の一言にする。該当しなければ null
+ */
+export function describeTaskNotification(p: string): string | null {
+  const m = p.match(/^\s*<task-notification>([\s\S]*?)<\/task-notification>/);
+  if (!m) return null;
+  const tag = (name: string) => m[1].match(new RegExp(`<${name}>([\\s\\S]*?)</${name}>`))?.[1]?.trim() ?? '';
+  const status = tag('status');
+  const what = tag('summary').match(/"([^"]+)"/)?.[1];
+  const subject = what ? `裏で動かしていた作業（${str(what, 60)}）` : '裏で動かしていた作業';
+  if (/fail|error/i.test(status)) return `${subject}が失敗しました`;
+  if (/kill|stop|cancel/i.test(status)) return `${subject}を止めました`;
+  return `${subject}が終わりました`;
+}
+
 /** 「今やってること」1行 */
 export function describeActivity(toolName: string, input: Record<string, unknown>): string {
   switch (toolName) {
@@ -118,7 +134,7 @@ const HIGH = [
   /\bgit\s+branch\s+-D\b/i,
   /\bnpm\s+publish\b/i,
   /\bsudo\b/i,
-  /\bformat\b/i,
+  /^\s*format(\.com)?\s+[a-z]:/i,
   /\bmkfs\b/i,
   /\bDROP\s+(TABLE|DATABASE)\b/i,
   /\bcurl\b.*\|\s*(ba)?sh\b/i,

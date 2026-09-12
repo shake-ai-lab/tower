@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { imageType, workDir, type Session, type TreeResponse } from '@tower/shared';
-import { api } from '../api';
-import { projectStyle, useDesktop, useResizable } from '../lib';
+import { api, errMsg } from '../api';
+import { needsYou, projectStyle, useDesktop, useResizable } from '../lib';
 import { useStore } from '../store';
 import { Inbox } from './Inbox';
 import { ChangesPanel } from './ChangesPanel';
@@ -19,7 +19,7 @@ function Folder({ id, path = '', onOpen, version, selected, hidden }: { id: stri
   useEffect(() => {
     let active = true;
     setError('');
-    api.tree(id, path).then((d) => active && setData(d)).catch((e) => active && setError(String(e)));
+    api.tree(id, path).then((d) => active && setData(d)).catch((e) => active && setError(errMsg(e)));
     return () => { active = false; };
   }, [id, path, version]);
   if (error) return <p role="alert" className="text-xs text-red-300 p-2">{error}</p>;
@@ -67,7 +67,7 @@ export function WorkspaceSidebar({ className = '' }: { className?: string }) {
   const fileId = useEditorWorkspace((s) => s.visible ? s.files.find((f) => f.id === s.selected[s.pane])?.sessionId : undefined);
   const id = fileId ?? taskId;
   const session = useStore((s) => id ? s.sessions[id] : undefined);
-  const waiting = useStore((s) => Object.values(s.sessions).filter((t) => t.pending).length);
+  const waiting = useStore((s) => Object.values(s.sessions).filter(needsYou).length);
   const [tab, setTab] = useState<Tab>('inbox');
   const [searchFocus, setSearchFocus] = useState(0);
   const [quickOpen, setQuickOpen] = useState(false);
@@ -93,7 +93,8 @@ export function WorkspaceSidebar({ className = '' }: { className?: string }) {
   }, []);
   const desktop = useDesktop();
   const resize = useResizable('sidebar', 320, 220, 600, 'left');
-  useEffect(() => { if (id) setTab((t) => t === 'git' || t === 'search' ? t : 'files'); }, [id]);
+  // タスクを選んだらファイル一覧へ。ただし判断待ちがまだ残っている時は、その一覧から次々に答えられるよう留まる
+  useEffect(() => { if (id) setTab((t) => t === 'git' || t === 'search' || (t === 'inbox' && waiting > 0) ? t : 'files'); }, [id]); // eslint-disable-line react-hooks/exhaustive-deps
   return <>
   <aside ref={resize.ref} data-resizable-panel className={`relative w-full md:border-r border-zinc-800 bg-[#0c0e12] ${className}`} style={desktop ? { width: resize.width, minWidth: 220, flexShrink: 1 } : undefined}>
     <div className="flex h-full min-h-0">

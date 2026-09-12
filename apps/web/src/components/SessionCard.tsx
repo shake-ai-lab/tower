@@ -1,5 +1,5 @@
 import type { Session } from '@tower/shared';
-import { OUTCOME, STATUS, fmtElapsed, fmtUsd, projectStyle, verifyBadge } from '../lib';
+import { OUTCOME, STATUS, fmtElapsed, fmtUsd, needsYou, projectStyle, verifyBadge } from '../lib';
 
 /** 状態の札。作業中はくるくる回る印を付けて、止まっているものと見分けやすくする */
 export function StatusBadge({ status, className = 'text-xs' }: { status: Session['status']; className?: string }) {
@@ -29,7 +29,7 @@ export function SessionCard({ s, selected, onClick, compact = false }: { s: Sess
       aria-pressed={selected}
       className={[
         'relative overflow-hidden min-w-0 text-left rounded-md border p-3 bg-[#171a21] hover:bg-[#1c2029] transition flex flex-col gap-2',
-        selected ? 'border-sky-500' : st.attention ? 'border-amber-400/70 attention' : st.working ? 'working-card' : 'border-zinc-800',
+        selected ? 'border-sky-500' : st.attention || needsYou(s) ? 'border-amber-400/70 attention' : st.working ? 'working-card' : 'border-zinc-800',
       ].join(' ')}
     >
       {bar}

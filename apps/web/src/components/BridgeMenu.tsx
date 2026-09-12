@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { BridgeStatus } from '@tower/shared';
-import { api } from '../api';
+import { api, errMsg } from '../api';
 import { btn } from '../lib';
 
 /** VS Code / ターミナルで動く Claude Code を Tower に取り込む設定 */
@@ -11,7 +11,7 @@ export function BridgeMenu() {
   const [err, setErr] = useState<string | null>(null);
   const [keepHours, setKeepHours] = useState<number | null>(null);
 
-  const load = () => api.bridge().then(setSt).catch((e) => setErr(String(e)));
+  const load = () => api.bridge().then(setSt).catch((e) => setErr(errMsg(e)));
   useEffect(() => {
     void load();
     api.config().then((c) => setKeepHours(c.externalKeepHours ?? 0)).catch(() => {});
@@ -23,7 +23,7 @@ export function BridgeMenu() {
     try {
       setSt(await api.setBridge({ enabled, permissions }));
     } catch (e) {
-      setErr(e instanceof Error ? e.message : String(e));
+      setErr(errMsg(e));
     } finally {
       setBusy(false);
     }

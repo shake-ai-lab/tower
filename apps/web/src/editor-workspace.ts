@@ -21,7 +21,9 @@ export const useEditorWorkspace = create<Workspace>((set, get) => ({
     const file = s.files.find((f) => f.id === id);
     const pane = file?.pane ?? s.pane;
     const reveal = at ? { line: at.line, column: at.column ?? 1, length: at.length ?? 0, at: Date.now() } : undefined;
-    const files = file ? (reveal ? s.files.map((f) => f.id === id ? { ...f, reveal } : f) : s.files) : [...s.files, { id, sessionId, path, pane, dirty: false, onSaved, reveal }];
+    const files = file
+      ? s.files.map((f) => f.id === id ? { ...f, reveal: reveal ?? f.reveal, onSaved: onSaved ?? f.onSaved } : f)
+      : [...s.files, { id, sessionId, path, pane, dirty: false, onSaved, reveal }];
     set({ visible: true, pane, files, selected: s.selected.map((v, i) => i === pane ? id : v) });
   },
   close: (id) => {

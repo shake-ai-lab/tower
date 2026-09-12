@@ -44,8 +44,11 @@ export function loadConfig(): TowerConfig {
     fs.writeFileSync(CONFIG_PATH, JSON.stringify(base, null, 2));
     return base;
   }
-  const cfg: TowerConfig = { ...base, ...readFile() };
-  // デスクトップ版や動作確認で、設定ファイルを触らずに待ち受けを変えたい時の逃げ道
+  return applyEnvOverrides({ ...base, ...readFile() });
+}
+
+/** デスクトップ版や動作確認で、設定ファイルを触らずに待ち受けを変えたい時の逃げ道（起動時と設定保存時の両方で効かせる） */
+export function applyEnvOverrides(cfg: TowerConfig): TowerConfig {
   if (process.env.TOWER_PORT && Number(process.env.TOWER_PORT) > 0) cfg.port = Number(process.env.TOWER_PORT);
   if (process.env.TOWER_HOST) cfg.host = process.env.TOWER_HOST;
   return cfg;

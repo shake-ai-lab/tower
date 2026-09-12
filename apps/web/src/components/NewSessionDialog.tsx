@@ -9,7 +9,7 @@ import {
   type PermissionChoice,
   type ProjectInfo,
 } from '@tower/shared';
-import { api } from '../api';
+import { api, errMsg } from '../api';
 import { btn, isAlive } from '../lib';
 import { useStore } from '../store';
 import { Icon } from './Icon';
@@ -30,7 +30,7 @@ export function NewSessionDialog({ open, onClose }: { open: boolean; onClose: ()
     if (loadingFolders) return;
     setLoadingFolders(true); setErr(null);
     try { setBrowse(await api.browseProjects(directory)); setQuery(''); }
-    catch (e) { setErr(String(e)); } finally { setLoadingFolders(false); }
+    catch (e) { setErr(errMsg(e)); } finally { setLoadingFolders(false); }
   };
   const [prompt, setPrompt] = useState('');
   const [agent, setAgent] = useState<AgentKind>('claude');
@@ -45,7 +45,7 @@ export function NewSessionDialog({ open, onClose }: { open: boolean; onClose: ()
   const [isolateTouched, setIsolateTouched] = useState(false);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  const refreshAgents = useCallback(() => { void api.agents(true).then(setAgents).catch((e) => setErr(String(e))); }, []);
+  const refreshAgents = useCallback(() => { void api.agents(true).then(setAgents).catch((e) => setErr(errMsg(e))); }, []);
   const attach = useAttachments();
 
   // 同じプロジェクトで別のタスクが動いているなら、ぶつからないように既定で「別の作業場所」にする
@@ -64,7 +64,7 @@ export function NewSessionDialog({ open, onClose }: { open: boolean; onClose: ()
         setProjects(p);
         setProjectPath((cur) => cur || p[0]?.path || '');
       })
-      .catch((e) => setErr(String(e)));
+      .catch((e) => setErr(errMsg(e)));
     api.agents().then(setAgents).catch(() => setAgents(null));
   }, [open]);
 
@@ -78,7 +78,7 @@ export function NewSessionDialog({ open, onClose }: { open: boolean; onClose: ()
   if (!open) return null;
 
   const submit = async () => {
-    if (busy || !prompt.trim() || !projectPath || agentUnavailable || (comparing && compareModels.length < 2)) return;
+    if (busy || (!prompt.trim() && !attach.items.length) || !projectPath || agentUnavailable || (comparing && compareModels.length < 2)) return;
     setBusy(true);
     setErr(null);
     try {
@@ -95,7 +95,7 @@ export function NewSessionDialog({ open, onClose }: { open: boolean; onClose: ()
       setIsolateTouched(false);
       onClose();
     } catch (e) {
-      setErr(e instanceof Error ? e.message : String(e));
+      setErr(errMsg(e));
     } finally {
       setBusy(false);
     }

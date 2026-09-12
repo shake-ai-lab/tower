@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import type { Preview, Report, Screenshot, Session, TimelineItem, Verification } from '@tower/shared';
 import { PERMISSION_CHOICES, type PermissionChoice } from '@tower/shared';
-import { api } from '../api';
+import { api, errMsg } from '../api';
 import { OUTCOME, STATUS, btn, fmtElapsed, fmtTime, fmtTokens, fmtUsd, isAlive, verifyBadge, useDesktop, useResizable } from '../lib';
 import { useStore } from '../store';
 import { PendingCard } from './PendingCards';
@@ -24,6 +24,29 @@ const ICON: Record<TimelineItem['kind'], string> = {
   system: 'ℹ️',
   error: '⚠️',
 };
+
+/** 道具ごとの印。何をしたか（読む・書く・直す・探す・コマンド）が一目で分かるように */
+const TOOL_ICON: Record<string, string> = {
+  Read: '📖',
+  Write: '📝',
+  Edit: '✏️',
+  MultiEdit: '✏️',
+  NotebookEdit: '✏️',
+  Glob: '📂',
+  Grep: '🔍',
+  Bash: '💻',
+  PowerShell: '💻',
+  WebFetch: '🌐',
+  WebSearch: '🌐',
+  Task: '🤖',
+  Agent: '🤖',
+  TodoWrite: '📋',
+  AskUserQuestion: '❓',
+  Skill: '🧩',
+};
+
+const iconOf = (t: TimelineItem) =>
+  t.kind !== 'tool_use' ? ICON[t.kind] : t.imagePath ? '🖼️' : (t.toolName && TOOL_ICON[t.toolName]) || ICON.tool_use;
 
 const URL_RE = /(https?:[^\s)）」]+|`[^`\n]+`)/g;
 
@@ -209,7 +232,7 @@ function WorkspaceStrip({ s }: { s: Session }) {
     try {
       await api.merge(s.id);
     } catch (e) {
-      setErr(e instanceof Error ? e.message : String(e));
+      setErr(errMsg(e));
     } finally {
       setBusy(false);
     }
@@ -482,7 +505,7 @@ function TimelineRow({ t, showImages }: { t: TimelineItem; showImages: boolean }
             : 'text-zinc-300';
   const body = (
     <div className={`flex gap-2 text-sm ${cls}`}>
-      <span className="shrink-0 w-5 text-center">{ICON[t.kind]}</span>
+      <span className="shrink-0 w-5 text-center" title={t.toolName}>{iconOf(t)}</span>
       <div className="min-w-0">
         <span className="break-words whitespace-pre-wrap">{t.text}</span>
         {t.attachments?.length ? <SentAttachments list={t.attachments} /> : null}
@@ -598,7 +621,7 @@ export function SessionDetail({ id, onShowWorkspace, embedded = false, onClose, 
   const scroller = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (!timeline) api.timeline(id).then((items) => setTimeline(id, items)).catch((e) => setErr(String(e)));
+    if (!timeline) api.timeline(id).then((items) => setTimeline(id, items)).catch((e) => setErr(errMsg(e)));
   }, [id, timeline, setTimeline]);
 
   // 報告や判断待ちが来たら一番上（カード）へ。作業中に年表が伸びる時だけ下へ追従する
@@ -626,7 +649,7 @@ export function SessionDetail({ id, onShowWorkspace, embedded = false, onClose, 
       setText('');
       attach.clear();
     } catch (e) {
-      setErr(e instanceof Error ? e.message : String(e));
+      setErr(errMsg(e));
     } finally {
       setBusy(false);
     }
@@ -634,14 +657,14 @@ export function SessionDetail({ id, onShowWorkspace, embedded = false, onClose, 
 
   const stop = async () => {
     if (!confirm('このセッションを停止しますか？')) return;
-    await api.stop(id).catch(() => {});
+    await api.stop(id).catch((e) => setErr(errMsg(e)));
   };
   const remove = async () => {
     const msg = s.workspace
       ? 'このセッションを一覧から削除しますか？（履歴も消えます）\n別の作業場所（コピー）も消えます。まだ取り込んでいない変更は失われます。'
       : 'このセッションを一覧から削除しますか？（履歴も消えます）';
     if (!confirm(msg)) return;
-    await api.remove(id).catch(() => {});
+    await api.remove(id).catch((e) => setErr(errMsg(e)));
   };
 
   return (
@@ -686,7 +709,7 @@ export function SessionDetail({ id, onShowWorkspace, embedded = false, onClose, 
             const mode = e.target.value as PermissionChoice;
             setPermissionBusy(true); setErr(null);
             try { useStore.getState().upsertSession(await api.setPermissionMode(id, mode)); }
-            catch (e) { setErr(String(e)); } finally { setPermissionBusy(false); }
+            catch (e) { setErr(errMsg(e)); } finally { setPermissionBusy(false); }
           }}>{PERMISSION_CHOICES.map((p) => <option key={p.value} value={p.value}>{p.label}</option>)}</select>
           {!embedded && <span className="block mt-1">{PERMISSION_CHOICES.find((p) => p.value === s.permissionMode)?.hint}</span>}
         </label>}

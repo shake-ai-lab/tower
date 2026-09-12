@@ -4,7 +4,7 @@
 //   npm run dogfood -- --only todo-fix,site-dark
 //   npm run dogfood -- --model sonnet
 //
-// 結果は docs/dogfood/<runId>.md に書く。作業フォルダは playground/runs/<runId>/。
+// 結果は docs/dogfood/<runId>.md に書く。作業フォルダは ~/.tower/dogfood/<runId>/。
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -180,7 +180,14 @@ async function step(tr: Track, s: Session) {
       tr.followUpIndex++;
       await sleep(1000);
       console.log(`  [${tr.sc.key}] 追加指示: ${next}`);
-      await api(`/sessions/${tr.sessionId}/message`, { method: 'POST', body: JSON.stringify({ text: next }) });
+      // 1 本の失敗で走行全体を落とさない（他のシナリオは続ける）
+      try {
+        await api(`/sessions/${tr.sessionId}/message`, { method: 'POST', body: JSON.stringify({ text: next }) });
+      } catch (e) {
+        console.warn(`  [${tr.sc.key}] 追加指示を送れませんでした:`, e instanceof Error ? e.message : e);
+        tr.finishedAt = now();
+        tr.finishReason = 'message_failed';
+      }
       return;
     }
     tr.finishedAt = now();
@@ -350,8 +357,19 @@ async function main() {
     await sleep(500);
   }
 
+  let pollFailures = 0;
   while (tracks.some((t) => !t.finishedAt)) {
-    const sessions = await api<Session[]>('/sessions');
+    // サーバーの再起動などで一時的に取れなくても、少し待って続ける
+    let sessions: Session[];
+    try {
+      sessions = await api<Session[]>('/sessions');
+      pollFailures = 0;
+    } catch (e) {
+      if (++pollFailures > 10) throw e;
+      console.warn(`  一覧を取れませんでした（${pollFailures} 回目）:`, e instanceof Error ? e.message : e);
+      await sleep(3000);
+      continue;
+    }
     await Promise.all(
       tracks
         .filter((t) => !t.finishedAt)

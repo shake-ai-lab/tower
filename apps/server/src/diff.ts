@@ -112,7 +112,9 @@ export function collectChanges(dir: string, touched: string[], base = 'HEAD'): C
   if (isGitRepo(dir)) {
     const seen = new Set<string>();
     // 追跡済みファイルの変更（コミット済み + 未コミット）を base と比べる
-    const named = git(dir, ['diff', '--name-status', '-M', base]).out;
+    // 作業フォルダがリポジトリの途中（サブフォルダや分離した作業場所の一部）でも、パスは作業フォルダからの相対にする
+    const prefix = git(dir, ['rev-parse', '--show-prefix']).out.trim();
+    const named = git(dir, ['diff', '--name-status', '-M', '--relative', base]).out;
     for (const line of named.split(/\r?\n/)) {
       if (!line.trim()) continue;
       const parts = line.split('\t');
@@ -130,7 +132,12 @@ export function collectChanges(dir: string, touched: string[], base = 'HEAD'): C
     const status = git(dir, ['status', '--porcelain', '--untracked-files=all']).out;
     for (const line of status.split(/\r?\n/)) {
       if (!line.startsWith('??')) continue;
-      const rel = line.slice(3).replace(/^"|"$/g, '');
+      let rel = line.slice(3).replace(/^"|"$/g, '');
+      // status の未追跡ファイルはリポジトリの根からのパス
+      if (prefix) {
+        if (!rel.startsWith(prefix)) continue;
+        rel = rel.slice(prefix.length);
+      }
       if (seen.has(rel)) continue;
       if (JUNK_RE.test(rel) || looksBinary(path.join(dir, rel))) continue;
       const content = readCapped(path.join(dir, rel));

@@ -141,7 +141,19 @@ export const RISK: Record<RiskLevel, { label: string; cls: string }> = {
   high: { label: '危険度 高', cls: 'bg-red-600 text-white font-semibold' },
 };
 
-export const ALIVE: SessionStatus[] = ['starting', 'running', 'waiting_permission', 'waiting_question', 'idle'];
+/**
+ * あなたの判断を待っているか。許可・質問（pending）に加えて、報告で「判断が必要」「質問あり」と言って
+ * 止まっているもの（idle）も含める。次の指示を送る・停止すると外れる
+ */
+export function needsYou(s: Session): boolean {
+  if (s.pending) return true;
+  return s.status === 'idle' && !!s.report && (!!s.report.needsDecision || s.report.outcome === 'question');
+}
+
+/** 判断待ちになった時刻（インボックスの並び順と「◯分前」用） */
+export const needsYouSince = (s: Session): number => s.pending?.createdAt ?? s.report?.generatedAt ?? s.updatedAt;
+
+export const ALIVE: SessionStatus[] =['starting', 'running', 'waiting_permission', 'waiting_question', 'idle'];
 export const isAlive = (s: SessionStatus) => ALIVE.includes(s);
 
 /** 裏取りの一言バッジ（一覧カードと「比べる」の表で共通）。修正前の結果があれば「直った / 壊れた / まだNG」 */

@@ -13,10 +13,12 @@
     "dogfood": "npm run start -w apps/user-agent --",
     "desktop": "npm run build -w apps/web && npm run start -w apps/desktop",
     "installer": "node apps/desktop/build.mjs",
-    "deploy": "node apps/desktop/deploy.mjs"
+    "deploy": "node apps/desktop/deploy.mjs",
+    "test": "tsx --test apps/server/src/*.test.ts apps/web/*.test.ts"
   },
   "devDependencies": {
     "concurrently": "^9.1.2",
-    "typescript": "^5.7.3"
+    "typescript": "^5.7.3",
+    "tsx": "^4.19.2"
   }
 }

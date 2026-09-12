@@ -73,6 +73,8 @@ export class SessionManager {
     hub.subscribe((ev) => {
       if (ev.type !== 'session') return;
       const s = ev.session;
+      // 会話が終わった（正常終了・エラー）ランナーは手放す。残すと次の指示が誰にも読まれない列に入ってしまう
+      if ((s.status === 'done' || s.status === 'error') && this.runners.has(s.id)) this.runners.delete(s.id);
       const at = s.report?.generatedAt ?? 0;
       if (at && at !== (this.lastReportAt.get(s.id) ?? 0)) {
         this.lastReportAt.set(s.id, at);
@@ -123,7 +125,7 @@ export class SessionManager {
     }
     const uploads = checkUploads(body.attachments);
     // 画像だけ貼って送った時も動けるように、文が空なら添付を見るよう頼む
-    const prompt = body.prompt.trim() || (uploads.length ? DEFAULT_ATTACH_PROMPT : '');
+    const prompt = (typeof body.prompt === 'string' ? body.prompt : '').trim() || (uploads.length ? DEFAULT_ATTACH_PROMPT : '');
     if (!prompt) throw new Error('指示が空です');
     const agent: AgentKind = body.agent === 'codex' ? 'codex' : 'claude';
     if (agent === 'codex') {
@@ -376,7 +378,13 @@ export class SessionManager {
 
   async stop(id: string) {
     const r = this.runners.get(id);
-    if (!r) return false;
+    if (!r) {
+      // サーバー再起動後の「報告あり」は動いているプロセスが無いので、状態だけ止めた扱いにする
+      const s = this.hub.get(id);
+      if (s?.status !== 'idle' || s.origin === 'external') return false;
+      this.hub.update(id, { status: 'stopped', activity: '停止しました', pending: null, pendingCount: 0 });
+      return true;
+    }
     await r.stop();
     this.runners.delete(id);
     return true;

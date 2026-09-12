@@ -25,7 +25,8 @@ export const useStore = create<State>((set) => ({
   selectedId: null,
   openPath: null,
   setConnected: (connected) => set({ connected }),
-  setSnapshot: (list) => set({ sessions: Object.fromEntries(list.map((s) => [s.id, s])) }),
+  // 接続し直した時に来る。切れていた間の年表は届かないので、開いているものを読み直させる（空にすると詳細画面が取り直す）
+  setSnapshot: (list) => set({ sessions: Object.fromEntries(list.map((s) => [s.id, s])), timelines: {} }),
   upsertSession: (s) => set((st) => ({ sessions: { ...st.sessions, [s.id]: s } })),
   removeSession: (id) =>
     set((st) => {

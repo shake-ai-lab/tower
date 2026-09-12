@@ -9,6 +9,7 @@ AIエージェント（Claude Code / 将来 Codex）を複数プロジェクト�
 npm install
 npm run dev          # server(4800) + web(5173)
 npm run typecheck    # 両方の型チェック。変更後は必ず通す
+npm test             # サーバー・画面の単体テスト（node:test）
 ```
 
 サーバー単体: `npx tsx apps/server/src/index.ts`（`tsx watch` で自動再起動）。
@@ -56,7 +57,7 @@ npm run deploy       # 直したものを使う: 画面ビルド → インス�
 - `apps/server/src/preview.ts` — 見た目のスクリーンショット（playwright-core + 入っている Edge/Chrome）。撮るタイミングは `manager`（起動直後と、報告が来るたび）
 - `apps/server/src/hub.ts` — 全セッションのメモリ上の状態 + WebSocket 配信 + SQLite 保存
 - `apps/desktop/` — Electron 版。`main.cjs`（サーバーが無ければ起動・トレイ常駐・二重起動防止・サインイン時の自動起動）、`build.mjs`（`npm run installer`: esbuild でサーバーを 1 ファイルにし、stage/ に必要な依存だけ入れて electron-builder で NSIS）、`deploy.mjs`（`npm run deploy`: 作って止めて入れ直して開く）。束ねた時の置き場所は `TOWER_WEB_DIST` / `TOWER_HOOK_SCRIPT` / `TOWER_PORT` の環境変数で渡す
-- `apps/server/src/index.ts` — REST ルート（操作）と WS（配信）
+- `apps/server/src/index.ts` — REST ルート（操作）と WS（配信）。`guard.ts` — 他のサイトからブラウザ越しに操作されない守り（同じ画面・localhost・Origin 無しの Node だけ通す）
 - `apps/web/src/store.ts` — zustand。WS イベントをそのまま反映するだけ。フロントで状態を推測しない
 - `apps/web/src/components/` — `Inbox`（判断待ち）/ `SessionCard`（フリート）/ `SessionDetail`（報告・年表・追加指示）/ `PendingCards`（許可・質問UI）/ `NewSessionDialog` / `FileEditor`（Monaco。`monaco.ts` でローカル同梱設定、遅延読み込み）/ `UsageMenu`（使った量のまとめ。全セッションから画面側で集計）/ `FeedbackMenu`（気づいたこと。開いた時点の画面を場面として添える）
 

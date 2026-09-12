@@ -3,7 +3,7 @@
 // Animated scenes keep a little state; still scenes only paint their cached layer.
 import { seededRandom } from './aquarium-simulation';
 
-export const SCENE_THEMES = ['wood', 'circuit', 'blueprint', 'paper', 'night', 'forest', 'slate'] as const;
+export const SCENE_THEMES = ['dots', 'plain', 'wood', 'circuit', 'blueprint', 'paper', 'night', 'forest', 'slate'] as const;
 export type SceneTheme = typeof SCENE_THEMES[number];
 export const ANIMATED_THEMES = ['aquarium', 'night', 'forest', 'circuit', 'blueprint'] as const;
 export const isSceneTheme = (theme: string): theme is SceneTheme => (SCENE_THEMES as readonly string[]).includes(theme);
@@ -74,6 +74,25 @@ function wood(random: () => number): Scene {
       });
       const [c, ctx] = layer(w, h);
       ctx.imageSmoothingEnabled = true; ctx.drawImage(grain, 0, 0, w, h);
+      // Fine open pores and broken fibres follow the grain, rather than a flat noise overlay.
+      for (let i = 0; i < w * h / 100; i++) {
+        const x = random() * w, y = random() * h, len = 2 + random() * 24;
+        ctx.strokeStyle = random() < .7 ? 'rgba(37,19,10,.14)' : 'rgba(244,200,141,.12)';
+        ctx.lineWidth = .35 + random() * .55; ctx.beginPath(); ctx.moveTo(x, y);
+        ctx.quadraticCurveTo(x + len * .5, y + .7, x + len, y + .2); ctx.stroke();
+      }
+      for (let row = 0; row < offsets.length; row++) {
+        const x = (row % 2 ? .68 : .27) * w, y = row * plank;
+        ctx.fillStyle = '#26160d60'; ctx.fillRect(x, y, 1, plank);
+        ctx.fillStyle = '#e9bb7530'; ctx.fillRect(x + 1, y, 1, plank);
+        // A small knot with irregular, nested growth rings.
+        ctx.save(); ctx.translate((.18 + random() * .64) * w, y + plank * .55); ctx.scale(3.8, 1);
+        for (let ring = 15; ring > 0; ring--) {
+          ctx.strokeStyle = `rgba(43,23,12,${.09 + (16 - ring) * .006})`; ctx.lineWidth = .45;
+          ctx.beginPath(); ctx.ellipse(0, 0, ring * 1.3, ring * .62, .04, 0, Math.PI * 2); ctx.stroke();
+        }
+        ctx.restore();
+      }
       // Desk lamp from the upper right, and a soft shadow under the edges.
       const lamp = ctx.createRadialGradient(w * .72, -h * .1, 0, w * .72, -h * .1, Math.max(w, h) * .9);
       lamp.addColorStop(0, 'rgba(255,214,150,.26)'); lamp.addColorStop(.5, 'rgba(255,200,130,.08)'); lamp.addColorStop(1, 'rgba(60,30,10,.25)');
@@ -97,6 +116,11 @@ function paper(random: () => number): Scene {
       });
       const [c, ctx] = layer(w, h);
       ctx.drawImage(fiber, 0, 0, w, h);
+      for (let i = 0; i < w * h / 75; i++) {
+        const x = random() * w, y = random() * h;
+        ctx.strokeStyle = random() < .5 ? '#fffdf433' : '#82776216'; ctx.lineWidth = .45;
+        ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + random() * 5, y + random() * 2); ctx.stroke();
+      }
       const cell = 24, major = 5;
       for (let x = 0; x <= w; x += cell) {
         const big = Math.round(x / cell) % major === 0;
@@ -109,6 +133,9 @@ function paper(random: () => number): Scene {
         ctx.beginPath(); ctx.moveTo(0, y + .5); ctx.lineTo(w, y + .5); ctx.stroke();
       }
       // Sunlight from a window on the left, and slightly darker edges as on a real sheet.
+      ctx.fillStyle = '#7d665525'; ctx.font = '9px monospace';
+      for (let x = 120; x < w - 24; x += 120) ctx.fillText(String(x / 24), x + 4, 14);
+      for (let y = 120; y < h - 24; y += 120) ctx.fillText(String(y / 24), 5, y - 5);
       const light = ctx.createLinearGradient(0, 0, w, h * .4);
       light.addColorStop(0, 'rgba(255,250,225,.35)'); light.addColorStop(.6, 'rgba(255,250,225,0)');
       ctx.fillStyle = light; ctx.fillRect(0, 0, w, h);
@@ -140,6 +167,12 @@ function slate(random: () => number): Scene {
         ctx.fillStyle = g; ctx.beginPath(); ctx.arc(0, 0, wide / 2, 0, Math.PI * 2); ctx.fill(); ctx.restore();
       }
       // Chalk dust.
+      ctx.save(); ctx.strokeStyle = '#d7e5d00c'; ctx.lineWidth = .65;
+      for (let i = 0; i < 180; i++) {
+        const x = random() * w, y = random() * h;
+        ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + 20 + random() * 160, y + (random() - .5) * 8); ctx.stroke();
+      }
+      ctx.restore(); vignette(ctx, w, h, .32);
       for (let i = 0; i < w * h / 260; i++) {
         ctx.fillStyle = `rgba(255,255,255,${.03 + random() * .1})`;
         ctx.fillRect(random() * w, random() * h * .96, .6 + random() * 1.2, .6 + random() * 1.2);
@@ -217,6 +250,12 @@ function blueprint(random: () => number): Scene {
       ctx.beginPath(); ctx.moveTo(bx, by + 24); ctx.lineTo(bx + bw, by + 24); ctx.moveTo(bx + 140, by + 24); ctx.lineTo(bx + 140, by + bh); ctx.moveTo(bx, by + 47); ctx.lineTo(bx + bw, by + 47); ctx.stroke();
       ctx.fillStyle = 'rgba(220,238,255,.7)'; ctx.font = '11px system-ui, sans-serif';
       ctx.fillText('設計図', bx + 8, by + 16); ctx.fillText('尺度 1:1', bx + 8, by + 40); ctx.fillText('図番 A-01', bx + 148, by + 40); ctx.fillText('用紙 A3', bx + 8, by + 63); ctx.fillText('作業机', bx + 148, by + 63);
+      ctx.font = '9px monospace'; ctx.fillStyle = '#cee8ff70';
+      for (let x = 72; x < w - 40; x += 96) {
+        ctx.fillText(String(Math.round(x / 24)).padStart(2, '0'), x, 24);
+        ctx.beginPath(); ctx.moveTo(x + .5, 31); ctx.lineTo(x + .5, 37); ctx.stroke();
+      }
+      for (let y = 72; y < h - 40; y += 96) ctx.fillText(String(Math.round(y / 24)).padStart(2, '0'), 12, y);
       vignette(ctx, w, h, .3);
       still = c;
       figures.length = 0;
@@ -325,13 +364,24 @@ function circuit(random: () => number): Scene {
       }
       for (const chip of chips) {
         const x = chip.x * cell, y = chip.y * cell, cw = chip.w * cell, ch = chip.h * cell;
+        ctx.fillStyle = '#00000040'; ctx.fillRect(x + 3, y + 4, cw + 3, ch + 3);
+        ctx.strokeStyle = '#d9e9cc55'; ctx.lineWidth = .8; ctx.strokeRect(x - 10, y - 5, cw + 20, ch + 10);
         ctx.fillStyle = '#b89c52';
         for (let i = 1; i < chip.h; i++) { ctx.fillRect(x - 6, y + i * cell - 2, 8, 4); ctx.fillRect(x + cw - 2, y + i * cell - 2, 8, 4); }
         ctx.fillStyle = '#131516'; ctx.beginPath(); ctx.roundRect(x, y, cw, ch, 3); ctx.fill();
         ctx.fillStyle = 'rgba(255,255,255,.08)'; ctx.fillRect(x, y, cw, 2);
         ctx.fillStyle = 'rgba(220,220,220,.55)'; ctx.font = '10px system-ui, sans-serif'; ctx.fillText(chip.label, x + 6, y + 14);
         ctx.beginPath(); ctx.arc(x + 8, y + ch - 8, 2.5, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = '#adb4ae55'; ctx.font = '7px monospace'; ctx.fillText('24W • 0831', x + 6, y + 27);
       }
+      // Metallised solder joints catch the same overhead light as the packages.
+      traces.filter((_, i) => i % 4 === 0).forEach((trace) => {
+        const p = trace.points[0];
+        const metal = ctx.createLinearGradient(p.x - 5, p.y - 3, p.x + 5, p.y + 3);
+        metal.addColorStop(0, '#59695e'); metal.addColorStop(.35, '#e0e5c2'); metal.addColorStop(1, '#6a7759');
+        ctx.fillStyle = metal; ctx.fillRect(p.x - 6, p.y - 3, 12, 6);
+        ctx.fillStyle = '#28312b'; ctx.fillRect(p.x - 3, p.y - 3, 6, 6);
+      });
       // Silkscreen labels near a few pads, and LEDs on some pad ends.
       ctx.fillStyle = 'rgba(230,236,230,.5)'; ctx.font = '9px system-ui, sans-serif';
       traces.slice(0, 40).forEach((t, i) => { if (i % 3 === 0) ctx.fillText(`${['R', 'C', 'L', 'D'][i % 4]}${10 + i}`, t.points[0].x + 6, t.points[0].y - 6); });
@@ -392,6 +442,15 @@ function night(random: () => number): Scene {
       g.addColorStop(0, '#05081a'); g.addColorStop(.55, '#0b1230'); g.addColorStop(1, '#1b2147');
       ctx.fillStyle = g; ctx.fillRect(0, 0, w, h);
       // Milky way: a soft diagonal band of haze and thousands of faint points.
+      const nebula = shade(w, h, (x, y) => {
+        const cross = (y - h * .43 + (x - w * .5) * .55) / (h * .22);
+        const cloud = fbm(x * .004, y * .006, 5);
+        const lane = fbm(x * .012 + 91, y * .018, 3);
+        const density = Math.exp(-cross * cross * 1.7) * Math.max(0, cloud - .28) * (lane < .44 ? .22 : 1);
+        return [6 + density * 68, 10 + density * 76, 24 + density * 105];
+      });
+      ctx.save(); ctx.globalCompositeOperation = 'screen'; ctx.globalAlpha = .7;
+      ctx.drawImage(nebula, 0, 0, w, h); ctx.restore();
       ctx.save(); ctx.translate(w * .55, h * .45); ctx.rotate(-.55);
       const band = ctx.createLinearGradient(0, -h * .32, 0, h * .32);
       band.addColorStop(0, 'rgba(120,140,220,0)'); band.addColorStop(.35, 'rgba(150,160,230,.09)'); band.addColorStop(.5, 'rgba(200,190,240,.14)'); band.addColorStop(.65, 'rgba(150,160,230,.09)'); band.addColorStop(1, 'rgba(120,140,220,0)');
@@ -408,6 +467,11 @@ function night(random: () => number): Scene {
       }
       sky = s;
       const [hl, hc] = layer(w, h);
+      for (let ridge = 0; ridge < 3; ridge++) {
+        hc.fillStyle = ['#29334b', '#18243a', '#101a2b'][ridge]; hc.beginPath(); hc.moveTo(0, h);
+        for (let x = 0; x <= w + 8; x += 8) hc.lineTo(x, h * (.77 + ridge * .035 - fbm(x * .002 + ridge * 20, 9, 3) * .14));
+        hc.lineTo(w, h); hc.closePath(); hc.fill();
+      }
       // Rolling hills with a few pine spikes, and thin ground mist above them.
       const height = (x: number) => h * (.86 - fbm(x * .0012 + 5, 3, 3) * .12);
       const mist = hc.createLinearGradient(0, h * .66, 0, h * .9); mist.addColorStop(0, 'rgba(120,140,200,0)'); mist.addColorStop(1, 'rgba(120,140,200,.16)');
@@ -490,6 +554,18 @@ function forest(random: () => number): Scene {
           ctx.moveTo(x - flare, base); ctx.quadraticCurveTo(x - width * .55, lh * .82, x - width / 2 + lean * h, top);
           ctx.lineTo(x + width / 2 + lean * h, top); ctx.quadraticCurveTo(x + width * .55, lh * .82, x + flare, base); ctx.closePath(); ctx.fill();
           if (index >= 2) {
+            ctx.save(); ctx.clip();
+            // Bark relief and lichen stay inside the tapered trunk silhouette.
+            for (let k = 0; k < width * lh / 75; k++) {
+              const by = random() * lh, bx = x + lean * (lh - by) + (random() - .5) * width * 1.7;
+              const rough = fbm(bx * .12, by * .028, 2);
+              ctx.fillStyle = rough > .52 ? 'rgba(161,161,107,.13)' : 'rgba(0,8,4,.24)';
+              ctx.fillRect(bx, by, .5 + random() * 2.5, 3 + random() * 26);
+              if (by > lh * .65 && rough > .56) {
+                ctx.fillStyle = 'rgba(109,142,56,.28)'; ctx.beginPath(); ctx.ellipse(bx, by, 2 + random() * 3, 1 + random() * 2, 0, 0, Math.PI * 2); ctx.fill();
+              }
+            }
+            ctx.restore();
             ctx.strokeStyle = `rgba(0,0,0,${index === 3 ? .35 : .2})`; ctx.lineWidth = 1;
             for (let k = 0; k < width / 3; k++) {
               const bx = x - width / 2 + random() * width, by = random() * lh, len = 20 + random() * 90;
@@ -504,7 +580,17 @@ function forest(random: () => number): Scene {
             ctx.lineWidth = thick; ctx.beginPath(); ctx.moveTo(x + lean * (lh - y), y); ctx.quadraticCurveTo(x + dir * len * .45, y - 12, ex, ey); ctx.stroke();
             for (let f = 0; f < 10 * plane.depth + 3; f++) {
               const fx = ex + (random() - .5) * len * .8, fy = ey + (random() - .4) * 60 * plane.depth, r = (7 + random() * 12) * (.5 + plane.depth);
-              ctx.fillStyle = random() < .3 ? plane.lit : plane.leaf; ctx.beginPath(); ctx.arc(fx, fy, r, 0, Math.PI * 2); ctx.fill();
+              // Individual pointed leaves break up the crown silhouette at every depth.
+              for (let leaf = 0; leaf < 9; leaf++) {
+                const lx = fx + (random() - .5) * r * 3, ly = fy + (random() - .5) * r * 2;
+                const size = r * (.22 + random() * .36);
+                ctx.save(); ctx.translate(lx, ly); ctx.rotate(random() * Math.PI);
+                ctx.fillStyle = random() < .25 ? plane.lit : plane.leaf;
+                ctx.beginPath(); ctx.moveTo(-size, 0); ctx.quadraticCurveTo(0, -size * .65, size, 0);
+                ctx.quadraticCurveTo(0, size * .65, -size, 0); ctx.fill();
+                if (index > 1) { ctx.strokeStyle = '#b0c79716'; ctx.lineWidth = .5; ctx.beginPath(); ctx.moveTo(-size, 0); ctx.lineTo(size, 0); ctx.stroke(); }
+                ctx.restore();
+              }
             }
           }
         }
@@ -513,7 +599,14 @@ function forest(random: () => number): Scene {
           for (let i = 0; i < full / 48; i++) {
             const x = random() * full, base = lh - random() * 26, size = 34 + random() * 56;
             ctx.strokeStyle = random() < .5 ? '#122a1c' : '#1c3a28'; ctx.lineWidth = 2.5;
-            for (let k = -3; k <= 3; k++) { ctx.beginPath(); ctx.moveTo(x, base); ctx.quadraticCurveTo(x + k * size * .3, base - size * .85, x + k * size * .55, base - size * (.3 + Math.abs(k) * .06)); ctx.stroke(); }
+            for (let k = -3; k <= 3; k++) {
+              ctx.beginPath(); ctx.moveTo(x, base); ctx.quadraticCurveTo(x + k * size * .3, base - size * .85, x + k * size * .55, base - size * (.3 + Math.abs(k) * .06)); ctx.stroke();
+              for (let n = 1; n < 9; n++) {
+                const t = n / 10, xx = x + 2 * (1 - t) * t * k * size * .3 + t * t * k * size * .55;
+                const yy = base - 2 * (1 - t) * t * size * .85 - t * t * size * (.3 + Math.abs(k) * .06);
+                ctx.lineWidth = 1.2; ctx.beginPath(); ctx.moveTo(xx - size * .12 * (1 - t), yy - 5); ctx.lineTo(xx, yy); ctx.lineTo(xx + size * .12 * (1 - t), yy - 5); ctx.stroke();
+              }
+            }
           }
           ctx.strokeStyle = '#0f2418'; ctx.lineWidth = 1.5;
           for (let i = 0; i < full / 6; i++) { const x = random() * full, base = lh + 2, len = 10 + random() * 30; ctx.beginPath(); ctx.moveTo(x, base); ctx.lineTo(x + (random() - .5) * 16, base - len); ctx.stroke(); }
@@ -528,7 +621,6 @@ function forest(random: () => number): Scene {
       for (let i = 0; i < 34; i++) flies.push({ x: random() * w, y: h * (.35 + random() * .6), phase: random() * 9, speed: .6 + random() * 1.6, drift: random() * 9 });
       for (let i = 0; i < 9; i++) leaves.push({ x: random() * w, y: random() * h, r: 4 + random() * 4, spin: random() * 6, phase: random() * 9, speed: 14 + random() * 18 });
       for (let i = 0; i < 90; i++) motes.push({ x: random() * w, y: random() * h, phase: random() * 9, z: random() });
-      void fbm;
     },
     paint({ ctx, time, dt, parallax }) {
       if (sky) ctx.drawImage(sky, 0, 0);
@@ -536,8 +628,13 @@ function forest(random: () => number): Scene {
         ctx.save(); ctx.globalCompositeOperation = 'screen';
         for (let i = 0; i < 6; i++) {
           const x = W * (.02 + i * .17) + Math.sin(time * .07 + i) * 40, a = .07 + .05 * Math.sin(time * .19 + i * 1.7);
-          const beam = ctx.createLinearGradient(x, 0, x + W * .25, H); beam.addColorStop(0, `rgba(245,240,200,${a})`); beam.addColorStop(1, 'rgba(245,240,200,0)');
-          ctx.fillStyle = beam; ctx.beginPath(); ctx.moveTo(x - 26, 0); ctx.lineTo(x + 26, 0); ctx.lineTo(x + W * .25 + 80, H); ctx.lineTo(x + W * .25 - 80, H); ctx.closePath(); ctx.fill();
+          for (let feather = 5; feather > 0; feather--) {
+            const width = feather / 5;
+            const beam = ctx.createLinearGradient(x, 0, x + W * .25, H);
+            beam.addColorStop(0, `rgba(245,240,200,${a * .24})`); beam.addColorStop(1, 'rgba(245,240,200,0)');
+            ctx.fillStyle = beam; ctx.beginPath(); ctx.moveTo(x - 32 * width, 0); ctx.lineTo(x + 32 * width, 0);
+            ctx.lineTo(x + W * .25 + 110 * width, H); ctx.lineTo(x + W * .25 - 110 * width, H); ctx.closePath(); ctx.fill();
+          }
         }
         ctx.restore();
       };
@@ -573,9 +670,40 @@ function forest(random: () => number): Scene {
   };
 }
 
+// Quiet matte surfaces share the viewport lighting used by the richer scenes.
+function matte(random: () => number, dotted: boolean): Scene {
+  let still: Layer | null = null;
+  return {
+    animated: false,
+    build(w, h) {
+      const [c, ctx] = layer(w, h);
+      const light = ctx.createRadialGradient(w * .42, h * .24, 0, w * .42, h * .24, Math.hypot(w, h) * .8);
+      light.addColorStop(0, '#242e3c'); light.addColorStop(.55, '#1b2330'); light.addColorStop(1, '#111720');
+      ctx.fillStyle = light; ctx.fillRect(0, 0, w, h);
+      if (dotted) {
+        for (let y = 12; y < h; y += 24) for (let x = 12; x < w; x += 24) {
+          ctx.fillStyle = '#070d1666'; ctx.beginPath(); ctx.arc(x, y + .6, 1.2, 0, Math.PI * 2); ctx.fill();
+          ctx.fillStyle = '#849ab34a'; ctx.beginPath(); ctx.arc(x, y, .8, 0, Math.PI * 2); ctx.fill();
+        }
+        for (let y = 12; y < h; y += 120) for (let x = 12; x < w; x += 120) {
+          ctx.strokeStyle = '#91aec31c'; ctx.lineWidth = .65; ctx.beginPath();
+          ctx.moveTo(x - 3, y); ctx.lineTo(x + 3, y); ctx.moveTo(x, y - 3); ctx.lineTo(x, y + 3); ctx.stroke();
+        }
+      }
+      for (let i = 0; i < w * h / 30; i++) {
+        ctx.fillStyle = random() < .5 ? '#ffffff04' : '#0000000a'; ctx.fillRect(random() * w, random() * h, 1, 1);
+      }
+      still = c;
+    },
+    paint({ ctx }) { if (still) ctx.drawImage(still, 0, 0); },
+  };
+}
+
 export function createScene(theme: string, seed: number): Scene | null {
   const random = seededRandom(seed);
   switch (theme) {
+    case 'dots': return matte(random, true);
+    case 'plain': return matte(random, false);
     case 'wood': return wood(random);
     case 'paper': return paper(random);
     case 'slate': return slate(random);

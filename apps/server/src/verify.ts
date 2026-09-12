@@ -1,5 +1,5 @@
 // 自動チェック: エージェントの「テスト通りました」を鵜呑みにせず、プロジェクトのテストを Tower 側で実行して並べて見せる。
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -120,16 +120,37 @@ export function runVerify(
   return new Promise((resolve) => {
     const t0 = Date.now();
     const chunks: string[] = [];
-    const child = spawn(command, { cwd: projectPath, shell: true, env: { ...process.env, CI: '1', FORCE_COLOR: '0' } });
+    const child = spawn(command, {
+      cwd: projectPath,
+      shell: true,
+      // shell 越しに起動するので、止める時は子孫ごと（Windows は taskkill /T、他は プロセスグループ）
+      detached: process.platform !== 'win32',
+      env: { ...process.env, CI: '1', FORCE_COLOR: '0' },
+    });
+    const killTree = () => {
+      if (!child.pid) return;
+      if (process.platform === 'win32') spawnSync('taskkill', ['/pid', String(child.pid), '/t', '/f'], { stdio: 'ignore' });
+      else {
+        try { process.kill(-child.pid, 'SIGTERM'); } catch { child.kill('SIGTERM'); }
+      }
+    };
+    let settled = false;
+    let forced: NodeJS.Timeout | null = null;
     const timer = setTimeout(() => {
       chunks.push(`\n(タイムアウト: ${timeoutMs / 1000}秒で打ち切り)`);
-      child.kill();
+      killTree();
+      // 止めても pipe が閉じない時の保険
+      forced = setTimeout(() => finish(null), 5000);
     }, timeoutMs);
     child.stdout.on('data', (d: Buffer) => chunks.push(d.toString()));
     child.stderr.on('data', (d: Buffer) => chunks.push(d.toString()));
     child.on('error', (e) => chunks.push(`\n(起動失敗: ${e.message})`));
-    child.on('close', (code) => {
+    child.on('close', (code) => finish(code));
+    const finish = (code: number | null) => {
+      if (settled) return;
+      settled = true;
       clearTimeout(timer);
+      if (forced) clearTimeout(forced);
       const output = chunks.join('').trim();
       const ok = code === 0;
       resolve({
@@ -139,6 +160,6 @@ export function runVerify(
         failed: ok ? [] : failedTests(output),
         durationMs: Date.now() - t0,
       });
-    });
+    };
   });
 }

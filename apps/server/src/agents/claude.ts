@@ -188,8 +188,14 @@ export class ClaudeRunner implements AgentRunner {
 
   send(text: string, attachments: SavedAttachment[] = []) {
     this.timeline('user', text, undefined, undefined, undefined, publicRefs(attachments));
-    this.hub.update(this.id, { status: 'running', activity: '指示を受け取りました', pending: null, pendingCount: 0 });
     this.pushUser(text, attachments);
+    if (this.queue.length) {
+      // 許可か質問に答えるまで、この指示はエージェントに届かない。待ちの表示は消さずに残す
+      this.timeline('system', '許可・質問に答えると、この指示に進みます');
+      this.syncPending('指示を受け取りました');
+      return;
+    }
+    this.hub.update(this.id, { status: 'running', activity: '指示を受け取りました', pending: null, pendingCount: 0 });
   }
 
   async stop() {

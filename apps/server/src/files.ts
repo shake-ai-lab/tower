@@ -51,9 +51,24 @@ export function listDir(dir: string, rel: string): TreeResponse {
   const dirs: TreeEntry[] = [];
   const files: TreeEntry[] = [];
   const skipped: string[] = [];
+  const realBase = fs.realpathSync(path.resolve(dir));
   for (const e of ents) {
     const p = toRel(dir, path.join(abs, e.name));
-    if (e.isDirectory()) {
+    let isDir = e.isDirectory();
+    if (!isDir && e.isSymbolicLink()) {
+      // Windows のジャンクションは isDirectory() が false。実体を見てフォルダかファイルかを分ける。
+      // 実体が作業フォルダの外（分離した作業場所の node_modules など）なら開けないので、一覧に出さない
+      try {
+        const real = fs.realpathSync(path.join(abs, e.name));
+        const back = path.relative(realBase, real);
+        if (back === '..' || back.startsWith(`..${path.sep}`) || path.isAbsolute(back)) {
+          if (SKIP_DIRS.has(e.name)) skipped.push(e.name);
+          continue;
+        }
+        isDir = fs.statSync(real).isDirectory();
+      } catch { /* 壊れたリンク: ファイル扱いのまま出す（開くと「リンク先が見つかりません」） */ }
+    }
+    if (isDir) {
       if (SKIP_DIRS.has(e.name)) skipped.push(e.name);
       else dirs.push({ name: e.name, path: p, kind: 'dir' });
     } else if (e.isFile() || e.isSymbolicLink()) {
