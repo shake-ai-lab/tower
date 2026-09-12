@@ -35,7 +35,9 @@ import { RpcClient, RpcError, type RpcId } from './codex-rpc.ts';
 import {
   UsageMeter,
   approvalDecision,
+  autoAllow,
   codexPolicy,
+  commandDecision,
   commandPending,
   elicitationPending,
   elicitationResponse,
@@ -47,6 +49,7 @@ import {
   serverLabel,
   userInputAnswers,
   userInputPending,
+  type AutoRequest,
   type CommandApprovalParams,
   type Decision,
   type ElicitationParams,
@@ -344,16 +347,18 @@ export class CodexRunner implements AgentRunner {
     switch (method) {
       case 'item/commandExecution/requestApproval': {
         const params = p as CommandApprovalParams;
-        return this.ask(commandPending(id, params), key, (d) => ({ decision: approvalDecision(d) }), () => ({ decision: 'cancel' }));
+        const req: AutoRequest =
+          params.kind === 'writeStdin' ? { kind: 'other' } : { kind: 'command', command: params.command ?? '', network: !!params.networkApprovalContext };
+        return this.ask<{ decision: unknown }>(commandPending(id, params), key, (d) => ({ decision: commandDecision(params, d) }), () => ({ decision: 'cancel' }), req);
       }
       case 'item/fileChange/requestApproval': {
         const params = p as FileChangeApprovalParams;
         const pending = fileChangePending(id, params, this.fileChanges.get(params.itemId) ?? []);
-        return this.ask(pending, key, (d) => ({ decision: approvalDecision(d) }), () => ({ decision: 'cancel' }));
+        return this.ask(pending, key, (d) => ({ decision: approvalDecision(d) }), () => ({ decision: 'cancel' }), { kind: 'file', outside: !!params.grantRoot });
       }
       case 'item/permissions/requestApproval': {
         const params = p as PermissionsApprovalParams;
-        return this.ask(permissionsPending(id, params), key, (d) => grantedPermissions(params, d), () => grantedPermissions(params, 'deny'));
+        return this.ask(permissionsPending(id, params), key, (d) => grantedPermissions(params, d), () => grantedPermissions(params, 'deny'), { kind: 'other' });
       }
       case 'mcpServer/elicitation/request': {
         const params = p as ElicitationParams;
@@ -366,6 +371,7 @@ export class CodexRunner implements AgentRunner {
           key,
           (d) => elicitationResponse(params, d),
           () => ({ action: 'cancel', content: null, _meta: null }),
+          { kind: 'other' },
         );
       }
       case 'item/tool/requestUserInput': {
@@ -379,10 +385,12 @@ export class CodexRunner implements AgentRunner {
     }
   }
 
-  private ask<T>(pending: PendingPermission, key: string, answer: (d: Decision) => T, cancel: () => T): Promise<T> {
-    // 全自動では聞かない（途中で全自動に切り替えた時や、Codex が念のため聞いてきた時）
-    if (this.mode === 'bypassPermissions') {
-      this.timeline('permission', `自動で許可: ${pending.headline}`, pending.detail, pending.toolName);
+  private ask<T>(pending: PendingPermission, key: string, answer: (d: Decision) => T, cancel: () => T, req: AutoRequest): Promise<T> {
+    // 許可方針で決まっているものは聞かない（全自動・読むだけのコマンド・「編集は自動」の編集）
+    const auto = autoAllow(this.mode, req);
+    if (auto) {
+      // 全自動の時だけ年表に残す（読むだけ・編集は、その操作自体が年表に出る）
+      if (auto === '全自動') this.timeline('permission', `自動で許可: ${pending.headline}`, pending.detail, pending.toolName);
       return Promise.resolve(answer('allow'));
     }
     this.timeline('permission', `許可待ち: ${pending.headline}`, pending.detail, pending.toolName);

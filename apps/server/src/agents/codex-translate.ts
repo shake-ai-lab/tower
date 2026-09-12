@@ -2,7 +2,7 @@
 // 型は `codex app-server generate-ts --experimental` が出す定義のうち、Tower が使う所だけを写したもの
 import path from 'node:path';
 import type { PendingPermission, PendingQuestion, PermissionChoice, RiskLevel, Usage } from '@tower/shared';
-import { assessRisk, describePermission, unwrapShell } from '../humanize.ts';
+import { assessRisk, describePermission, isReadOnlyCommand, unwrapShell } from '../humanize.ts';
 
 // ---- 許可方針 ----
 
@@ -68,7 +68,57 @@ export interface CommandApprovalParams {
   cwd?: string | null;
   reason?: string | null;
   networkApprovalContext?: { host: string; protocol: string } | null;
+  /** 「以後も許可」で Codex の設定に足す、コマンドの頭の並び（例: ["npm", "test"]） */
+  proposedExecpolicyAmendment?: string[] | null;
   availableDecisions?: unknown[] | null;
+}
+
+type CommandDecision = 'accept' | 'acceptForSession' | 'decline' | { acceptWithExecpolicyAmendment: { execpolicy_amendment: string[] } };
+
+/**
+ * 「以後も許可」を選んだ時に Codex へ返す答えと、その説明。
+ * このタスクの間だけの許可（acceptForSession）を出せるならそれ。出せない時（「毎回確認」の方針など）は、
+ * Codex が案として出してきた「このコマンドで始まるものは今後も確認しない」（Codex の設定に残る）を使う
+ */
+function alwaysChoice(p: CommandApprovalParams): { decision: CommandDecision; rule: string } | null {
+  const offered = p.availableDecisions;
+  if (!offered || offered.includes('acceptForSession')) {
+    return {
+      decision: 'acceptForSession',
+      rule: p.networkApprovalContext ? `このタスクの間は ${p.networkApprovalContext.host} への接続を確認しない` : 'このタスクの間は、同じコマンドを確認なしで実行',
+    };
+  }
+  const offer = offered.find((d): d is { acceptWithExecpolicyAmendment: { execpolicy_amendment: string[] } } => !!d && typeof d === 'object' && 'acceptWithExecpolicyAmendment' in d);
+  const prefix = offer?.acceptWithExecpolicyAmendment.execpolicy_amendment ?? p.proposedExecpolicyAmendment;
+  if (offer && prefix?.length) {
+    return {
+      decision: { acceptWithExecpolicyAmendment: { execpolicy_amendment: prefix } },
+      rule: `「${prefix.join(' ')}」で始まるコマンドは、今後も確認しない（Codex の設定に残る）`,
+    };
+  }
+  return null;
+}
+
+/** 許可・拒否 → Codex への答え（コマンド） */
+export function commandDecision(p: CommandApprovalParams, d: Decision): CommandDecision {
+  if (d === 'deny') return 'decline';
+  if (d === 'allow_always') return alwaysChoice(p)?.decision ?? 'accept';
+  return 'accept';
+}
+
+/** 利用者に聞かずに許可してよいかを決める材料 */
+export type AutoRequest = { kind: 'command'; command: string; network?: boolean } | { kind: 'file'; outside: boolean } | { kind: 'other' };
+
+/**
+ * 利用者に聞かずに許可してよいか（Tower の許可方針に合わせる）。聞かない時はその理由、聞く時は null。
+ * Codex は PowerShell のコマンドを「安全」と見なさず、「untrusted」ではファイルの編集も毎回聞いてくるので、
+ * 読むだけのコマンドと、「編集は自動」の時の作業フォルダ内の編集は Tower が代わりに許可する
+ */
+export function autoAllow(mode: PermissionChoice, req: AutoRequest): string | null {
+  if (mode === 'bypassPermissions') return '全自動';
+  if (req.kind === 'command' && !req.network && isReadOnlyCommand(req.command)) return '読むだけのコマンド';
+  if (req.kind === 'file' && !req.outside && (mode === 'acceptEdits' || mode === 'auto')) return '編集は自動';
+  return null;
 }
 
 export function commandPending(id: string, p: CommandApprovalParams, now = Date.now()): PendingPermission {
@@ -87,7 +137,7 @@ export function commandPending(id: string, p: CommandApprovalParams, now = Date.
   } else {
     headline = describePermission('Bash', { command }).headline;
   }
-  const canSession = !p.availableDecisions || p.availableDecisions.includes('acceptForSession');
+  const always = alwaysChoice(p);
   return {
     id,
     kind: 'permission',
@@ -96,8 +146,8 @@ export function commandPending(id: string, p: CommandApprovalParams, now = Date.
     headline,
     detail: [command || raw, p.cwd ? `場所: ${p.cwd}` : '', reason ? `理由: ${reason}` : ''].filter(Boolean).join('\n\n'),
     risk,
-    canAlwaysAllow: canSession,
-    alwaysRules: canSession ? [host ? `このタスクの間は ${host} への接続を確認しない` : 'このタスクの間は、同じコマンドを確認なしで実行'] : [],
+    canAlwaysAllow: !!always,
+    alwaysRules: always ? [always.rule] : [],
     createdAt: now,
   };
 }
@@ -343,6 +393,9 @@ export function friendlyError(msg: string, missing: string): string {
   const m = msg.toLowerCase();
   if (m.includes('usage limit') || m.includes('rate limit') || m.includes('quota')) {
     return `Codex の利用上限に達しました。時間をおいてから、もう一度指示を送ってください。（${clip(msg, 200)}）`;
+  }
+  if (m.includes('at capacity') || m.includes('overloaded') || m.includes('503') || m.includes('server_error')) {
+    return `Codex のモデルが混み合っていて、応えられませんでした。少し時間をおいてから、もう一度指示を送ってください（続きから再開します）。（${clip(msg, 200)}）`;
   }
   if (m.includes('not logged in') || m.includes('login') || m.includes('unauthorized') || m.includes('401')) {
     return 'Codex にログインしていません。左端の「設定」→「Codexにログイン」で接続してから、もう一度指示を送ってください。';

@@ -172,6 +172,28 @@ export function describeCommand(command: string): string {
   return snippet ? `${phrase}（${str(snippet, 40)}）` : phrase;
 }
 
+/** 読むだけと分かるコマンドの頭（PowerShell と、よく使う道具）。これだけで組んだコマンドは Codex の許可を聞かずに通す */
+const READ_ONLY_HEADS =
+  /^(Get-Content|gc|cat|type|head|tail|Get-ChildItem|gci|ls|dir|tree|Get-Item|gi|Get-ItemProperty|Test-Path|Resolve-Path|Split-Path|Join-Path|Get-Location|gl|pwd|Select-String|sls|rg|grep|findstr|Select-Object|select|Measure-Object|measure|Sort-Object|Group-Object|Format-Table|ft|Format-List|fl|Out-String|Where-Object|where|Get-FileHash|Get-Command|wc|echo|Write-Output)$/i;
+const READ_ONLY_GIT = /^git\s+(status|diff|log|show|rev-parse|ls-files|blame|grep)\b/i;
+/** どこかに含まれていたら「読むだけ」とは言えないもの（書く・消す・動かす・式を実行する・リダイレクト） */
+const NOT_READ_ONLY =
+  /(^|[^-\w])(Remove-|Set-|New-|Add-|Clear-|Move-|Copy-|Rename-|Out-File|Invoke-|Start-|Stop-|Restart-|Export-|Install-|Uninstall-|Update-)|\b(iex|rm|del|rmdir|mv|cp)\b|\.(Delete|MoveTo|CopyTo|Create|Write\w*|Kill)\(|>/i;
+
+/** 読むだけのコマンドか（ファイルの中身・一覧・検索・git の状態を見るだけ）。PowerShell の包みは外して見る */
+export function isReadOnlyCommand(command: string): boolean {
+  // 2>&1 や >$null は書き込みではないので先に外す
+  const cmd = unwrapShell(command)
+    .replace(/\d?>\s*(&\d|\$null|nul)(?!\w)/gi, '')
+    .trim();
+  if (!cmd || NOT_READ_ONLY.test(cmd)) return false;
+  const segs = cmd
+    .split(/\r?\n|;|\|\||&&|\|/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+  return segs.length > 0 && segs.every((seg) => READ_ONLY_GIT.test(seg) || READ_ONLY_HEADS.test(commandHead(seg).split(/\s+/)[0]));
+}
+
 /** 「〜しています」「〜を見ています」「取り込んでいます」を、許可の見出し向けの「〜したい」にする（上の表の言い回しに合わせた変換） */
 export function wantPhrase(activity: string): string {
   return activity.replace(/込んでいます$/, '込みたい').replace(/ています$/, 'たい');

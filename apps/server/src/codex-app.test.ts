@@ -3,13 +3,17 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { PassThrough } from 'node:stream';
 import { RpcClient } from './agents/codex-rpc.ts';
+import { isReadOnlyCommand } from './humanize.ts';
 import {
   UsageMeter,
   approvalDecision,
+  autoAllow,
   codexPolicy,
+  commandDecision,
   commandPending,
   elicitationResponse,
   fileChangePending,
+  friendlyError,
   grantedPermissions,
   mcpActivity,
   permissionsPending,
@@ -102,6 +106,62 @@ test('コマンドの許可: 包みを外した中身で見出しと危険度を
   assert.equal(approvalDecision('deny'), 'decline');
 });
 
+test('「以後も許可」: このタスクの間だけの許可が無ければ、Codex の案「このコマンドで始まるものは今後も確認しない」を使う', () => {
+  // 実際に「untrusted」で Codex が送ってきた形
+  const amend = ['node', '-e', 'console.log(1)'];
+  const probe = {
+    itemId: 'i',
+    command: `${PS} 'node -e "console.log(1)"'`,
+    proposedExecpolicyAmendment: amend,
+    availableDecisions: ['accept', { acceptWithExecpolicyAmendment: { execpolicy_amendment: amend } }, 'cancel'],
+  };
+  const p = commandPending('x', probe);
+  assert.equal(p.canAlwaysAllow, true);
+  assert.equal(p.alwaysRules[0], '「node -e console.log(1)」で始まるコマンドは、今後も確認しない（Codex の設定に残る）');
+  assert.deepEqual(commandDecision(probe, 'allow_always'), { acceptWithExecpolicyAmendment: { execpolicy_amendment: amend } });
+  assert.equal(commandDecision(probe, 'allow'), 'accept');
+  assert.equal(commandDecision(probe, 'deny'), 'decline');
+  assert.equal(commandDecision({ itemId: 'i', command: 'npm test' }, 'allow_always'), 'acceptForSession');
+  assert.equal(commandDecision({ itemId: 'i', command: 'npm test', availableDecisions: ['accept', 'decline'] }, 'allow_always'), 'accept', '出せない時はふつうの許可');
+});
+
+test('読むだけのコマンドは聞かずに通す（書く・消す・動かすものは聞く）', () => {
+  for (const c of [
+    `${PS} 'Get-Content -LiteralPath index.html -Encoding UTF8'`,
+    'Get-Location; rg --files -g README.md',
+    'Get-ChildItem -Force | Select-Object Name, Length',
+    'git status --short; git diff --stat',
+    'cat a.txt 2>&1',
+    'Select-String -Path *.ts -Pattern foo',
+  ]) {
+    assert.equal(isReadOnlyCommand(c), true, c);
+  }
+  for (const c of [
+    'node -e "console.log(1)"',
+    'Get-Content a | Set-Content b',
+    'echo hi > a.txt',
+    'Remove-Item x',
+    'git commit -m x',
+    'git branch new-branch',
+    'npm test',
+    'Get-ChildItem | ForEach-Object { Remove-Item $_ }',
+    'iex (Get-Content a)',
+    '$x = Get-Content a',
+  ]) {
+    assert.equal(isReadOnlyCommand(c), false, c);
+  }
+});
+
+test('許可方針ごとに、Tower が代わりに許可するもの', () => {
+  assert.equal(autoAllow('acceptEdits', { kind: 'file', outside: false }), '編集は自動');
+  assert.equal(autoAllow('acceptEdits', { kind: 'file', outside: true }), null, '作業フォルダの外への書き込みは聞く');
+  assert.equal(autoAllow('default', { kind: 'file', outside: false }), null, '毎回確認なら編集も聞く');
+  assert.equal(autoAllow('default', { kind: 'command', command: 'Get-Content a' }), '読むだけのコマンド');
+  assert.equal(autoAllow('acceptEdits', { kind: 'command', command: 'Get-Content a', network: true }), null, 'ネットへの接続は聞く');
+  assert.equal(autoAllow('acceptEdits', { kind: 'command', command: 'npm test' }), null);
+  assert.equal(autoAllow('bypassPermissions', { kind: 'other' }), '全自動');
+});
+
 test('ファイルの変更の許可: 先に届いた変更の中身から見出しを作る', () => {
   const add = fileChangePending('f', { itemId: 'i' }, [{ path: 'src/a.ts', kind: { type: 'add' }, diff: '+x' }]);
   assert.equal(add.headline, 'ファイルを作りたい: a.ts');
@@ -157,6 +217,12 @@ test('使った量: 再開した会話の最初は直近の 1 回分だけ足し
   assert.deepEqual([u.input, u.cacheRead, u.output, u.context, u.contextWindow], [1100, 810, 55, 1000, 200_000]);
   u = m.update(bd(7000, 5500, 160), bd(2000, 1500, 60), 200_000);
   assert.deepEqual([u.input, u.cacheRead, u.output, u.context], [3100, 2310, 115, 2000]);
+});
+
+test('Codex の失敗を、次に何をすればいいか分かる日本語にする', () => {
+  assert.match(friendlyError('Selected model is at capacity. Please try a different model.', '無い'), /^Codex のモデルが混み合っていて/);
+  assert.match(friendlyError("You've hit your usage limit. try again at 10:29 PM.", '無い'), /^Codex の利用上限に達しました/);
+  assert.equal(friendlyError('spawn codex ENOENT', 'Codex が見つかりません'), 'Codex が見つかりません');
 });
 
 test('プラグインの道具の呼び出しを日本語の一言にする', () => {
