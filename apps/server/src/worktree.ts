@@ -14,15 +14,28 @@ interface GitResult {
   err: string;
 }
 
-export function git(cwd: string, args: string[]): GitResult {
+/**
+ * @param opts.input 標準入力に渡す文字列（--pathspec-from-file=- など）
+ * @param opts.raw   出力の前後の空白を削らない（status --porcelain は先頭の空白に意味がある）
+ */
+export function git(cwd: string, args: string[], opts: { input?: string; raw?: boolean } = {}): GitResult {
   const r = spawnSync('git', ['-c', 'core.quotepath=false', ...args], {
     cwd,
     encoding: 'utf8',
     maxBuffer: 16 * 1024 * 1024,
+    input: opts.input,
     // メッセージを英語に固定して判定しやすくする。認証プロンプトで止まらないようにする
     env: { ...process.env, LC_ALL: 'C', GIT_TERMINAL_PROMPT: '0' },
   });
-  return { ok: r.status === 0, out: (r.stdout ?? '').trim(), err: (r.stderr ?? '').trim() };
+  const out = r.stdout ?? '';
+  return { ok: r.status === 0, out: opts.raw ? out : out.trim(), err: (r.stderr ?? '').trim() };
+}
+
+/** コミットする。名前・メールアドレスが git に設定されていなければ「Tower」の名前で記録する */
+export function gitCommit(dir: string, args: string[], opts: { input?: string } = {}): GitResult {
+  const c = git(dir, args, opts);
+  if (c.ok || !/tell me who you are|user\.name|user\.email/i.test(`${c.out}\n${c.err}`)) return c;
+  return git(dir, ['-c', 'user.name=Tower', '-c', 'user.email=tower@localhost', ...args], opts);
 }
 
 export function isGitRepo(dir: string): boolean {
@@ -199,10 +212,7 @@ function commitEverything(dir: string, msg: string): string | null {
   if (!status && !merging) return null;
   const add = git(dir, ['add', '-A']);
   if (!add.ok) return `変更を保存できませんでした: ${add.err}`;
-  let c = git(dir, ['commit', '-q', '-m', msg]);
-  if (!c.ok && /tell me who you are|user\.name|user\.email/i.test(`${c.out}\n${c.err}`)) {
-    c = git(dir, ['-c', 'user.name=Tower', '-c', 'user.email=tower@localhost', 'commit', '-q', '-m', msg]);
-  }
+  const c = gitCommit(dir, ['commit', '-q', '-m', msg]);
   if (!c.ok) return `変更を保存（コミット）できませんでした: ${c.err || c.out}`;
   return null;
 }

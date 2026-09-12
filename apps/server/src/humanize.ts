@@ -352,16 +352,20 @@ export function touchedFile(toolName: string, input: Record<string, unknown>): s
  * 元のツールが分かる時（toolName）は、英語の定型文（"The file … has been updated successfully" 等）を
  * そのまま出さず、何が起きたかを日本語で言う。エラーの時は原文の先頭行を出す方が役に立つので toolName を渡さない
  */
-export function summarizeToolResult(content: unknown, toolName?: string, input?: Record<string, unknown>): string {
-  const text =
-    typeof content === 'string'
+/** ツールの結果（文字列か、文字・画像の塊の並び）から文字だけを取り出す */
+export function resultText(content: unknown): string {
+  return typeof content === 'string'
+    ? content
+    : Array.isArray(content)
       ? content
-      : Array.isArray(content)
-        ? content
-            .map((c) => (c && typeof c === 'object' && 'text' in c ? String((c as { text: unknown }).text) : ''))
-            .filter(Boolean)
-            .join('\n')
-        : '';
+          .map((c) => (c && typeof c === 'object' && 'text' in c ? String((c as { text: unknown }).text) : ''))
+          .filter(Boolean)
+          .join('\n')
+      : '';
+}
+
+export function summarizeToolResult(content: unknown, toolName?: string, input?: Record<string, unknown>): string {
+  const text = resultText(content);
   const lines = text.split(/\r?\n/).filter((l) => l.trim());
   const rest = lines.length > 1 ? `（ほか ${lines.length - 1} 行）` : '';
   switch (toolName) {
