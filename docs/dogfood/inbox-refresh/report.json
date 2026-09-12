@@ -1,0 +1,44 @@
+[
+  {
+    "width": 220,
+    "metrics": {
+      "width": 163,
+      "scroll": 163,
+      "heights": [
+        84.5,
+        84.5,
+        84.5
+      ]
+    },
+    "expand": "pass",
+    "answerNavigationAndInput": "pass"
+  },
+  {
+    "width": 320,
+    "metrics": {
+      "width": 263,
+      "scroll": 263,
+      "heights": [
+        84.5,
+        84.5,
+        84.5
+      ]
+    },
+    "expand": "pass",
+    "answerNavigationAndInput": "pass"
+  },
+  {
+    "width": 390,
+    "metrics": {
+      "width": 334,
+      "scroll": 334,
+      "heights": [
+        84.5,
+        84.5,
+        84.5
+      ]
+    },
+    "expand": "pass",
+    "answerNavigationAndInput": "pass"
+  }
+]

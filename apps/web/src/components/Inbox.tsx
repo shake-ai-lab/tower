@@ -8,20 +8,21 @@ import { btn, fmtElapsed, needsYou, needsYouSince } from '../lib';
 /** 報告の中で判断を求めて止まっているもの。答えはそのタスクの指示欄から送る（「答える」で、いまの画面構成で見える所に開く） */
 function ReportDecisionCard({ s }: { s: Session }) {
   const r = s.report!;
+  const decision = r.needsDecision ?? r.summary[0] ?? '報告を見て、続きの指示を出してください';
   return (
     <div className="space-y-3 text-[13px] text-zinc-300">
       <div className="flex items-center gap-2 text-[11px] font-medium text-amber-300/90"><span className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-400" />判断が必要</div>
       <div className="line-clamp-4 leading-relaxed whitespace-pre-wrap break-words">
-        {r.needsDecision ?? r.summary[0] ?? '報告を見て、続きの指示を出してください'}
+        {decision}
       </div>
-      <details className="group text-xs text-zinc-400">
-          <summary className="cursor-pointer rounded text-zinc-400 hover:text-zinc-200 focus-visible:outline focus-visible:outline-sky-400">全文・提案を見る</summary>
-          <div className="mt-3 space-y-3 whitespace-pre-wrap break-words leading-relaxed">
-            <p>{r.needsDecision ?? r.summary[0] ?? '報告を見て、続きの指示を出してください'}</p>
-            {r.nextStep && <div><p className="mb-1 text-zinc-500">エージェントの提案</p><p>{r.nextStep}</p></div>}
-            {r.details && <div><p className="mb-1 text-zinc-500">報告の補足</p><p>{r.details}</p></div>}
-          </div>
-        </details>
+      <details className="text-xs text-zinc-400">
+        <summary className="cursor-pointer rounded text-zinc-400 hover:text-zinc-200 focus-visible:outline focus-visible:outline-sky-400">全文・提案を見る</summary>
+        <div className="mt-3 space-y-3 whitespace-pre-wrap break-words leading-relaxed">
+          <p>{decision}</p>
+          {r.nextStep && <div><p className="mb-1 text-zinc-500">エージェントの提案</p><p>{r.nextStep}</p></div>}
+          {r.details && <div><p className="mb-1 text-zinc-500">報告の補足</p><p>{r.details}</p></div>}
+        </div>
+      </details>
       <button onClick={() => openTask(s.id, { answer: true })} title="このタスクのやりとりを開いて、指示欄に答えを書きます" className={`${btn.base} w-full border border-sky-400/20 bg-sky-400/10 text-sky-200 hover:bg-sky-400/20 !py-1.5 !text-xs`}>
         答える
       </button>
