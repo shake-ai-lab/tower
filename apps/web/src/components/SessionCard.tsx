@@ -1,7 +1,7 @@
 // フリート（一覧）の 1 枚。ふつうのカードと、1 行に詰めたコンパクト表示の 2 種類
 import type { Session } from '@tower/shared';
 import { OUTCOME, STATUS, fmtElapsed, fmtUsd, needsYou, projectStyle, verifyBadge } from '../lib';
-import { badgeRepeatsReport } from '../task-state';
+import { badgeRepeatsReport, mergedSinceReport } from '../task-state';
 import { SessionTags, StatusBadge, agentLabel } from './SessionBadges';
 
 type CardProps = { s: Session; selected: boolean; onClick: () => void };
@@ -94,7 +94,8 @@ function ReportLine({ s, report }: { s: Session; report: NonNullable<Session['re
           {vb.text}
         </span>
       )}
-      <span className="line-clamp-2 break-words [overflow-wrap:anywhere]">{report.needsDecision ?? report.summary[0] ?? ''}</span>
+      {/* 取り込み済みなら「判断が必要」はもう済んでいるので、やったことの 1 行目を出す */}
+      <span className="line-clamp-2 break-words [overflow-wrap:anywhere]">{(mergedSinceReport(s) ? null : report.needsDecision) ?? report.summary[0] ?? ''}</span>
     </div>
   );
 }

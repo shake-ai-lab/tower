@@ -3,7 +3,7 @@
 // ボタンは「完了にする」と食い違っていた）。画面から切り離してテストできるようにしている
 import type { Session } from '@tower/shared';
 
-type Judged = Pick<Session, 'status' | 'pending' | 'report' | 'verification' | 'completedByUser'> & Partial<Pick<Session, 'baseline'>>;
+type Judged = Pick<Session, 'status' | 'pending' | 'report' | 'verification' | 'completedByUser'> & Partial<Pick<Session, 'baseline' | 'workspace'>>;
 
 /**
  * 自動チェックの失敗が、作業を始める前からのものだけか（修正前も失敗していて、新しく失敗したものが無い）。
@@ -37,14 +37,27 @@ export type TaskState =
   | 'error'
   | 'stopped'
   /** エージェントの側で終わった（完了の報告なし） */
-  | 'ended';
+  | 'ended'
+  /** 報告の後に、別の作業場所の変更を元のプロジェクトへ取り込んだ */
+  | 'merged';
+
+/**
+ * 最新の報告の後に、別の作業場所の変更を元のプロジェクトへ取り込んだか（ボタンでも自動でも）。
+ * 取り込んだ = その報告を受け入れたということなので、報告の「判断が必要」はもう待たない
+ * （待ち続けると、取り込んだ後も「判断待ち」に数えられていた）
+ */
+export function mergedSinceReport(s: Pick<Session, 'report'> & Partial<Pick<Session, 'workspace'>>): boolean {
+  const m = s.workspace?.lastMerge;
+  return !!m?.ok && !!s.report && m.at >= s.report.generatedAt;
+}
 
 /**
  * あなたの判断を待っているか。許可・質問（pending）に加えて、報告で「判断が必要」「質問あり」と言って
- * 止まっているもの（idle）も含める。次の指示を送る・停止すると外れる
+ * 止まっているもの（idle）も含める。次の指示を送る・停止する・取り込むと外れる
  */
-export function needsYou(s: Pick<Session, 'status' | 'pending' | 'report'>): boolean {
+export function needsYou(s: Pick<Session, 'status' | 'pending' | 'report'> & Partial<Pick<Session, 'workspace'>>): boolean {
   if (s.pending) return true;
+  if (mergedSinceReport(s)) return false;
   return s.status === 'idle' && !!s.report && (!!s.report.needsDecision || s.report.outcome === 'question');
 }
 
@@ -68,6 +81,7 @@ export function taskState(s: Judged): TaskState {
       break;
   }
   if (needsYou(s)) return 'decision';
+  if (mergedSinceReport(s)) return 'merged';
   switch (s.report?.outcome) {
     case undefined:
       return 'waiting';
@@ -88,12 +102,12 @@ export function taskState(s: Judged): TaskState {
  * 停止は途中で止めただけで、指示を送れば続きから再開するので含めない（終わりにしたい時は「完了にする」）
  */
 export function isFinished(s: Judged): boolean {
-  return ['done', 'error', 'ended'].includes(taskState(s));
+  return ['done', 'error', 'ended', 'merged'].includes(taskState(s));
 }
 
-/** 「完了にする」ボタンを出すか。もう完了しているもの・外で作業中のものには出さない */
+/** 「完了にする」ボタンを出すか。もう完了・取り込み済みのもの、外で作業中のものには出さない */
 export function canMarkDone(s: Judged & Pick<Session, 'origin'>): boolean {
-  if (s.status === 'done' || taskState(s) === 'done') return false;
+  if (s.status === 'done' || ['done', 'merged'].includes(taskState(s))) return false;
   const working = ['starting', 'running', 'waiting_permission', 'waiting_question'].includes(s.status);
   return !(s.origin === 'external' && working);
 }
@@ -120,6 +134,7 @@ const BADGE: Record<TaskState, StateBadge> = {
   error: { label: 'エラー', cls: 'bg-red-900/70 text-red-200' },
   stopped: { label: '停止', cls: 'bg-zinc-800 text-zinc-300' },
   ended: { label: '終了', cls: 'bg-zinc-800 text-zinc-300' },
+  merged: { label: '✓ 取り込み済み', cls: 'bg-emerald-800/80 text-emerald-100', title: '元のプロジェクトに取り込みました。続きの指示を送れば、また動きます' },
 };
 
 export function stateBadge(s: Judged): StateBadge {
@@ -135,5 +150,12 @@ const SAME_AS_REPORT: Partial<Record<TaskState, NonNullable<Session['report']>['
   reported: 'unknown',
 };
 
-/** 札が報告の結果と同じことを言っているか（一覧のカードで「完了」を 2 度出さないため） */
-export const badgeRepeatsReport = (s: Judged): boolean => !!s.report && SAME_AS_REPORT[taskState(s)] === s.report.outcome;
+/**
+ * 一覧のカードで報告の結果の札を省くか。札が報告の結果と同じことを言っている時（「完了」を 2 度出さない）と、
+ * 取り込み済みの時（取り込んだことが今の状態。横に「一部完了」と並ぶと、まだ終わっていないように見えていた）
+ */
+export const badgeRepeatsReport = (s: Judged): boolean => {
+  if (!s.report) return false;
+  const state = taskState(s);
+  return state === 'merged' || SAME_AS_REPORT[state] === s.report.outcome;
+};

@@ -4,7 +4,7 @@ import type { Preview, Report, Screenshot, Session, TimelineItem, Verification }
 import { PERMISSION_CHOICES, type PermissionChoice } from '@tower/shared';
 import { api, errMsg } from '../api';
 import { OUTCOME, STATUS, btn, fmtElapsed, fmtTime, fmtTokens, fmtUsd, isAlive, verifyBadge, useDesktop, useResizable } from '../lib';
-import { canMarkDone, onlyOldFailures } from '../task-state';
+import { canMarkDone, mergedSinceReport, onlyOldFailures } from '../task-state';
 import { useStore } from '../store';
 import { openTask } from '../layout';
 import { PendingCard } from './PendingCards';
@@ -443,7 +443,8 @@ function Row({ label, children, highlight }: { label: string; children: React.Re
   );
 }
 
-function ReportCard({ r, onFileClick }: { r: Report; onFileClick?: () => void }) {
+/** settled = この報告の後に元のプロジェクトへ取り込んだ（「判断が必要」はもう済んでいる） */
+function ReportCard({ r, onFileClick, settled = false }: { r: Report; onFileClick?: () => void; settled?: boolean }) {
   const [raw, setRaw] = useState(false);
   const o = OUTCOME[r.outcome];
   return (
@@ -491,11 +492,16 @@ function ReportCard({ r, onFileClick }: { r: Report; onFileClick?: () => void })
           </div>
         </Row>
       )}
-      {r.needsDecision && (
+      {r.needsDecision && (settled ? (
+        <Row label="判断が必要（済み）">
+          <div className="text-xs text-emerald-300 mb-1">✔ 元のプロジェクトに取り込んだので、判断待ちから外しました。</div>
+          <div className="text-zinc-400"><Linkify text={r.needsDecision} /></div>
+        </Row>
+      ) : (
         <Row label="判断が必要" highlight>
           <Linkify text={r.needsDecision} />
         </Row>
-      )}
+      ))}
       {r.nextStep && (
         <Row label="次の一手">
           <Linkify text={r.nextStep} />
@@ -765,9 +771,9 @@ export function SessionDetail({ id, onShowWorkspace, embedded = false, onClose, 
           // 作業中は前の回の報告をたたみ、今の作業の経過を先に見せる
           <details className="rounded-md border border-zinc-800 bg-[#12151b] px-3 py-2 text-xs text-zinc-400">
             <summary className="cursor-pointer hover:text-zinc-200">前回の報告を見る（{OUTCOME[s.report.outcome].label}）</summary>
-            <div className="mt-2"><ReportCard r={s.report} onFileClick={() => setShowChanges(true)} /></div>
+            <div className="mt-2"><ReportCard r={s.report} settled={mergedSinceReport(s)} onFileClick={() => setShowChanges(true)} /></div>
           </details>
-        ) : <ReportCard r={s.report} onFileClick={() => setShowChanges(true)} />)}
+        ) : <ReportCard r={s.report} settled={mergedSinceReport(s)} onFileClick={() => setShowChanges(true)} />)}
         {s.compare && <CompareStrip s={s} />}
         {s.workspace && <WorkspaceStrip s={s} />}
         {s.verification ? (

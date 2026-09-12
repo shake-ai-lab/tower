@@ -254,9 +254,14 @@ export class Bridge {
         const activity = describeActivity(tool, inp);
         const f = touchedFile(tool, inp);
         this.timeline(id, 'tool_use', activity, toolDetail(tool, inp), tool, readImage(tool, inp));
+        // Tower では答えられない許可（時間切れ・向こうの画面に出たもの）の後に次の操作が来た = 向こうの画面で答え終わった。
+        // 残しておくと、答えた後も報告が来るまで「判断待ち」に数えられていた
+        const answeredElsewhere = s.pending?.kind === 'permission' && !s.pending.answerable;
+        const waiting = !!s.pending && !answeredElsewhere;
         this.hub.update(id, {
-          status: s.pending ? s.status : 'running',
-          activity: s.pending ? s.activity : activity,
+          status: waiting ? s.status : 'running',
+          activity: waiting ? s.activity : activity,
+          ...(answeredElsewhere ? { pending: null, pendingCount: 0 } : {}),
           toolCalls: s.toolCalls + 1,
           changedFiles: f && !s.changedFiles.includes(f) ? [...s.changedFiles, f] : s.changedFiles,
         });

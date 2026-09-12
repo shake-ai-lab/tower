@@ -10,6 +10,22 @@ const report = (outcome: Report['outcome'], needsDecision: string | null = null)
 const task = (patch: Partial<Session>) =>
   ({ status: 'idle', pending: null, report: null, verification: null, completedByUser: null, origin: 'tower', ...patch }) as unknown as Session;
 
+test('merged after the report: 取り込み済み, no longer 判断待ち, no 完了にする button, folded as finished', () => {
+  const ws = (ok: boolean, at: number) => ({ lastMerge: { ok, at, message: '' } }) as unknown as Session['workspace'];
+  const s = task({ report: report('partial', '取り込んでから入れ直してください'), workspace: ws(true, 2) });
+  assert.equal(needsYou(s), false);
+  assert.equal(taskState(s), 'merged');
+  assert.equal(stateBadge(s).label, '✓ 取り込み済み');
+  assert.equal(canMarkDone(s), false);
+  assert.equal(isFinished(s), true);
+  assert.equal(badgeRepeatsReport(s), true);
+  // 取り込みに失敗した時・取り込みの後に新しい報告が来た時は、これまでどおり判断待ち
+  assert.equal(needsYou(task({ report: report('partial', '取り込んで'), workspace: ws(false, 2) })), true);
+  assert.equal(needsYou(task({ report: { ...report('partial', '次はどうする？'), generatedAt: 3 }, workspace: ws(true, 2) })), true);
+  // 作業中は取り込み済みより作業中が先
+  assert.equal(taskState(task({ status: 'running', report: report('partial'), workspace: ws(true, 2) })), 'working');
+});
+
 test('a report that says 完了 reads as 完了 and has no 完了にする button', () => {
   const s = task({ report: report('done') });
   assert.equal(taskState(s), 'done');

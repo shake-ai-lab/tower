@@ -577,7 +577,11 @@ export class SessionManager {
       }
     }
     const now = Date.now();
-    this.hub.update(id, { workspace: { ...s.workspace, mergeFix: fixPrompt ? { at: now } : null, lastMerge: { at: now, ok: r.ok, message } } });
+    this.hub.update(id, {
+      workspace: { ...s.workspace, mergeFix: fixPrompt ? { at: now } : null, lastMerge: { at: now, ok: r.ok, message } },
+      // 取り込んだ = 報告を受け入れた。「判断待ち: …」のままだと、答えたのにまだ待っているように見える
+      ...(r.ok && s.status === 'idle' ? { activity: '元のプロジェクトに取り込みました' } : {}),
+    });
     const head = r.ok
       ? via === 'auto'
         ? '裏取りが通ったので自動で取り込みました'
