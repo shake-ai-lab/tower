@@ -544,6 +544,10 @@ export interface AgentAvailability {
   reason?: string;
   /** どれを使うか（例: 「VS Code の Codex 拡張（26.908.40401）を使います」） */
   note?: string;
+  /** モデルを「既定」にした時に実際に動くモデルの名前（例: 「Opus 5」「GPT-6-Astra」）。分からなければ無し */
+  defaultModel?: string;
+  /** 選べるモデル（Codex は手元の Codex が知っている一覧）。無ければ画面は固定の一覧を使う */
+  models?: { value: string; label: string }[];
 }
 
 // ---- 気づいたこと（利用者が使いながら書き残す不満・要望・不具合・良かった点） ----
@@ -601,15 +605,12 @@ export const AGENT_CHOICES: { value: AgentKind; label: string; hint: string }[] 
   {
     value: 'codex',
     label: 'Codex (OpenAI)',
-    hint: '許可の都度確認はできないので、作業フォルダ内だけ書き込める砂場で動く。`npx codex login` が必要',
+    hint: '許可の都度確認はできないので、作業フォルダ内だけ書き込める砂場で動く。ログインは VS Code の Codex と共通',
   },
 ];
 
-export const CODEX_MODEL_CHOICES: { value: string | null; label: string }[] = [
-  { value: null, label: '既定（Codex の設定）' },
-  { value: 'gpt-5-codex', label: 'gpt-5-codex' },
-  { value: 'gpt-5', label: 'gpt-5' },
-];
+/** Codex の選べるモデルはサーバーが手元の Codex から取る（AgentAvailability.models）。取れない時は「既定」だけ */
+export const CODEX_MODEL_CHOICES: { value: string | null; label: string }[] = [{ value: null, label: '既定（Codex の設定）' }];
 
 export const MODEL_CHOICES: { value: string | null; label: string }[] = [
   { value: null, label: '既定（設定のモデル）' },

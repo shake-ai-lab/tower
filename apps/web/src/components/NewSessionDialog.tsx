@@ -104,7 +104,18 @@ export function NewSessionDialog({ open, onClose }: { open: boolean; onClose: ()
   const agentHint = AGENT_CHOICES.find((a) => a.value === agent)?.hint ?? '';
   const agentUnavailable = agents?.[agent]?.available === false ? agents[agent].reason : null;
   const permHint = PERMISSION_CHOICES.find((p) => p.value === perm)?.hint ?? '';
-  const modelChoices = agent === 'codex' ? CODEX_MODEL_CHOICES : MODEL_CHOICES;
+  // 「既定」が実際にどのモデルかをサーバーが教えてくれる。Codex は選べるモデルの一覧もサーバーから（手元の Codex が知っているもの）
+  const agentInfo = agents?.[agent];
+  const fixedChoices = (agent === 'codex' ? CODEX_MODEL_CHOICES : MODEL_CHOICES).filter((m) => m.value);
+  const modelChoices: { value: string | null; label: string }[] = [
+    {
+      value: null,
+      label: agentInfo?.defaultModel
+        ? `既定（今は ${agentInfo.defaultModel}）`
+        : agent === 'codex' ? '既定（Codex の設定）' : '既定（Claude Code の設定）',
+    },
+    ...(agent === 'codex' && agentInfo?.models?.length ? agentInfo.models : fixedChoices),
+  ];
   // 一覧に無いパス（直接入力）は git かどうか分からないので、チェックは出してサーバー側で確かめる
   const hasGit = projects.find((p) => p.path === projectPath)?.hasGit ?? true;
   const comparing = agent === 'claude' && hasGit && compare;

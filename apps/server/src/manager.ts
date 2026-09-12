@@ -26,6 +26,7 @@ import { checkUploads, removeAttachments, saveAttachments } from './attachments.
 import type { Hub } from './hub.ts';
 import { SHOTS_DIR, capture, detectPreview, laterPreviewLabel, targetLabel } from './preview.ts';
 import { CODEX_MISSING, findCodexBin } from './codex-bin.ts';
+import { claudeDefaultModel, codexModels } from './model-defaults.ts';
 import { detectVerifyCommand, runVerify } from './verify.ts';
 import { createWorktree, mergeWorktree, removeWorktree } from './worktree.ts';
 
@@ -95,7 +96,13 @@ function codexAvailability(): AgentAvailability {
 
 export function agentAvailability(refresh = false): Record<AgentKind, AgentAvailability> {
   if (refresh) codexCache = null;
-  return { claude: { available: true }, codex: codexAvailability() };
+  // モデル欄の「既定」が実際にどれかと、Codex で選べるモデル（どちらも手元の設定ファイルを読むだけ）
+  const claudeDefault = claudeDefaultModel();
+  const cm = codexModels();
+  return {
+    claude: { available: true, ...(claudeDefault ? { defaultModel: claudeDefault } : {}) },
+    codex: { ...codexAvailability(), ...(cm.models.length ? { models: cm.models } : {}), ...(cm.defaultModel ? { defaultModel: cm.defaultModel } : {}) },
+  };
 }
 
 export class SessionManager {
