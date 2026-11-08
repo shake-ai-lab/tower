@@ -499,9 +499,16 @@ hub.subscribe((ev) => {
     else ws.send(msg);
   }
 });
+// 待ち受けの失敗（ポートの取り合いなど）は記録だけ（受け手が無いとサーバーごと落ちる）
+wss.on('error', (e) => console.error('[ws] 待ち受けの失敗:', e.message));
 wss.on('connection', (ws) => {
   alive.add(ws);
   ws.on('pong', () => alive.add(ws));
+  // 壊れた知らせ（途中で切れた・おかしな形）が来ると ws は error を出す。受け手が無いとサーバーごと落ちるので、必ず受けて切るだけにする
+  ws.on('error', (e) => {
+    console.warn('[ws] 画面とのつなぎで問題:', e.message);
+    ws.terminate();
+  });
   ws.send(JSON.stringify({ type: 'snapshot', sessions: hub.list() } satisfies ServerEvent));
 });
 // 応答の無いつなぎ（スリープした PC・閉じたスマホなど）を 30 秒ごとに見つけて切る

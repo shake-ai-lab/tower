@@ -53,6 +53,29 @@ function up(url) {
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+// ---- サーバーの記録と、落ちた時の立て直し ----
+// 以前は止まった理由が窓に一度出るだけで、どこにも残らなかった。サーバーの出力は ~/.tower/server.log に残す（5MB で 1 世代だけ回す）
+const DATA_DIR = process.env.TOWER_DATA_DIR ? path.resolve(process.env.TOWER_DATA_DIR) : path.join(os.homedir(), '.tower');
+const SERVER_LOG = path.join(DATA_DIR, 'server.log');
+
+function openServerLog() {
+  try {
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+    if (fs.existsSync(SERVER_LOG) && fs.statSync(SERVER_LOG).size > 5 * 1024 * 1024) fs.renameSync(SERVER_LOG, `${SERVER_LOG}.1`);
+    const stream = fs.createWriteStream(SERVER_LOG, { flags: 'a' });
+    stream.on('error', () => {});
+    stream.write(`\n==== ${new Date().toLocaleString('ja-JP')} サーバーを起動 ====\n`);
+    return stream;
+  } catch {
+    return null;
+  }
+}
+
+/** 思いがけず止まった時に起動し直した時刻（短い間に何度も落ちる時は、繰り返さずに知らせる） */
+const restarts = [];
+const RESTART_LIMIT = 3;
+const RESTART_WINDOW_MS = 10 * 60_000;
+
 /** サーバーが無ければ起動して、応答するまで待つ */
 async function ensureServer() {
   const health = `http://127.0.0.1:${PORT}/api/health`;
@@ -78,14 +101,20 @@ async function ensureServer() {
   }
   const child = spawn('node', args, {
     cwd: BUNDLED ? __dirname : ROOT,
-    stdio: ['ignore', 'inherit', 'pipe'],
+    stdio: ['ignore', 'pipe', 'pipe'],
     env,
   });
   serverProc = child;
+  const log = openServerLog();
+  child.stdout?.on('data', (d) => {
+    process.stdout.write(d);
+    log?.write(d);
+  });
   // すぐ落ちた時に 60 秒待たずに理由を出せるよう、終了と stderr の末尾を覚えておく
   const tail = [];
   child.stderr?.on('data', (d) => {
     process.stderr.write(d);
+    log?.write(d);
     tail.push(String(d));
     while (tail.length > 30) tail.shift();
   });
@@ -94,10 +123,23 @@ async function ensureServer() {
   child.once('error', (e) => { exited = { error: e.message }; });
   child.once('exit', (code, signal) => {
     exited = { code, signal };
+    log?.end(`==== ${new Date().toLocaleString('ja-JP')} サーバーが止まりました（終了コード ${code ?? signal ?? '?'}） ====\n`);
     if (serverProc === child) serverProc = null;
-    if (!quitting && started && !SMOKE) {
-      dialog.showErrorBox('Tower のサーバーが止まりました', `終了コード ${code ?? signal ?? '?'}\n${tail.join('').trim().slice(-600)}\n\nTower を開き直してください`);
+    if (quitting || !started || SMOKE) return;
+    // 思いがけず止まった: 自動で起動し直す（画面はつなぎ直し、作業中だったタスクは自動再開の対象になる）。短い間に何度も落ちる時だけ知らせる
+    const now = Date.now();
+    while (restarts.length && now - restarts[0] > RESTART_WINDOW_MS) restarts.shift();
+    if (restarts.length < RESTART_LIMIT) {
+      restarts.push(now);
+      ensureServer().catch((e) => {
+        dialog.showErrorBox('Tower のサーバーを起動し直せませんでした', `${e instanceof Error ? e.message : String(e)}\n\n記録: ${SERVER_LOG}`);
+      });
+      return;
     }
+    dialog.showErrorBox(
+      'Tower のサーバーが何度も止まりました',
+      `終了コード ${code ?? signal ?? '?'}\n${tail.join('').trim().slice(-600)}\n\n記録: ${SERVER_LOG}\nTower を開き直してください`,
+    );
   });
   for (let i = 0; i < 120; i++) {
     if (exited) {
