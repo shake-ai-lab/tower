@@ -1,0 +1,31 @@
+{
+  "passed": true,
+  "sessionId": "6221c856-233d-4bdc-a53a-41b660f008cd",
+  "thread": "01a0995c-21eb-70e2-9cf5-92f3d29e604e",
+  "modelSource": "live",
+  "requestedModel": "gpt-6-astra",
+  "effectiveModel": "gpt-6-astra",
+  "requestedReasoningEffort": "high",
+  "reasoningEffort": "high",
+  "permissionMode": "default",
+  "approvals": [
+    {
+      "requestId": "b953c3bb-59bd-4d28-9dfa-defaa61bbb30",
+      "command": "python -c \"import sys; print('ENCODING=' + sys.stdout.encoding); print('日本語確認_PY')\""
+    }
+  ],
+  "output": "日本語確認_PS\nENCODING=utf-8\r\n日本語確認_PY",
+  "mcp": [
+    {
+      "name": "tower_parity_fixture",
+      "authStatus": "unsupported",
+      "runtimeStatus": null,
+      "tools": [
+        "test_input_form"
+      ],
+      "issue": null,
+      "pluginId": null
+    }
+  ],
+  "errors": []
+}

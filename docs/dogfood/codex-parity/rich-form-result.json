@@ -1,0 +1,11 @@
+{
+  "passed": true,
+  "thread": "01a09941-f8fe-7543-a17a-eb19d1ba6ce5",
+  "imagesDecoded": 4,
+  "selectedImageId": "second",
+  "previewValue": "coverA",
+  "uploadBytesPreserved": true,
+  "existingFileUri": "file:///fixture/known.txt",
+  "directorySelected": true,
+  "errors": []
+}

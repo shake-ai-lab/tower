@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   AGENT_CHOICES,
-  CODEX_MODEL_CHOICES,
+  CODEX_PERMISSION_CHOICES,
   MODEL_CHOICES,
   PERMISSION_CHOICES,
   type AgentAvailability,
@@ -9,7 +9,7 @@ import {
   type PermissionChoice,
   type ProjectInfo,
 } from '@tower/shared';
-import { api, errMsg } from '../api';
+import { api, errMsg, type CodexModelCatalog } from '../api';
 import { btn, isAlive } from '../lib';
 import { useStore } from '../store';
 import { openTask } from '../layout';
@@ -21,6 +21,11 @@ import { AttachButton, AttachList, useAttachments } from './Attachments';
 export function NewSessionDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const sessions = useStore((s) => s.sessions);
   const [projects, setProjects] = useState<ProjectInfo[]>([]);
+  // フォルダ一覧を移動しても、選択した子フォルダのGit情報を失わない。
+  const [projectInfo, setProjectInfo] = useState<Record<string, ProjectInfo>>({});
+  const rememberProjects = useCallback((items: ProjectInfo[]) => {
+    setProjectInfo(current => ({ ...current, ...Object.fromEntries(items.map(item => [projectKey(item.path), item])) }));
+  }, []);
   const [agents, setAgents] = useState<Record<AgentKind, AgentAvailability> | null>(null);
   const [projectPath, setProjectPath] = useState('');
   const [browse, setBrowse] = useState<{ path: string; parent: string | null; projects: ProjectInfo[] } | null>(null);
@@ -29,23 +34,44 @@ export function NewSessionDialog({ open, onClose }: { open: boolean; onClose: ()
   const openFolder = async (directory: string) => {
     if (loadingFolders) return;
     setLoadingFolders(true); setErr(null);
-    try { setBrowse(await api.browseProjects(directory)); setQuery(''); }
+    try {
+      const result = await api.browseProjects(directory);
+      rememberProjects(result.projects);
+      setBrowse(result); setQuery('');
+    }
     catch (e) { setErr(errMsg(e)); } finally { setLoadingFolders(false); }
   };
   const [prompt, setPrompt] = useState('');
   const [agent, setAgent] = useState<AgentKind>('claude');
   const [model, setModel] = useState<string>('');
-  const [perm, setPerm] = useState<PermissionChoice>('acceptEdits');
+  const [reasoningEffort, setReasoningEffort] = useState('');
+  const [codexCollaborationMode, setCodexCollaborationMode] = useState<'default' | 'plan'>('default');
+  const [codexModels, setCodexModels] = useState<CodexModelCatalog | null>(null);
+  const [modelsLoading, setModelsLoading] = useState(false);
+  const [modelsAttempt, setModelsAttempt] = useState(0);
+  const [claudePerm, setClaudePerm] = useState<PermissionChoice>('acceptEdits');
+  const [codexPerm, setCodexPerm] = useState<PermissionChoice | null>(null);
+  const [settingsLoad, setSettingsLoad] = useState<'loading' | 'ready' | 'error'>('loading');
+  const [settingsError, setSettingsError] = useState('');
+  const [settingsAttempt, setSettingsAttempt] = useState(0);
+  const codexPermissionTouched = useRef(false);
   const [isolate, setIsolate] = useState(false);
   const [autoMerge, setAutoMerge] = useState(false);
   /** 同じ依頼を複数のモデルに投げて比べる（全部「別の作業場所」） */
   const [compare, setCompare] = useState(false);
   const [compareModels, setCompareModels] = useState<string[]>(['sonnet', 'haiku']);
-  /** 利用者が自分でチェックを触ったら、自動の切り替えをやめる */
-  const [isolateTouched, setIsolateTouched] = useState(false);
+  /** 明示選択はそのパスだけに適用。他の未知パスへtrueを持ち越さない。 */
+  const [isolateTouchedPath, setIsolateTouchedPath] = useState<string | null>(null);
+  const isolateTouched = isolateTouchedPath === projectKey(projectPath);
+  const selectedProject = projectInfo[projectKey(projectPath)];
+  const hasGit = selectedProject?.hasGit ?? true;
+  const isolateForProject = isolate && hasGit && (selectedProject?.hasGit === true || isolateTouched);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  const refreshAgents = useCallback(() => { void api.agents(true).then(setAgents).catch((e) => setErr(errMsg(e))); }, []);
+  const refreshAgents = useCallback(() => {
+    void api.agents(true).then(setAgents).catch((e) => setErr(errMsg(e)));
+    setModelsAttempt((n) => n + 1);
+  }, []);
   const attach = useAttachments();
 
   // 同じプロジェクトで別のタスクが動いているなら、ぶつからないように既定で「別の作業場所」にする
@@ -53,8 +79,8 @@ export function NewSessionDialog({ open, onClose }: { open: boolean; onClose: ()
     (s) => projectKey(s.project.path) === projectKey(projectPath) && s.origin !== 'external' && isAlive(s.status) && !s.workspace,
   );
   useEffect(() => {
-    if (!isolateTouched) setIsolate(busyInProject);
-  }, [busyInProject, isolateTouched, projectPath]);
+    if (!isolateTouched) setIsolate(selectedProject?.hasGit === true && busyInProject);
+  }, [busyInProject, isolateTouched, projectPath, selectedProject?.hasGit]);
 
   useEffect(() => {
     if (!open) return;
@@ -62,11 +88,54 @@ export function NewSessionDialog({ open, onClose }: { open: boolean; onClose: ()
       .projects()
       .then((p) => {
         setProjects(p);
+        rememberProjects(p);
         setProjectPath((cur) => cur || p[0]?.path || '');
       })
       .catch((e) => setErr(errMsg(e)));
     api.agents().then(setAgents).catch(() => setAgents(null));
+  }, [open, rememberProjects]);
+
+  useEffect(() => {
+    if (!open || agent !== 'codex') return;
+    let active = true;
+    setModelsLoading(true);
+    setCodexModels(null);
+    void api.codexModels(modelsAttempt > 0, projectPath).then((catalog) => {
+      if (active) setCodexModels(catalog);
+    }).catch((e) => {
+      if (active) setCodexModels({ models: [], defaultModel: null, defaultModelId: null, configuredReasoningEffort: null, source: 'unavailable', error: errMsg(e) });
+    }).finally(() => { if (active) setModelsLoading(false); });
+    return () => { active = false; };
+  }, [open, agent, projectPath, modelsAttempt]);
+
+  useEffect(() => { setReasoningEffort(''); }, [model, agent, projectPath]);
+
+  useEffect(() => {
+    codexPermissionTouched.current = false;
+    setCodexPerm(null);
+    setSettingsLoad('loading');
+    setSettingsError('');
   }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    let active = true;
+    setSettingsLoad('loading');
+    setSettingsError('');
+    void api.settings().then(({ settings }) => {
+      if (!active) return;
+      if (!CODEX_PERMISSION_CHOICES.some((p) => p.value === settings.codexPermissionMode)) {
+        throw new Error('Codexの既定の権限を読み取れませんでした');
+      }
+      if (!codexPermissionTouched.current) setCodexPerm(settings.codexPermissionMode);
+      setSettingsLoad('ready');
+    }).catch((e) => {
+      if (!active) return;
+      setSettingsError(errMsg(e));
+      setSettingsLoad('error');
+    });
+    return () => { active = false; };
+  }, [open, settingsAttempt]);
 
   const promptRef = useRef<HTMLTextAreaElement>(null);
   const focusPrompt = () => promptRef.current?.focus();
@@ -91,7 +160,7 @@ export function NewSessionDialog({ open, onClose }: { open: boolean; onClose: ()
   if (!open) return null;
 
   const submit = async () => {
-    if (busy || (!prompt.trim() && !attach.items.length) || !projectPath || agentUnavailable || (comparing && compareModels.length < 2)) return;
+    if (busy || permissionNotReady || effortUnsupported || !perm || (!prompt.trim() && !attach.items.length) || !projectPath || agentUnavailable || (comparing && compareModels.length < 2)) return;
     setBusy(true);
     setErr(null);
     try {
@@ -100,12 +169,14 @@ export function NewSessionDialog({ open, onClose }: { open: boolean; onClose: ()
         const list = await api.compare({ projectPath, prompt, permissionMode: perm, models: compareModels, attachments });
         if (list[0]) openTask(list[0].id);
       } else {
-        const s = await api.create({ projectPath, prompt, agent, model: model || null, permissionMode: perm, isolate, autoMerge: isolate && autoMerge, attachments });
+        const s = await api.create({ projectPath, prompt, agent, model: model || null,
+          ...(agent === 'codex' ? { requestedReasoningEffort: reasoningEffort || null, codexCollaborationMode } : {}),
+          permissionMode: perm, isolate: isolateForProject, autoMerge: isolateForProject && autoMerge, attachments });
         openTask(s.id);
       }
       setPrompt('');
       attach.clear();
-      setIsolateTouched(false);
+      setIsolateTouchedPath(null);
       onClose();
     } catch (e) {
       setErr(errMsg(e));
@@ -116,21 +187,30 @@ export function NewSessionDialog({ open, onClose }: { open: boolean; onClose: ()
 
   const agentHint = AGENT_CHOICES.find((a) => a.value === agent)?.hint ?? '';
   const agentUnavailable = agents?.[agent]?.available === false ? agents[agent].reason : null;
-  const permHint = PERMISSION_CHOICES.find((p) => p.value === perm)?.hint ?? '';
+  const perm = agent === 'codex' ? codexPerm : claudePerm;
+  const permissionNotReady = agent === 'codex' && (settingsLoad !== 'ready' || !codexPerm || modelsLoading);
+  const permissionChoices = agent === 'codex' ? CODEX_PERMISSION_CHOICES : PERMISSION_CHOICES;
+  const permHint = permissionChoices.find((p) => p.value === perm)?.hint ?? '';
   // 「既定」が実際にどのモデルかをサーバーが教えてくれる。Codex は選べるモデルの一覧もサーバーから（手元の Codex が知っているもの）
   const agentInfo = agents?.[agent];
-  const fixedChoices = (agent === 'codex' ? CODEX_MODEL_CHOICES : MODEL_CHOICES).filter((m) => m.value);
+  const fixedChoices = MODEL_CHOICES.filter((m) => m.value);
+  const defaultModel = agent === 'codex' ? codexModels?.defaultModel : agentInfo?.defaultModel;
   const modelChoices: { value: string | null; label: string }[] = [
     {
       value: null,
-      label: agentInfo?.defaultModel
-        ? `既定（今は ${agentInfo.defaultModel}）`
+      label: defaultModel
+        ? `既定（今は ${defaultModel}）`
         : agent === 'codex' ? '既定（Codex の設定）' : '既定（Claude Code の設定）',
     },
-    ...(agent === 'codex' && agentInfo?.models?.length ? agentInfo.models : fixedChoices),
+    ...(agent === 'codex' ? codexModels?.models ?? [] : fixedChoices),
   ];
+  // A refresh never silently replaces a user's model choice with another model.
+  if (model && !modelChoices.some((m) => m.value === model)) modelChoices.push({ value: model, label: `${model}（一覧で未確認）` });
+  const selectedCodexModel = codexModels?.models.find((m) => m.value === (model || codexModels.defaultModelId));
+  const effortChoices = selectedCodexModel?.supportedReasoningEfforts ?? [];
+  const effortUnsupported = agent === 'codex' && !!reasoningEffort && !effortChoices.some((e) => e.reasoningEffort === reasoningEffort);
+  const defaultEffort = codexModels?.configuredReasoningEffort ?? selectedCodexModel?.defaultReasoningEffort;
   // 一覧に無いパス（直接入力）は git かどうか分からないので、チェックは出してサーバー側で確かめる
-  const hasGit = projects.find((p) => p.path === projectPath)?.hasGit ?? true;
   const comparing = agent === 'claude' && hasGit && compare;
   const toggleCompareModel = (v: string) =>
     setCompareModels((cur) => (cur.includes(v) ? cur.filter((x) => x !== v) : [...cur, v]));
@@ -210,6 +290,12 @@ export function NewSessionDialog({ open, onClose }: { open: boolean; onClose: ()
           </div>
 
           {agent === 'codex' && <CodexAccount onChanged={refreshAgents} />}
+          {agent === 'codex' && <label className="text-xs text-zinc-400">作業モード
+            <select aria-label="Codexの作業モード" value={codexCollaborationMode} disabled={busy} onChange={e => setCodexCollaborationMode(e.target.value as 'default' | 'plan')} className="ml-2 bg-zinc-800 rounded px-2 py-1">
+              <option value="default">通常</option><option value="plan">計画</option>
+            </select>
+            <span className="block mt-1">{codexCollaborationMode === 'plan' ? '実装を始める前に、調査・質問をして計画を立てます。' : '依頼に応じて調査・編集・検証を進めます。'}</span>
+          </label>}
           <div {...attach.dropProps} className="flex-1 flex flex-col gap-2 min-h-0">
             <textarea
               ref={promptRef}
@@ -232,6 +318,7 @@ export function NewSessionDialog({ open, onClose }: { open: boolean; onClose: ()
               モデル
               <select
                 value={model}
+                disabled={busy || (agent === 'codex' && modelsLoading)}
                 onChange={(e) => setModel(e.target.value)}
                 className="bg-black/30 border border-zinc-700 rounded px-2 py-1 text-sm text-zinc-200"
               >
@@ -242,26 +329,54 @@ export function NewSessionDialog({ open, onClose }: { open: boolean; onClose: ()
                 ))}
               </select>
             </label>
-            {agent === 'claude' ? (
+            {agent === 'codex' && <label className="text-xs text-zinc-500 flex items-center gap-2">
+              推論の深さ
+              <select aria-label="推論の深さ" value={reasoningEffort}
+                disabled={busy || modelsLoading || (!effortChoices.length && !reasoningEffort)}
+                onChange={(e) => setReasoningEffort(e.target.value)}
+                className="bg-black/30 border border-zinc-700 rounded px-2 py-1 text-sm text-zinc-200">
+                <option value="">{defaultEffort ? `既定（${defaultEffort}）` : '既定（Codex の設定）'}</option>
+                {effortUnsupported && <option value={reasoningEffort} disabled>{reasoningEffort}（対応を確認できません）</option>}
+                {effortChoices.map((effort) => <option key={effort.reasoningEffort} value={effort.reasoningEffort} title={effort.description}>{effort.reasoningEffort}</option>)}
+              </select>
+            </label>}
               <label className="text-xs text-zinc-500 flex items-center gap-2">
                 許可
                 <select
-                  value={perm}
-                  onChange={(e) => setPerm(e.target.value as PermissionChoice)}
+                  aria-label="許可"
+                  value={perm ?? ''}
+                  disabled={busy}
+                  onChange={(e) => {
+                    const mode = e.target.value as PermissionChoice;
+                    if (agent === 'codex') {
+                      codexPermissionTouched.current = true;
+                      setCodexPerm(mode);
+                    } else setClaudePerm(mode);
+                  }}
                   className="bg-black/30 border border-zinc-700 rounded px-2 py-1 text-sm text-zinc-200"
                 >
-                  {PERMISSION_CHOICES.map((p) => (
+                  {perm === null && <option value="" disabled>既定の権限を読み込み中…</option>}
+                  {permissionChoices.map((p) => (
                     <option key={p.value} value={p.value}>
                       {p.label}
                     </option>
                   ))}
                 </select>
               </label>
-            ) : (
-              <span className="text-xs text-zinc-500">砂場: 作業フォルダ内のみ書き込み可・ネットワーク無し</span>
-            )}
-            {agent === 'claude' && <span className="text-xs text-zinc-600">{permHint}</span>}
+            <span className="text-xs text-zinc-400">{permHint}</span>
           </div>
+          {agent === 'codex' && modelsLoading && <p role="status" className="text-xs text-zinc-400">Codexのモデルと推論設定を確認しています…</p>}
+          {effortUnsupported && !modelsLoading && <p role="alert" className="text-xs text-amber-300">選択した推論の深さは現在のモデルで確認できません。対応する設定か「既定」を選んでください。</p>}
+          {agent === 'codex' && codexModels && codexModels.source !== 'live' && <p role="status" className="text-xs text-amber-300">
+            {codexModels.source === 'cache' ? 'モデル一覧はローカルキャッシュです。現在利用できる設定は確認できていません。' : 'モデル一覧を取得できませんでした。既定の設定で起動できます。'}
+            {codexModels.error && <span> {codexModels.error}</span>}
+            <button type="button" className="underline ml-2" onClick={() => setModelsAttempt((n) => n + 1)}>再取得</button>
+          </p>}
+          {agent === 'codex' && settingsLoad === 'loading' && <p role="status" className="text-xs text-zinc-400">Codexの既定の権限を読み込んでいます。読み込み後に起動できます。</p>}
+          {agent === 'codex' && settingsLoad === 'error' && <div role="alert" className="text-xs text-red-300">
+            <p>Codexの既定の権限を読み込めませんでした: {settingsError}</p>
+            <button type="button" className={`${btn.base} ${btn.ghost} mt-1`} onClick={() => setSettingsAttempt((n) => n + 1)}>権限設定を再読み込み</button>
+          </div>}
           {hasGit && agent === 'claude' && (
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
               <label
@@ -301,7 +416,7 @@ export function NewSessionDialog({ open, onClose }: { open: boolean; onClose: ()
                   checked={isolate}
                   onChange={(e) => {
                     setIsolate(e.target.checked);
-                    setIsolateTouched(true);
+                    setIsolateTouchedPath(projectKey(projectPath));
                   }}
                   className="accent-fuchsia-500"
                 />
@@ -324,7 +439,7 @@ export function NewSessionDialog({ open, onClose }: { open: boolean; onClose: ()
             <AttachButton state={attach} disabled={busy} />
             <span className="text-xs text-zinc-600">Ctrl+Enter で起動</span>
             <button
-              disabled={busy || (!prompt.trim() && !attach.items.length) || !projectPath || !!agentUnavailable || (comparing && compareModels.length < 2)}
+              disabled={busy || permissionNotReady || effortUnsupported || (!prompt.trim() && !attach.items.length) || !projectPath || !!agentUnavailable || (comparing && compareModels.length < 2)}
               onClick={submit}
               className={`${btn.base} ${btn.primary} ml-auto px-5`}
             >

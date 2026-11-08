@@ -1,0 +1,149 @@
+{
+  "passed": true,
+  "scenario": "sync",
+  "sessionId": "a0e5ad35-650e-4508-ae3f-a9916e41b8be",
+  "thread": "01a09941-f8fe-7543-a17a-eb19d1ba6ce5",
+  "requestId": "59ef8e3d-a469-42cc-a07e-d87ab6b55270",
+  "questionIds": [
+    "first",
+    "second"
+  ],
+  "initialStatus": "waiting_question",
+  "sameThread": true,
+  "modelAcknowledged": true,
+  "secretsAbsentFromTimeline": true,
+  "websocket": [
+    {
+      "at": 1789279153748,
+      "status": "running",
+      "toolCalls": 8
+    },
+    {
+      "at": 1789279156037,
+      "status": "running",
+      "toolCalls": 8
+    },
+    {
+      "at": 1789279157276,
+      "status": "running",
+      "toolCalls": 8
+    },
+    {
+      "at": 1789279157531,
+      "status": "running",
+      "toolCalls": 8
+    },
+    {
+      "at": 1789279157829,
+      "status": "running",
+      "toolCalls": 8
+    },
+    {
+      "at": 1789279158111,
+      "status": "running",
+      "toolCalls": 8
+    },
+    {
+      "at": 1789279158385,
+      "status": "running",
+      "toolCalls": 8
+    },
+    {
+      "at": 1789279162076,
+      "status": "waiting_question",
+      "requestId": "59ef8e3d-a469-42cc-a07e-d87ab6b55270",
+      "toolCalls": 8
+    },
+    {
+      "at": 1789279162498,
+      "status": "running",
+      "toolCalls": 8
+    },
+    {
+      "at": 1789279162521,
+      "status": "running",
+      "toolCalls": 8
+    },
+    {
+      "at": 1789279164825,
+      "status": "running",
+      "toolCalls": 8
+    },
+    {
+      "at": 1789279165060,
+      "status": "running",
+      "toolCalls": 8
+    },
+    {
+      "at": 1789279165308,
+      "status": "running",
+      "toolCalls": 8
+    },
+    {
+      "at": 1789279165524,
+      "status": "running",
+      "toolCalls": 8
+    },
+    {
+      "at": 1789279165740,
+      "status": "running",
+      "toolCalls": 8
+    },
+    {
+      "at": 1789279165971,
+      "status": "running",
+      "toolCalls": 8
+    },
+    {
+      "at": 1789279166202,
+      "status": "running",
+      "toolCalls": 8
+    },
+    {
+      "at": 1789279166437,
+      "status": "running",
+      "toolCalls": 8
+    },
+    {
+      "at": 1789279166654,
+      "status": "running",
+      "toolCalls": 8
+    },
+    {
+      "at": 1789279166885,
+      "status": "running",
+      "toolCalls": 8
+    },
+    {
+      "at": 1789279167117,
+      "status": "running",
+      "toolCalls": 8
+    },
+    {
+      "at": 1789279167333,
+      "status": "running",
+      "toolCalls": 8
+    },
+    {
+      "at": 1789279167579,
+      "status": "running",
+      "toolCalls": 8
+    },
+    {
+      "at": 1789279167636,
+      "status": "running",
+      "toolCalls": 8
+    },
+    {
+      "at": 1789279167680,
+      "status": "running",
+      "toolCalls": 8
+    },
+    {
+      "at": 1789279167692,
+      "status": "idle",
+      "toolCalls": 8
+    }
+  ],
+  "errors": []
+}

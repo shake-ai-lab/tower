@@ -38,7 +38,7 @@ function notify(s: Session) {
   if (!('Notification' in window) || Notification.permission !== 'granted' || !needsYou(s)) return;
   const p = s.pending;
   const title = `${s.project.name}: ${!p ? '判断が必要です' : p.kind === 'permission' ? '許可待ち' : '質問があります'}`;
-  const body = !p ? (s.report?.needsDecision ?? s.report?.summary[0] ?? '') : p.kind === 'permission' ? p.headline : (p.questions[0]?.question ?? '');
+  const body = !p ? (s.report?.needsDecision ?? s.report?.summary[0] ?? '') : p.kind === 'permission' ? p.headline : p.kind === 'form' ? `${p.serverName}から入力の依頼があります` : (p.questions[0]?.question ?? '');
   try {
     new Notification(title, { body, tag: needsYouKey(s) });
   } catch {

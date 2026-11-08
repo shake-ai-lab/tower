@@ -22,6 +22,7 @@ import {
 } from '@tower/shared';
 import { ClaudeRunner } from './agents/claude.ts';
 import { CodexRunner } from './agents/codex.ts';
+import { asyncQuestionAnswer } from './agents/codex-translate.ts';
 import type { AgentRunner } from './agents/types.ts';
 import { checkUploads, removeAttachments, saveAttachments } from './attachments.ts';
 import { autoCommitEnabled, commitTaskWork, type CommitOutcome } from './commit.ts';
@@ -115,8 +116,23 @@ export class SessionManager {
   /** 直近に見た報告の時刻。新しい報告が来た時だけ「報告後の仕事」（見た目の撮影）を走らせる */
   private lastReportAt = new Map<string, number>();
   private capturing = new Set<string>();
+  private verificationControllers = new Map<string, Set<AbortController>>();
 
-  constructor(private hub: Hub) {
+  private trackVerification(id: string): AbortController {
+    const controller = new AbortController();
+    const list = this.verificationControllers.get(id) ?? new Set<AbortController>();
+    list.add(controller);
+    this.verificationControllers.set(id, list);
+    return controller;
+  }
+
+  private untrackVerification(id: string, controller: AbortController) {
+    const list = this.verificationControllers.get(id);
+    list?.delete(controller);
+    if (!list?.size) this.verificationControllers.delete(id);
+  }
+
+  constructor(private hub: Hub, private codexPermissionDefault: () => PermissionChoice = () => 'acceptEdits') {
     for (const s of hub.sessions.values()) this.lastReportAt.set(s.id, s.report?.generatedAt ?? 0);
     // ランナーに手を入れずに「報告が来た」を拾う（外部セッションの報告にも効く）
     hub.subscribe((ev) => {
@@ -169,6 +185,7 @@ export class SessionManager {
     const ws = s.workspace;
     if (!ws || s.status !== 'idle' || !s.report) return;
     const at = s.report.generatedAt;
+    if (at < (s.lastInstructionAt ?? 0)) return; // 再開前の報告で新しい作業を取り込まない
     const retry = !!ws.mergeFix && at > ws.mergeFix.at;
     if (ws.mergeFix && !retry) return; // AI に合わせてもらっている最中
     if (!retry && !(ws.autoMerge && s.report.outcome === 'done')) return;
@@ -205,6 +222,7 @@ export class SessionManager {
   }
 
   create(body: CreateSessionBody): Session {
+    if (body.codexCollaborationMode !== undefined && !['default', 'plan'].includes(body.codexCollaborationMode)) throw new Error('Codexの作業モードが不正です');
     if (body.permissionMode !== undefined && !PERMISSION_CHOICES.some((p) => p.value === body.permissionMode)) {
       throw new Error('許可方針が不正です');
     }
@@ -217,6 +235,9 @@ export class SessionManager {
     const prompt = (typeof body.prompt === 'string' ? body.prompt : '').trim() || (uploads.length ? DEFAULT_ATTACH_PROMPT : '');
     if (!prompt) throw new Error('指示が空です');
     const agent: AgentKind = body.agent === 'codex' ? 'codex' : 'claude';
+    if (body.requestedReasoningEffort != null && (typeof body.requestedReasoningEffort !== 'string' || !/^[a-z][a-z0-9_-]{0,39}$/.test(body.requestedReasoningEffort))) {
+      throw new Error('推論設定が不正です');
+    }
     if (agent === 'codex') {
       const a = codexAvailability();
       if (!a.available) throw new Error(a.reason ?? 'Codex が使えません');
@@ -243,7 +264,9 @@ export class SessionManager {
       title: prompt.split(/\r?\n/)[0].slice(0, 60),
       prompt,
       model: body.model ?? null,
-      permissionMode: body.permissionMode ?? 'acceptEdits',
+      requestedReasoningEffort: agent === 'codex' ? body.requestedReasoningEffort ?? null : null,
+      codexCollaborationMode: agent === 'codex' && body.codexCollaborationMode === 'plan' ? 'plan' : undefined,
+      permissionMode: body.permissionMode ?? (agent === 'codex' ? this.codexPermissionDefault() : 'acceptEdits'),
       status: 'starting',
       activity: '起動しています…',
       pending: null,
@@ -344,9 +367,14 @@ export class SessionManager {
     const cmd = detectVerifyCommand(dir, s.project.path);
     if (!cmd) return;
     const at = Date.now();
-    const r = await runVerify(dir, cmd);
+    const controller = this.trackVerification(s.id);
+    this.hub.update(s.id, { baseline: { command: cmd, ok: null, output: '', at, durationMs: 0 } });
+    let r;
+    try { r = await runVerify(dir, cmd, undefined, controller.signal); }
+    finally { this.untrackVerification(s.id, controller); }
     if (!this.hub.get(s.id)) return; // その間に消された
     this.hub.update(s.id, { baseline: { command: cmd, ok: r.ok, output: r.output, summary: r.summary, failed: r.failed, at, durationMs: r.durationMs } });
+    if (controller.signal.aborted) return;
     this.note(
       s.id,
       'system',
@@ -395,7 +423,7 @@ export class SessionManager {
   }
 
   /** 追加指示。動いていなければ会話IDで再開する（外部セッションはここで Tower が引き継ぐ）。auto = 起動時の自動再開 */
-  send(id: string, text: string, uploads?: AttachmentUpload[], opts?: { auto?: boolean }): void {
+  send(id: string, text: string, uploads?: AttachmentUpload[], opts?: { auto?: boolean; historyText?: string; asyncQuestionId?: string }): void {
     const s = this.hub.get(id);
     if (!s) throw new Error('セッションが見つかりません');
     const checked = checkUploads(uploads);
@@ -431,7 +459,7 @@ export class SessionManager {
     if (Object.keys(patch).length) this.hub.update(id, patch);
     const running = this.runners.get(id);
     if (running) {
-      running.send(message, attachments);
+      running.send(message, attachments, opts?.historyText, opts?.asyncQuestionId);
       return;
     }
     this.hub.update(id, {
@@ -443,12 +471,25 @@ export class SessionManager {
           : '続きから再開しています…',
       origin: 'tower',
       lastError: null,
-      pending: null,
-      pendingCount: 0,
+      pending: s.agent === 'codex' ? s.asyncQuestions?.[0] ?? null : null,
+      pendingCount: s.agent === 'codex' ? s.asyncQuestions?.length ?? 0 : 0,
     });
     const runner = this.makeRunner(s);
     this.runners.set(id, runner);
-    runner.start(message, s.agentSessionId!, attachments);
+    runner.start(message, s.agentSessionId!, attachments, opts?.historyText, opts?.asyncQuestionId);
+  }
+
+  answerQuestion(id: string, requestId: string, answers: Record<string, string>): boolean {
+    const session = this.hub.get(id);
+    if (!session) return false;
+    const runner = this.runners.get(id);
+    if (runner && !['stopped', 'error', 'done'].includes(session.status)) return runner.answerQuestion(requestId, answers);
+    const pending = session.agent === 'codex' ? session.asyncQuestions?.find((p) => p.id === requestId) : undefined;
+    if (!pending) return false;
+    const response = asyncQuestionAnswer(pending, answers);
+    if (runner) this.runners.delete(id); // 終了済みランナーへ送らず、同じ会話を再開する
+    this.send(id, response.text, undefined, { historyText: response.history, asyncQuestionId: requestId });
+    return true;
   }
 
   /** 画面から直接編集してよい状態なら、作業フォルダを返す */
@@ -470,6 +511,7 @@ export class SessionManager {
     const already = s.changedFiles.some((f) => f === rel || path.resolve(workDir(s), f) === abs);
     this.hub.update(id, {
       manualEdits: [...new Set([...(s.manualEdits ?? []), rel])],
+      lastManualEditAt: Date.now(),
       changedFiles: already ? s.changedFiles : [...s.changedFiles, abs],
     });
     // 外部（VS Code など）のセッションは、Tower から指示を送って引き継いだ時だけ伝えられる
@@ -490,14 +532,18 @@ export class SessionManager {
     const cmd = detectVerifyCommand(dir, s.project.path);
     if (!cmd || this.verifying.has(id)) return;
     this.verifying.add(id);
+    const controller = this.trackVerification(id);
     const at = Date.now();
     this.hub.update(id, { verification: { command: cmd, ok: null, output: '', at, durationMs: 0 } });
     try {
-      const r = await runVerify(dir, cmd);
+      const r = await runVerify(dir, cmd, undefined, controller.signal);
+      if (this.hub.get(id)?.verification?.at !== at) return;
       this.hub.update(id, { verification: { command: cmd, ok: r.ok, output: r.output, summary: r.summary, failed: r.failed, at, durationMs: r.durationMs } });
+      if (controller.signal.aborted) return;
       this.note(id, 'system', r.ok ? `自動チェック 成功: ${cmd}` : `自動チェック 失敗: ${cmd}`, r.output);
     } finally {
       this.verifying.delete(id);
+      this.untrackVerification(id, controller);
     }
   }
 
@@ -509,7 +555,7 @@ export class SessionManager {
     if (!PERMISSION_CHOICES.some((p) => p.value === mode)) throw new Error('許可方針が不正です');
     const session = this.hub.get(id);
     if (!session) throw new Error('セッションが見つかりません');
-    if (session.agent !== 'claude' || session.origin === 'external') throw new Error('Towerで動かしているClaudeタスクで変更できます');
+    if (session.origin === 'external') throw new Error('Towerで動かしているタスクで変更できます');
     const runner = this.runners.get(id);
     if (runner) {
       if (!runner.setPermissionMode) throw new Error('このタスクは許可方針の変更に対応していません');
@@ -523,13 +569,26 @@ export class SessionManager {
     return current;
   }
 
+  setCodexCollaborationMode(id: string, mode: unknown): Session {
+    if (mode !== 'default' && mode !== 'plan') throw new Error('Codexの作業モードが不正です');
+    const session = this.hub.get(id);
+    if (!session) throw new Error('セッションが見つかりません');
+    if (session.agent !== 'codex' || session.origin === 'external') throw new Error('TowerのCodexタスクでのみ変更できます');
+    if ((session.codexCollaborationMode ?? 'default') === mode) return session;
+    const next = this.hub.update(id, { codexCollaborationMode: mode })!;
+    this.note(id, 'system', `作業モードを「${mode === 'plan' ? '計画' : '通常'}」に変更しました。現在の応答が終わった後の新しい指示から反映します。`);
+    return next;
+  }
+
   async stop(id: string) {
+    for (const controller of this.verificationControllers.get(id) ?? []) controller.abort();
     const r = this.runners.get(id);
     if (!r) {
       // サーバー再起動後の「報告あり」は動いているプロセスが無いので、状態だけ止めた扱いにする
       const s = this.hub.get(id);
       if (s?.status !== 'idle' || s.origin === 'external') return false;
-      this.hub.update(id, { status: 'stopped', activity: '停止しました', pending: null, pendingCount: 0 });
+      const questions = this.hub.get(id)?.asyncQuestions ?? [];
+      this.hub.update(id, { status: 'stopped', activity: '停止しました', pending: questions[0] ?? null, pendingCount: questions.length });
       return true;
     }
     await r.stop();
@@ -545,6 +604,7 @@ export class SessionManager {
   async complete(id: string): Promise<Session> {
     const s = this.hub.get(id);
     if (!s) throw new Error('セッションが見つかりません');
+    for (const controller of this.verificationControllers.get(id) ?? []) controller.abort();
     if (s.status === 'done' && s.completedByUser) return s;
     if (s.origin === 'external' && WORKING.includes(s.status)) {
       throw new Error(`いま ${s.externalHint ?? 'Tower の外'} で作業中なので、ここからは完了にできません。向こうで止めるか、終わってから押してください`);
@@ -647,6 +707,6 @@ export class SessionManager {
   }
 
   async stopAll() {
-    await Promise.all([...this.runners.keys()].map((id) => this.stop(id)));
+    await Promise.all([...new Set([...this.runners.keys(), ...this.verificationControllers.keys()])].map((id) => this.stop(id)));
   }
 }

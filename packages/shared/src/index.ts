@@ -23,6 +23,14 @@ export const PERMISSION_CHOICES: { value: PermissionChoice; label: string; hint:
   { value: 'bypassPermissions', label: '全自動', hint: 'ツールの許可確認を省略して実行します。コマンドや削除も確認されません。質問への回答は必要です。' },
 ];
 
+/** Codex の承認方針と書き込み範囲に対応した説明。Claude の自動承認とは異なる。 */
+export const CODEX_PERMISSION_CHOICES: typeof PERMISSION_CHOICES = [
+  { value: 'acceptEdits', label: '編集は自動', hint: '作業フォルダと一時フォルダの編集を許可。Codex が確認を求めるコマンドは承認待ちになります。ネット接続は可能です。' },
+  { value: 'default', label: '変更は確認', hint: '通常は読み取りのみ。ファイルの変更や Codex が確認を求めるコマンドは承認待ちになります。ネット接続は可能です。' },
+  { value: 'auto', label: '作業フォルダ内は自動', hint: '作業フォルダと一時フォルダで編集・コマンド実行を許可。範囲を広げる必要がある場合は Codex が確認を求めます。ネット接続は可能です。' },
+  { value: 'bypassPermissions', label: 'フルアクセス', hint: 'ファイル操作・コマンド実行・ネット接続の制限と承認確認を外します。作業フォルダ外の変更や削除も可能です。質問への回答は必要です。' },
+];
+
 export interface ProjectRef {
   path: string;
   name: string;
@@ -55,6 +63,8 @@ export interface QuestionOption {
 }
 
 export interface Question {
+  id?: string;
+  isSecret?: boolean;
   question: string;
   header: string;
   options: QuestionOption[];
@@ -65,10 +75,31 @@ export interface PendingQuestion {
   id: string;
   kind: 'question';
   questions: Question[];
+  delivery?: 'async';
+  itemId?: string;
+  answerError?: string;
   createdAt: number;
 }
 
-export type PendingRequest = PendingPermission | PendingQuestion;
+export { validateFormContent, prepareFormValidator, formUploadConfig, formImageChoices, formFileChoices } from './forms.ts';
+export type { FormSchema, JsonValue, FormUploadConfig, FormImageChoice, FormFileChoice } from './forms.ts';
+
+export interface PendingForm {
+  id: string;
+  kind: 'form';
+  serverName: string;
+  message: string;
+  schema: import('./forms.ts').FormSchema;
+  createdAt: number;
+}
+
+export interface FormAnswerBody {
+  requestId: string;
+  action: 'accept' | 'decline' | 'cancel';
+  content?: import('./forms.ts').JsonValue;
+}
+
+export type PendingRequest = PendingPermission | PendingQuestion | PendingForm;
 
 export type ReportOutcome = 'done' | 'partial' | 'failed' | 'question' | 'unknown';
 
@@ -212,6 +243,14 @@ export interface TaskCommit {
 /** セッションが実際に作業しているフォルダ */
 export const workDir = (s: Pick<Session, 'project' | 'workspace'>): string => s.workspace?.path ?? s.project.path;
 
+/** 確定前の出力。完了後は消え、確定した内容だけが経過に残る */
+export interface LiveOutput {
+  itemId: string;
+  kind: 'assistant_text' | 'command_output';
+  text: string;
+  truncated: boolean;
+}
+
 export interface Session {
   id: string;
   agent: AgentKind;
@@ -226,19 +265,32 @@ export interface Session {
   workspace?: Workspace | null;
   /** 利用者が画面から直接編集したファイル（前回の指示以降）。次の指示でエージェントに伝えて空にする */
   manualEdits?: string[];
+  /** 画面から最後に直接編集した時刻。取り込み後に追加の変更があるかを判定する。 */
+  lastManualEditAt?: number;
   /** 一覧に出す短い題名（最初の指示の先頭） */
   title: string;
   prompt: string;
   model: string | null;
+  effectiveModel?: string | null;
+  requestedReasoningEffort?: string | null;
+  /** 未設定はCodexの通常設定を維持。明示的な計画→通常の変更はdefaultとして保存。 */
+  codexCollaborationMode?: 'default' | 'plan';
+  reasoningEffort?: string | null;
+  subagents?: Array<{ id: string; name?: string; status: string; message?: string; model?: string | null; reasoningEffort?: string | null }>;
   permissionMode: PermissionChoice;
   status: SessionStatus;
   /** 今やってること1行 */
   activity: string;
+  liveOutput?: LiveOutput[] | null;
   /** いま判断してほしいもの（複数来た時は先頭。残りは pendingCount で示す） */
   pending: PendingRequest | null;
   /** 判断待ちの総数（pending を含む） */
   pendingCount?: number;
+  asyncQuestions?: PendingQuestion[];
+  resolvedAsyncQuestionIds?: string[];
   report: Report | null;
+  /** 最後に指示を受け取った時刻。報告・検証・取り込みが前回の作業のものかを判定する */
+  lastInstructionAt?: number;
   /** 直近の報告に対する自動チェック */
   verification?: Verification | null;
   /** 起動直後（エージェントが手を付ける前）の自動チェック。「修正前 → 修正後」の対比用 */
@@ -332,6 +384,8 @@ export type ServerEvent =
 
 // ---- REST ボディ ----
 export interface CreateSessionBody {
+  codexCollaborationMode?: 'default' | 'plan';
+  requestedReasoningEffort?: string | null;
   projectPath: string;
   prompt: string;
   agent?: AgentKind;
@@ -542,6 +596,8 @@ export function imageType(p: string): string | null {
 // ---- 設定（~/.tower/config.json。画面の「設定」から変えられる） ----
 
 export interface TowerSettings {
+  /** 新しい Codex タスクの既定の権限。既存タスクの選択は変更しない */
+  codexPermissionMode: PermissionChoice;
   /** 127.0.0.1 = このPCのみ。0.0.0.0 にすると同じWi-Fiのスマホからも開ける（要再起動） */
   host: string;
   /** 待ち受けポート（要再起動） */

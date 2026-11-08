@@ -145,7 +145,7 @@ export const RISK: Record<RiskLevel, { label: string; cls: string }> = {
 
 // 判断待ちかどうかの判定は task-state.ts（札・完了ボタン・畳み方と同じ所）にある
 export { needsYou } from './task-state';
-import { onlyOldFailures } from './task-state';
+import { onlyOldFailures, verificationIsStale } from './task-state';
 
 /** 判断待ちになった時刻（インボックスの並び順と「◯分前」用） */
 export const needsYouSince = (s: Session): number => s.pending?.createdAt ?? s.report?.generatedAt ?? s.updatedAt;
@@ -154,9 +154,10 @@ export const ALIVE: SessionStatus[] =['starting', 'running', 'waiting_permission
 export const isAlive = (s: SessionStatus) => ALIVE.includes(s);
 
 /** 裏取りの一言バッジ（一覧カードと「比べる」の表で共通）。修正前の結果があれば「直った / 壊れた / まだNG」 */
-export function verifyBadge(s: Pick<Session, 'verification' | 'baseline'>): { text: string; cls: string } | null {
+export function verifyBadge(s: Pick<Session, 'verification' | 'baseline'> & Partial<Pick<Session, 'report' | 'lastInstructionAt' | 'lastManualEditAt'>>): { text: string; cls: string } | null {
   const v = s.verification;
   if (!v) return null;
+  if (verificationIsStale(s)) return { text: '前回のチェック', cls: 'bg-zinc-800 text-zinc-400' };
   if (v.ok === null) return { text: '⏳ 確認中', cls: 'bg-zinc-800 text-zinc-400' };
   if (v.ok) return { text: s.baseline?.ok === false ? '✔ 直った' : '✔ 裏取りOK', cls: 'bg-emerald-900/70 text-emerald-200' };
   if (onlyOldFailures(s)) return { text: '△ 前からの失敗', cls: 'bg-amber-900/70 text-amber-200' };

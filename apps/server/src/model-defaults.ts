@@ -11,6 +11,9 @@ import { MODEL_CHOICES, modelLabel } from '@tower/shared';
 export interface ModelOption {
   value: string;
   label: string;
+  supportedReasoningEfforts?: { reasoningEffort: string; description: string }[];
+  defaultReasoningEffort?: string | null;
+  isDefault?: boolean;
 }
 
 const codexHome = () => process.env.CODEX_HOME || path.join(os.homedir(), '.codex');
@@ -39,6 +42,8 @@ interface CachedModel {
   description?: string;
   visibility?: string;
   priority?: number;
+  supported_reasoning_levels?: { effort?: string; description?: string }[];
+  default_reasoning_level?: string;
 }
 
 /** Codex で選べるモデル（隠しモデルを除いて Codex の並び順）と、既定のモデルの名前 */
@@ -54,7 +59,14 @@ export function codexModels(home = codexHome()): { models: ModelOption[]; defaul
   const shown = list.filter((m) => m.visibility !== 'hide').sort((a, b) => (a.priority ?? 999) - (b.priority ?? 999));
   const models = shown.map((m) => {
     const hint = codexHint(m.description ?? '');
-    return { value: m.slug!, label: hint ? `${name(m)}（${hint}）` : name(m) };
+    return {
+      value: m.slug!, label: hint ? `${name(m)}（${hint}）` : name(m),
+      ...(Array.isArray(m.supported_reasoning_levels) ? {
+        supportedReasoningEfforts: m.supported_reasoning_levels.filter((r) => typeof r?.effort === 'string')
+          .map((r) => ({ reasoningEffort: r.effort!, description: r.description ?? '' })),
+      } : {}),
+      ...(typeof m.default_reasoning_level === 'string' ? { defaultReasoningEffort: m.default_reasoning_level } : {}),
+    };
   });
   let configured: string | null = null;
   try {
@@ -65,6 +77,25 @@ export function codexModels(home = codexHome()): { models: ModelOption[]; defaul
   const slug = configured ?? shown[0]?.slug ?? null;
   const hit = list.find((m) => m.slug === slug);
   return { models, defaultModel: slug ? (hit ? name(hit) : slug) : null };
+}
+
+/** RPC が使えない時だけ表示する、未検証のローカルキャッシュ。既定を先頭モデルから推測しない。 */
+export function codexModelFallback(home = codexHome()) {
+  const cached = codexModels(home);
+  let defaultModelId: string | null = null;
+  let configuredReasoningEffort: string | null = null;
+  try {
+    const toml = fs.readFileSync(path.join(home, 'config.toml'), 'utf8');
+    defaultModelId = configModel(toml);
+    configuredReasoningEffort = toml.split(/^[ \t]*\[/m)[0]
+      .match(/^[ \t]*model_reasoning_effort[ \t]*=[ \t]*["']([^"']+)["']/m)?.[1] ?? null;
+  } catch { /* no cached configuration */ }
+  return {
+    models: cached.models,
+    defaultModel: defaultModelId ? cached.defaultModel : null,
+    defaultModelId,
+    configuredReasoningEffort,
+  };
 }
 
 /** Claude のモデル指定（"opus[1m]" や "claude-sonnet-5"）を画面の名前に */

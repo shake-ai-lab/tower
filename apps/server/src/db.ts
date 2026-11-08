@@ -178,4 +178,12 @@ export class Db {
       .all(sessionId, limit) as { json: string }[];
     return rows.map((r) => JSON.parse(r.json) as TimelineItem).reverse();
   }
+
+  /** 表示用の件数制限に関係なく、最後の指示時刻を復元する */
+  lastInstructionAt(sessionId: string): number | undefined {
+    const row = this.db
+      .prepare("SELECT MAX(ts) AS ts FROM timeline WHERE session_id = ? AND json_extract(json, '$.kind') = 'user'")
+      .get(sessionId) as { ts: number | null };
+    return row.ts ?? undefined;
+  }
 }

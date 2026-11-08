@@ -1,0 +1,44 @@
+{
+  "passed": true,
+  "health": {
+    "ok": true,
+    "sessions": 40,
+    "version": "0.2.0"
+  },
+  "serverHash": "929650d360fdda036672af32e9c379ce770a5a6d3760032f82428de48eac35b3",
+  "webHash": "c158aff7ee37d2466c1a90af824d778abd7cdae797afc81cd46ff47f0ea4737b",
+  "models": {
+    "source": "live",
+    "count": 6,
+    "defaultModel": "gpt-6-astra"
+  },
+  "skills": {
+    "status": "ready",
+    "count": 13
+  },
+  "mcp": {
+    "status": "ready",
+    "items": [
+      {
+        "name": "codex_apps",
+        "runtimeStatus": null,
+        "tools": 50
+      },
+      {
+        "name": "cua_repl",
+        "runtimeStatus": null,
+        "tools": 3
+      },
+      {
+        "name": "node_repl",
+        "runtimeStatus": null,
+        "tools": 4
+      }
+    ]
+  },
+  "plugins": {
+    "status": "ready",
+    "count": 77,
+    "installed": 9
+  }
+}

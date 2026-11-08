@@ -164,6 +164,9 @@ async function step(tr: Track, s: Session) {
         method: 'POST',
         body: JSON.stringify({ requestId: s.pending.id, decision: d.decision, message: d.reason }),
       }).catch((e) => console.warn('  permission post failed:', e.message));
+    } else if (s.pending.kind === 'form') {
+      // 自動の利用者役はフォームの入力内容を推測して送らない。
+      await api(`/sessions/${tr.sessionId}/form-answer`, { method: 'POST', body: JSON.stringify({ requestId: s.pending.id, action: 'cancel' }) });
     } else {
       const answers = await answerQuestion(tr, s.pending);
       tr.questions.push({ t: now(), q: s.pending, answers });

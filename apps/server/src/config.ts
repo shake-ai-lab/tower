@@ -2,7 +2,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import type { TowerSettings } from '@tower/shared';
+import { PERMISSION_CHOICES, type TowerSettings } from '@tower/shared';
 
 /** 項目の意味は packages/shared の TowerSettings を参照 */
 export type TowerConfig = TowerSettings;
@@ -17,6 +17,7 @@ function defaultRoots(): string[] {
 
 function defaults(): TowerConfig {
   return {
+    codexPermissionMode: 'acceptEdits',
     host: '127.0.0.1',
     port: 4800,
     projectRoots: defaultRoots(),
@@ -73,6 +74,10 @@ export function saveConfig(patch: Partial<TowerConfig>): TowerConfig {
 /** 画面から来た設定を確かめる。おかしければ利用者向けの日本語で投げる */
 export function validateSettings(body: Partial<TowerSettings>): Partial<TowerSettings> {
   const out: Partial<TowerSettings> = {};
+  if (body.codexPermissionMode !== undefined) {
+    if (!PERMISSION_CHOICES.some((p) => p.value === body.codexPermissionMode)) throw new Error('Codex の既定の権限が不正です');
+    out.codexPermissionMode = body.codexPermissionMode;
+  }
   const int = (v: unknown, name: string, min: number, max: number): number => {
     const n = typeof v === 'string' ? Number(v) : v;
     if (typeof n !== 'number' || !Number.isInteger(n) || n < min || n > max) {

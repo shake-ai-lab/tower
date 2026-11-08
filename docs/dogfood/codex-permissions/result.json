@@ -1,0 +1,15 @@
+{
+  "passed": true,
+  "settings": "auto",
+  "created": [
+    "bypassPermissions",
+    "default"
+  ],
+  "updates": [
+    {
+      "mode": "default"
+    }
+  ],
+  "errors": [],
+  "unexpected": []
+}

@@ -143,37 +143,71 @@ export function failedTests(output: string): string[] {
 // 色付けの記号。pytest は FORCE_COLOR があると値が 0 でも色を付けるので、件数や名前が拾えなくなっていた
 const ANSI = /\x1b\[[0-9;?]*[A-Za-z]/g;
 
+export interface VerifyResult {
+  ok: boolean;
+  cancelled: boolean;
+  timedOut: boolean;
+  output: string;
+  summary: string | null;
+  failed: string[];
+  durationMs: number;
+}
+
 export function runVerify(
   projectPath: string,
   command: string,
   // 専用の Python で本物のテストを走らせると 100 秒を超えるプロジェクトもある（2 分で切ると毎回「失敗」になる）
   timeoutMs = 300_000,
-): Promise<{ ok: boolean; output: string; summary: string | null; failed: string[]; durationMs: number }> {
+  signal?: AbortSignal,
+): Promise<VerifyResult> {
   return new Promise((resolve) => {
     const t0 = Date.now();
+    if (signal?.aborted) {
+      resolve({ ok: false, cancelled: true, timedOut: false, output: '(検証を中止しました)', summary: '中止', failed: [], durationMs: 0 });
+      return;
+    }
     const chunks: string[] = [];
     const child = spawn(command, {
       cwd: projectPath,
       shell: true,
       // shell 越しに起動するので、止める時は子孫ごと（Windows は taskkill /T、他は プロセスグループ）
       detached: process.platform !== 'win32',
+      windowsHide: true,
       env: { ...process.env, CI: '1', FORCE_COLOR: '0', NO_COLOR: '1', PY_COLORS: '0' },
     });
     const killTree = () => {
       if (!child.pid) return;
-      if (process.platform === 'win32') spawnSync('taskkill', ['/pid', String(child.pid), '/t', '/f'], { stdio: 'ignore' });
+      if (process.platform === 'win32') {
+        const killed = spawnSync('taskkill', ['/pid', String(child.pid), '/t', '/f'], {
+          stdio: 'ignore', windowsHide: true, timeout: 10_000,
+        });
+        if (killed.error || killed.status !== 0) child.kill('SIGKILL');
+      }
       else {
-        try { process.kill(-child.pid, 'SIGTERM'); } catch { child.kill('SIGTERM'); }
+        // SIGTERM を無視するテスト/子プロセスも、停止後に残さない。
+        try { process.kill(-child.pid, 'SIGKILL'); } catch { child.kill('SIGKILL'); }
       }
     };
     let settled = false;
+    let cancelled = false;
+    let timedOut = false;
     let forced: NodeJS.Timeout | null = null;
-    const timer = setTimeout(() => {
-      chunks.push(`\n(タイムアウト: ${timeoutMs / 1000}秒で打ち切り)`);
+    const interrupt = (reason: 'cancel' | 'timeout') => {
+      if (settled || cancelled || timedOut) return;
+      cancelled = reason === 'cancel';
+      timedOut = reason === 'timeout';
+      chunks.push(cancelled ? '\n(検証を中止しました)' : `\n(タイムアウト: ${timeoutMs / 1000}秒で打ち切り)`);
+      // close が届かない場合も、待機と pipe の参照を残さない。
+      forced = setTimeout(() => {
+        child.stdout.destroy();
+        child.stderr.destroy();
+        child.unref();
+        finish(null);
+      }, 5000);
       killTree();
-      // 止めても pipe が閉じない時の保険
-      forced = setTimeout(() => finish(null), 5000);
-    }, timeoutMs);
+    };
+    const abort = () => interrupt('cancel');
+    const timer = setTimeout(() => interrupt('timeout'), timeoutMs);
     child.stdout.on('data', (d: Buffer) => chunks.push(d.toString()));
     child.stderr.on('data', (d: Buffer) => chunks.push(d.toString()));
     child.on('error', (e) => chunks.push(`\n(起動失敗: ${e.message})`));
@@ -183,15 +217,20 @@ export function runVerify(
       settled = true;
       clearTimeout(timer);
       if (forced) clearTimeout(forced);
+      signal?.removeEventListener('abort', abort);
       const output = chunks.join('').replace(ANSI, '').trim();
-      const ok = code === 0;
+      const ok = code === 0 && !cancelled && !timedOut;
       resolve({
         ok,
+        cancelled,
+        timedOut,
         output: output.length > 4000 ? `…${output.slice(-4000)}` : output,
-        summary: summarizeTestOutput(output, ok),
+        summary: cancelled ? '中止' : timedOut ? 'タイムアウト' : summarizeTestOutput(output, ok),
         failed: ok ? [] : failedTests(output),
         durationMs: Date.now() - t0,
       });
     };
+    signal?.addEventListener('abort', abort, { once: true });
+    if (signal?.aborted) abort();
   });
 }

@@ -49,6 +49,29 @@ test('interruptForRestart leaves idle and external sessions alone', () => {
   assert.equal(interruptForRestart(session({ status: 'running', origin: 'external' }), 100), null);
 });
 
+test('restart normalizes unfinished verification and baseline even on idle sessions', () => {
+  const check = { command: 'npm test', ok: null, output: 'partial output', at: 10, durationMs: 0 };
+  for (const status of ['idle', 'running', 'done'] as const) {
+    const result = interruptForRestart(session({ status, verification: check, baseline: check }), 100)!;
+    assert.equal(result.verification?.ok, false);
+    assert.equal(result.baseline?.ok, false);
+    assert.match(result.verification!.summary!, /中断/);
+    assert.match(result.verification!.output, /partial output/);
+    assert.equal(result.verification?.durationMs, 90);
+    assert.equal(result.status, status === 'running' ? 'stopped' : status);
+    assert.equal(result.updatedAt, 1);
+  }
+  assert.equal(interruptForRestart(session({ origin: 'external', verification: check }), 100), null);
+  const success = { ...check, ok: true };
+  assert.equal(interruptForRestart(session({ status: 'idle', verification: success }), 100), null);
+});
+
+test('interruptForRestart clears unfinished Codex output saved before a crash', () => {
+  const r = interruptForRestart(session({ agent: 'codex', liveOutput: [{ itemId: 'old', kind: 'command_output', text: 'running tests', truncated: false }] }), 100);
+  assert.equal(r?.liveOutput, null);
+  assert.equal(r?.agentSessionId, 'agent-1');
+});
+
 test('interruptForRestart says it cannot resume when the agent session id is missing', () => {
   const r = interruptForRestart(session({ status: 'waiting_permission', agentSessionId: null }), 100);
   assert.ok(r);

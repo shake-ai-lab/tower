@@ -1,0 +1,24 @@
+Native Codex capability test: PASS (source Tower API http://127.0.0.1:4818).
+No browser interaction, existing session changes, server restarts, settings changes or auto-commit were performed by this test driver.
+
+Subagent session: 13246321-ff74-448a-8aae-17a0e8708c02
+Actual child thread: 01a0995c-f9fd-7263-a60a-baaabfc537f1
+Actual child name: /root/review_triangular
+Session.subagents retained status completed and full review message.
+Child identified missing n in sum(range(n)), corrected sum(range(1, n + 1)), n=5 result 15.
+Parent executed Python separately; tool result 338350.
+Final session idle, pending null, report done. Driver assertions passed.
+
+Native image session: 11a2dc5a-ac7d-4ef5-bba9-5a9759312179
+Exactly one actual ImageGen tool_result with saved imagePath.
+Timeline image API returned HTTP 200, image/png, 724545 bytes, valid PNG 1254 x 1254.
+Local image inspection confirmed one centered solid blue circle on white background, no text.
+Runtime used image_gen__imagegen and copied its output unchanged to the disposable project.
+Requested preferred 256 x 256 was not the produced size; native output was 1254 x 1254.
+Final session idle, pending null, report done. Driver assertions passed.
+
+Recheck existing evidence without creating tasks:
+node playground/runs/codex-parity/capability-native-driver.mjs assert subagent
+node playground/runs/codex-parity/capability-native-driver.mjs assert image
+
+Each capability-native-*-session.json / timeline.json / result.json preserves the API evidence; assertions.json records successful checks.

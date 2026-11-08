@@ -1,0 +1,38 @@
+{
+  "passed": true,
+  "sessionId": "a0e5ad35-650e-4508-ae3f-a9916e41b8be",
+  "thread": "01a09941-f8fe-7543-a17a-eb19d1ba6ce5",
+  "steps": [
+    {
+      "requestId": "62b94da5-bdbe-41e3-8b72-15e04b454fe9",
+      "pendingCount": 2,
+      "url": "http://127.0.0.1:4818/api/health#url-pair-1",
+      "buttonEnabled": true,
+      "decision": "allow"
+    },
+    {
+      "requestId": "55551572-1343-4110-8683-a590c39d02d3",
+      "pendingCount": 1,
+      "url": "http://127.0.0.1:4818/api/health#url-pair-2",
+      "buttonEnabled": true,
+      "decision": "allow"
+    }
+  ],
+  "fixture": {
+    "mode": "url-pair",
+    "callId": 3,
+    "responses": [
+      {
+        "requestId": "elicitation-2-1",
+        "action": "accept",
+        "content": {}
+      },
+      {
+        "requestId": "elicitation-2-2",
+        "action": "accept",
+        "content": {}
+      }
+    ]
+  },
+  "errors": []
+}

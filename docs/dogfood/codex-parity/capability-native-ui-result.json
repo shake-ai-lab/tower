@@ -1,0 +1,21 @@
+{
+  "passed": true,
+  "image": {
+    "sessionId": "11a2dc5a-ac7d-4ef5-bba9-5a9759312179",
+    "status": 200,
+    "contentType": "image/png",
+    "bytes": 724545,
+    "visible": true,
+    "width": 1254,
+    "height": 1254,
+    "complete": true
+  },
+  "subagent": {
+    "sessionId": "13246321-ff74-448a-8aae-17a0e8708c02",
+    "id": "01a0995c-f9fd-7263-a60a-baaabfc537f1",
+    "status": "completed",
+    "displayStatus": "完了",
+    "resultVisible": true
+  },
+  "errors": []
+}

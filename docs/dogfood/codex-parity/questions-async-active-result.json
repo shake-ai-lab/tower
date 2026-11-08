@@ -1,0 +1,216 @@
+{
+  "passed": true,
+  "scenario": "async-active",
+  "sessionId": "a0e5ad35-650e-4508-ae3f-a9916e41b8be",
+  "thread": "01a09941-f8fe-7543-a17a-eb19d1ba6ce5",
+  "requestId": "async:call_uCgwblbb79N1scWO6qGvF5vZ",
+  "questionIds": [
+    "call_uCgwblbb79N1scWO6qGvF5vZ:0",
+    "call_uCgwblbb79N1scWO6qGvF5vZ:1"
+  ],
+  "initialStatus": "running",
+  "sameThread": true,
+  "modelAcknowledged": true,
+  "secretsAbsentFromTimeline": true,
+  "websocket": [
+    {
+      "at": 1789278940905,
+      "status": "running",
+      "toolCalls": 7
+    },
+    {
+      "at": 1789278942115,
+      "status": "running",
+      "toolCalls": 7
+    },
+    {
+      "at": 1789278942353,
+      "status": "running",
+      "toolCalls": 7
+    },
+    {
+      "at": 1789278942661,
+      "status": "running",
+      "toolCalls": 7
+    },
+    {
+      "at": 1789278942877,
+      "status": "running",
+      "toolCalls": 7
+    },
+    {
+      "at": 1789278943378,
+      "status": "running",
+      "toolCalls": 7
+    },
+    {
+      "at": 1789278944283,
+      "status": "running",
+      "toolCalls": 7
+    },
+    {
+      "at": 1789278944284,
+      "status": "running",
+      "requestId": "async:call_uCgwblbb79N1scWO6qGvF5vZ",
+      "delivery": "async",
+      "toolCalls": 7
+    },
+    {
+      "at": 1789278944333,
+      "status": "running",
+      "requestId": "async:call_uCgwblbb79N1scWO6qGvF5vZ",
+      "delivery": "async",
+      "toolCalls": 7
+    },
+    {
+      "at": 1789278944741,
+      "status": "running",
+      "requestId": "async:call_uCgwblbb79N1scWO6qGvF5vZ",
+      "delivery": "async",
+      "toolCalls": 7
+    },
+    {
+      "at": 1789278944743,
+      "status": "running",
+      "requestId": "async:call_uCgwblbb79N1scWO6qGvF5vZ",
+      "delivery": "async",
+      "toolCalls": 7
+    },
+    {
+      "at": 1789278944744,
+      "status": "running",
+      "toolCalls": 7
+    },
+    {
+      "at": 1789278947911,
+      "status": "running",
+      "toolCalls": 8
+    },
+    {
+      "at": 1789278948145,
+      "status": "running",
+      "toolCalls": 8
+    },
+    {
+      "at": 1789278957934,
+      "status": "running",
+      "toolCalls": 8
+    },
+    {
+      "at": 1789278972615,
+      "status": "running",
+      "toolCalls": 8
+    },
+    {
+      "at": 1789278977967,
+      "status": "running",
+      "toolCalls": 8
+    },
+    {
+      "at": 1789278977987,
+      "status": "running",
+      "toolCalls": 8
+    },
+    {
+      "at": 1789278980131,
+      "status": "running",
+      "toolCalls": 8
+    },
+    {
+      "at": 1789278980345,
+      "status": "running",
+      "toolCalls": 8
+    },
+    {
+      "at": 1789278980558,
+      "status": "running",
+      "toolCalls": 8
+    },
+    {
+      "at": 1789278980794,
+      "status": "running",
+      "toolCalls": 8
+    },
+    {
+      "at": 1789278981111,
+      "status": "running",
+      "toolCalls": 8
+    },
+    {
+      "at": 1789278981321,
+      "status": "running",
+      "toolCalls": 8
+    },
+    {
+      "at": 1789278981569,
+      "status": "running",
+      "toolCalls": 8
+    },
+    {
+      "at": 1789278981801,
+      "status": "running",
+      "toolCalls": 8
+    },
+    {
+      "at": 1789278982016,
+      "status": "running",
+      "toolCalls": 8
+    },
+    {
+      "at": 1789278982239,
+      "status": "running",
+      "toolCalls": 8
+    },
+    {
+      "at": 1789278982480,
+      "status": "running",
+      "toolCalls": 8
+    },
+    {
+      "at": 1789278982698,
+      "status": "running",
+      "toolCalls": 8
+    },
+    {
+      "at": 1789278982929,
+      "status": "running",
+      "toolCalls": 8
+    },
+    {
+      "at": 1789278983146,
+      "status": "running",
+      "toolCalls": 8
+    },
+    {
+      "at": 1789278983378,
+      "status": "running",
+      "toolCalls": 8
+    },
+    {
+      "at": 1789278983592,
+      "status": "running",
+      "toolCalls": 8
+    },
+    {
+      "at": 1789278983809,
+      "status": "running",
+      "toolCalls": 8
+    },
+    {
+      "at": 1789278983816,
+      "status": "running",
+      "toolCalls": 8
+    },
+    {
+      "at": 1789278983863,
+      "status": "running",
+      "toolCalls": 8
+    },
+    {
+      "at": 1789278983874,
+      "status": "idle",
+      "toolCalls": 8
+    }
+  ],
+  "errors": []
+}

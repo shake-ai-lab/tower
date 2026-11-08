@@ -115,6 +115,7 @@ export class ClaudeRunner implements AgentRunner {
   private lastAssistantText = '';
   private stoppedByUser = false;
   private verifying = false;
+  private verificationAbort: AbortController | null = null;
   /** 直近の応答が使った文脈の大きさ（トークン）。会話の容量に対する割合を出す */
   private lastContext = 0;
   /** tool_use の id → 名前と入力。結果（tool_result）を人向けに要約する時に引く */
@@ -200,6 +201,7 @@ export class ClaudeRunner implements AgentRunner {
   }
 
   send(text: string, attachments: SavedAttachment[] = []) {
+    this.verificationAbort?.abort();
     this.timeline('user', text, undefined, undefined, undefined, publicRefs(attachments));
     this.pushUser(text, attachments);
     if (this.queue.length) {
@@ -213,6 +215,7 @@ export class ClaudeRunner implements AgentRunner {
 
   async stop() {
     this.stoppedByUser = true;
+    this.verificationAbort?.abort();
     for (const [id, r] of this.resolvers) {
       r.resolve({ behavior: 'deny', message: 'セッションが停止されました' });
       this.resolvers.delete(id);
@@ -302,16 +305,21 @@ export class ClaudeRunner implements AgentRunner {
   private async verify() {
     const dir = workDir(this.session);
     const cmd = detectVerifyCommand(dir, this.session.project.path);
-    if (!cmd || this.verifying) return;
+    if (!cmd || this.verifying || this.stoppedByUser) return;
     this.verifying = true;
+    const controller = new AbortController();
+    this.verificationAbort = controller;
     const at = Date.now();
     this.hub.update(this.id, { verification: { command: cmd, ok: null, output: '', at, durationMs: 0 } });
     try {
-      const r = await runVerify(dir, cmd);
+      const r = await runVerify(dir, cmd, undefined, controller.signal);
+      if (this.verificationAbort !== controller || this.hub.get(this.id)?.verification?.at !== at) return;
       this.hub.update(this.id, { verification: { command: cmd, ok: r.ok, output: r.output, summary: r.summary, failed: r.failed, at, durationMs: r.durationMs } });
+      if (this.stoppedByUser || controller.signal.aborted) return;
       this.timeline('system', r.ok ? `自動チェック 成功: ${cmd}` : `自動チェック 失敗: ${cmd}`, r.output);
     } finally {
       this.verifying = false;
+      if (this.verificationAbort === controller) this.verificationAbort = null;
     }
   }
 
@@ -430,8 +438,10 @@ export class ClaudeRunner implements AgentRunner {
   private async consume() {
     try {
       for await (const m of this.q as Query) this.handle(m);
+      this.verificationAbort?.abort();
       if (!this.stoppedByUser) this.hub.update(this.id, { status: 'done', activity: '終了しました', pending: null, pendingCount: 0 });
     } catch (e) {
+      this.verificationAbort?.abort();
       if (this.stoppedByUser) return;
       const msg = e instanceof Error ? e.message : String(e);
       this.timeline('error', msg);

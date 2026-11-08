@@ -1,0 +1,21 @@
+{
+  "passed": true,
+  "evidence": [
+    {
+      "scenario": "decline",
+      "returnedAction": "decline",
+      "sameThread": true
+    },
+    {
+      "scenario": "cancel",
+      "returnedAction": "cancel",
+      "sameThread": true
+    },
+    {
+      "scenario": "url",
+      "returnedAction": "accept",
+      "sameThread": true
+    }
+  ],
+  "errors": []
+}

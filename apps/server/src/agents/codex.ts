@@ -10,9 +10,11 @@ import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import {
-  PERMISSION_CHOICES,
+  CODEX_PERMISSION_CHOICES,
+  validateFormContent,
   workDir,
   type Attachment,
+  type FormAnswerBody,
   type PendingPermission,
   type PendingQuestion,
   type PendingRequest,
@@ -32,6 +34,9 @@ import { workspaceNote } from '../worktree.ts';
 import { commitNote, recordAgentCommits } from '../commit.ts';
 import { BROWSER_TOOLS, TowerBrowser, browserActivity, browserNote, isBrowserTool } from './codex-browser.ts';
 import { RpcClient, RpcError, type RpcId } from './codex-rpc.ts';
+import { CodexLiveOutput } from './codex-stream.ts';
+import { agentStatusLabel, generatedImageDisplay, mergeAgentStates } from './codex-items.ts';
+import { codexAppServerLaunch, codexAppServerEnv } from './codex-launch.ts';
 import {
   UsageMeter,
   approvalDecision,
@@ -44,11 +49,16 @@ import {
   fileChangePending,
   friendlyError,
   grantedPermissions,
+  isFormElicitation,
   mcpActivity,
   permissionsPending,
   serverLabel,
   userInputAnswers,
   userInputPending,
+  answerForQuestion,
+  asyncQuestionPending,
+  asyncQuestionAnswer,
+  questionAnswerHistory,
   type AutoRequest,
   type CommandApprovalParams,
   type Decision,
@@ -65,6 +75,7 @@ import type { AgentRunner } from './types.ts';
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Params = Record<string, any>;
 type UserInput = { type: 'text'; text: string; text_elements: never[] } | { type: 'localImage'; path: string };
+interface QueuedMessage { text: string; attachments: SavedAttachment[]; asyncQuestionId?: string }
 
 interface Waiting {
   pending: PendingRequest;
@@ -72,6 +83,7 @@ interface Waiting {
   key: string;
   decide?: (d: Decision) => void;
   reply?: (answers: Record<string, string>) => void;
+  formReply?: (body: FormAnswerBody) => void;
   cancel: () => void;
 }
 
@@ -95,7 +107,8 @@ export class CodexRunner implements AgentRunner {
   private turnStarting = false;
   private doneTurns = new Set<string>();
   /** まだ Codex に渡していない指示 */
-  private queued: { text: string; attachments: SavedAttachment[] }[] = [];
+  private queued: QueuedMessage[] = [];
+  private answeringQuestions = new Set<string>();
   /** 判断待ちの行列。先頭を UI に出す */
   private queue: PendingRequest[] = [];
   private waiting = new Map<string, Waiting>();
@@ -107,18 +120,24 @@ export class CodexRunner implements AgentRunner {
   /** Codex を止めた（エラー・停止）。以後の知らせで状態を書き換えない */
   private ended = false;
   private verifying = false;
+  private verificationAbort: AbortController | null = null;
   private mode: PermissionChoice;
+  /** turn/start に渡した権限。途中の追加指示では切り替えられない */
+  private activeMode: PermissionChoice;
   private meter: UsageMeter;
   private browser: TowerBrowser;
+  private liveOutput: CodexLiveOutput;
 
   constructor(
     private session: Session,
     private hub: Hub,
   ) {
     this.mode = session.permissionMode ?? 'acceptEdits';
+    this.activeMode = this.mode;
     const cur = hub.get(session.id) ?? session;
     this.meter = new UsageMeter(cur.usage ?? { input: 0, cacheRead: 0, output: 0 });
     this.browser = new TowerBrowser(session.id);
+    this.liveOutput = new CodexLiveOutput((liveOutput) => this.hub.update(this.id, { liveOutput }));
   }
 
   get id() {
@@ -126,16 +145,19 @@ export class CodexRunner implements AgentRunner {
   }
 
   /** @param resumeFrom Codex の会話（thread）の id。指定すると続きから */
-  start(firstMessage: string, resumeFrom?: string, attachments: SavedAttachment[] = []) {
-    this.timeline('user', firstMessage, undefined, undefined, undefined, publicRefs(attachments));
-    this.queued.push({ text: firstMessage, attachments });
-    this.hub.update(this.id, { status: resumeFrom ? 'running' : 'starting', activity: 'Codex を起動しています…', pending: null, pendingCount: 0 });
+  start(firstMessage: string, resumeFrom?: string, attachments: SavedAttachment[] = [], historyText?: string, asyncQuestionId?: string) {
+    this.timeline('user', historyText ?? firstMessage, undefined, undefined, undefined, publicRefs(attachments));
+    if (asyncQuestionId) this.answeringQuestions.add(asyncQuestionId);
+    this.queued.push({ text: firstMessage, attachments, asyncQuestionId });
+    this.hub.update(this.id, { status: resumeFrom ? 'running' : 'starting', activity: 'Codex を起動しています…', ...this.pendingState(), liveOutput: null });
     void this.boot(resumeFrom).catch((e) => this.fail(e));
   }
 
-  send(text: string, attachments: SavedAttachment[] = []) {
-    this.timeline('user', text, undefined, undefined, undefined, publicRefs(attachments));
-    this.queued.push({ text, attachments });
+  send(text: string, attachments: SavedAttachment[] = [], historyText?: string, asyncQuestionId?: string) {
+    this.verificationAbort?.abort();
+    this.timeline('user', historyText ?? text, undefined, undefined, undefined, publicRefs(attachments));
+    if (asyncQuestionId) this.answeringQuestions.add(asyncQuestionId);
+    this.queued.push({ text, attachments, asyncQuestionId });
     if (this.queue.length) {
       this.timeline('system', '許可・質問に答えると、この指示に進みます');
       this.syncPending('指示を受け取りました');
@@ -143,8 +165,7 @@ export class CodexRunner implements AgentRunner {
       this.hub.update(this.id, {
         status: 'running',
         activity: this.turnId ? '指示を受け取りました（作業中の Codex に伝えます）' : '指示を受け取りました',
-        pending: null,
-        pendingCount: 0,
+        ...this.pendingState(),
       });
     }
     this.flush();
@@ -152,27 +173,23 @@ export class CodexRunner implements AgentRunner {
 
   async stop() {
     this.stoppedByUser = true;
+    this.verificationAbort?.abort();
+    this.liveOutput.clear();
     this.queued = [];
-    for (const w of this.waiting.values()) w.cancel();
-    this.waiting.clear();
-    this.queue = [];
+    this.cancelWaiting('停止したため、同期の質問は無効になりました。再開後にもう一度質問してもらってください。');
     const { rpc, threadId, turnId } = this;
     if (rpc && threadId && turnId && !rpc.closed) {
       await Promise.race([rpc.request('turn/interrupt', { threadId, turnId }).catch(() => {}), new Promise((r) => setTimeout(r, 3000))]);
     }
     this.shutdown();
-    this.hub.update(this.id, { status: 'stopped', activity: '停止しました', pending: null, pendingCount: 0 });
+    this.hub.update(this.id, { status: 'stopped', activity: '停止しました', ...this.pendingState() });
   }
 
   async setPermissionMode(mode: PermissionChoice) {
     this.mode = mode;
     this.hub.update(this.id, { permissionMode: mode });
-    const label = PERMISSION_CHOICES.find((p) => p.value === mode)?.label ?? mode;
-    this.timeline('system', `許可方針を「${label}」に変更しました（次の指示から効きます）`);
-    // 全自動を選んだ時だけ、既に並んでいる許可要求も進める。質問は残す
-    if (mode === 'bypassPermissions') {
-      for (const p of [...this.queue]) if (p.kind === 'permission') this.resolvePermission(p.id, 'allow');
-    }
+    const label = CODEX_PERMISSION_CHOICES.find((p) => p.value === mode)?.label ?? mode;
+    this.timeline('system', `許可方針を「${label}」に変更しました（現在の応答が終わった後の新しい指示から反映。すぐに切り替えるには停止してから指示を送ってください）`);
   }
 
   resolvePermission(requestId: string, decision: Decision, message?: string): boolean {
@@ -197,16 +214,37 @@ export class CodexRunner implements AgentRunner {
   }
 
   answerQuestion(requestId: string, answers: Record<string, string>): boolean {
+    if (this.ended || this.stoppedByUser || this.rpc?.closed) return false;
+    const asynchronous = this.asyncQuestions.find((p) => p.id === requestId);
+    if (asynchronous) {
+      if (this.answeringQuestions.has(requestId)) return false;
+      const response = asyncQuestionAnswer(asynchronous, answers);
+      this.hub.update(this.id, { asyncQuestions: this.asyncQuestions.map(p => p.id === requestId ? { ...p, answerError: undefined } : p) });
+      this.send(response.text, [], response.history, requestId);
+      return true;
+    }
     const w = this.waiting.get(requestId);
-    if (!w?.reply) return false;
+    if (!w?.reply || w.pending.kind !== 'question') return false;
+    const pending = w.pending;
+    if (pending.questions.some((q) => typeof answerForQuestion(q, pending.questions, answers) !== 'string')) throw new Error('すべての質問に回答してください。');
     this.take(requestId);
     w.reply(answers);
-    this.timeline(
-      'user',
-      Object.entries(answers)
-        .map(([q, a]) => `${q} → ${a}`)
-        .join('\n'),
-    );
+    this.timeline('user', questionAnswerHistory(pending, answers));
+    this.syncPending('回答を受けて作業を続けています');
+    return true;
+  }
+
+  answerForm(body: FormAnswerBody): boolean {
+    const w = this.waiting.get(body.requestId);
+    if (!w?.formReply || w.pending.kind !== 'form') return false;
+    if (!['accept', 'decline', 'cancel'].includes(body.action)) throw new Error('回答の種類が不正です。');
+    if (body.action === 'accept') {
+      const error = validateFormContent(w.pending.schema, body.content);
+      if (error) throw new Error(error);
+    }
+    this.take(body.requestId);
+    w.formReply(body);
+    this.timeline('permission', body.action === 'accept' ? '入力フォームの回答を送信しました（入力内容は記録しません）' : body.action === 'decline' ? '入力フォームを辞退しました' : '入力フォームを取り消しました');
     this.syncPending('回答を受けて作業を続けています');
     return true;
   }
@@ -218,17 +256,18 @@ export class CodexRunner implements AgentRunner {
     const bin = findCodexBin();
     if (!bin) throw new Error(CODEX_MISSING);
     const cwd = workDir(s);
-    // Tower 自身が Claude Code の中から起動されていても、その印は Codex に渡さない
-    const env: NodeJS.ProcessEnv = { ...process.env, TOWER_MANAGED: '1' };
-    delete env.CLAUDECODE;
-    delete env.CLAUDE_CODE_ENTRYPOINT;
-    const proc = spawn(bin.command, [...bin.args, 'app-server'], { cwd, env, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
+    const env = codexAppServerEnv();
+    const launch = codexAppServerLaunch(bin.command, bin.args);
+    const proc = spawn(launch.command, launch.args, { cwd, env, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
     this.proc = proc;
     live.add(proc);
     const rpc = new RpcClient(proc.stdout!, proc.stdin!);
     this.rpc = rpc;
     rpc.onNotification = (method, params) => this.onNotification(method, (params ?? {}) as Params);
     rpc.onRequest = (method, params, id) => this.onRequest(method, (params ?? {}) as Params, id);
+    rpc.onClose = (error) => {
+      if (this.proc === proc && !this.ended && !this.stoppedByUser) this.fail(error);
+    };
     proc.stderr?.on('data', (d: Buffer) => {
       const t = d.toString().trim();
       if (t) console.error(`[codex ${this.id.slice(0, 8)}] ${t.slice(0, 500)}`);
@@ -240,7 +279,15 @@ export class CodexRunner implements AgentRunner {
       if (this.proc === proc) this.onExit(code);
     });
 
-    await rpc.request('initialize', { clientInfo: { name: 'tower', title: 'Tower', version: VERSION }, capabilities: { experimentalApi: true } });
+    await rpc.request('initialize', {
+      clientInfo: { name: 'tower', title: 'Tower', version: VERSION },
+      capabilities: {
+        experimentalApi: true,
+        mcpServerOpenaiFormElicitation: true,
+        // The legacy boolean enables only openai/form; modern form dispatch requires this extension.
+        extensions: { 'openai/form': {}, 'openai/elicitation': { form: {} } },
+      },
+    });
     rpc.notify('initialized');
     const policy = codexPolicy(this.mode);
     const common = {
@@ -249,6 +296,7 @@ export class CodexRunner implements AgentRunner {
       approvalPolicy: policy.approvalPolicy,
       sandbox: policy.sandbox,
       developerInstructions: this.instructions(s),
+      ...(s.requestedReasoningEffort ? { config: { model_reasoning_effort: s.requestedReasoningEffort } } : {}),
     };
     this.threadId = await this.openThread(common, resumeFrom);
     this.hub.update(this.id, { agentSessionId: this.threadId });
@@ -257,6 +305,9 @@ export class CodexRunner implements AgentRunner {
 
   private instructions(s: Session): string {
     const parts = [REPORT_INSTRUCTIONS];
+    if (process.platform === 'win32') parts.push(
+      'WindowsではPowerShellのプロファイルを読み込みません。標準入出力はUTF-8の専用コンソールで実行します。UTF-8のファイルをPowerShellで読む場合はGet-Content -Encoding UTF8を指定してください。読めない出力から内容を推測せず、ファイルの文字コードを明示して再確認してください。依頼されていない文字コード変更や許可方針の変更で回避しないでください。',
+    );
     if (s.workspace) parts.push(workspaceNote(s.workspace, s.project.path));
     const commits = commitNote();
     if (commits) parts.push(commits);
@@ -268,25 +319,35 @@ export class CodexRunner implements AgentRunner {
     const rpc = this.rpc!;
     if (resumeFrom) {
       try {
-        const r = await rpc.request<{ thread: { id: string } }>('thread/resume', { threadId: resumeFrom, ...common, excludeTurns: true });
+        const r = await rpc.request<Params>('thread/resume', { threadId: resumeFrom, ...common, excludeTurns: true });
+        this.captureModel(r);
         return r.thread.id;
       } catch (e) {
-        this.timeline('system', '前の会話を読み込めなかったので、新しい会話として続けます', e instanceof Error ? e.message : String(e));
+        throw new Error(`前の会話を再開できませんでした。会話は保持しています。もう一度指示を送って再試行するか、新しいタスクを作成してください。\n${e instanceof Error ? e.message : String(e)}`, { cause: e });
       }
     }
     try {
-      const r = await rpc.request<{ thread: { id: string } }>('thread/start', { ...common, dynamicTools: BROWSER_TOOLS });
+      const r = await rpc.request<Params>('thread/start', { ...common, dynamicTools: BROWSER_TOOLS });
+      this.captureModel(r);
       return r.thread.id;
     } catch (e) {
       // 道具を渡す口（試験中の機能）を受け付けない版の Codex なら、渡さずに始める
       if (!(e instanceof RpcError) || !/dynamic|unknown field|experimental/i.test(e.message)) throw e;
       this.timeline('system', 'この版の Codex には Tower のブラウザーを渡せませんでした（ブラウザーでの確認はできません）', e.message);
-      const r = await rpc.request<{ thread: { id: string } }>('thread/start', common);
+      const r = await rpc.request<Params>('thread/start', common);
+      this.captureModel(r);
       return r.thread.id;
     }
   }
 
   // ---- 指示を渡す ----
+
+  private captureModel(response: Params) {
+    this.hub.update(this.id, {
+      effectiveModel: typeof response.model === 'string' ? response.model : null,
+      reasoningEffort: typeof response.reasoningEffort === 'string' ? response.reasoningEffort : null,
+    });
+  }
 
   /** 溜まった指示を渡す。手番が動いていれば差し込み、止まっていれば新しい手番を始める */
   private flush() {
@@ -294,7 +355,7 @@ export class CodexRunner implements AgentRunner {
     const items = this.queued.splice(0);
     const input = items.flatMap((m) => this.toInput(m.text, m.attachments));
     if (this.turnId) void this.steer(input, items);
-    else void this.startTurn(input);
+    else void this.startTurn(input, items);
   }
 
   /** 画像は会話にそのまま載せ（Codex がすぐ見られる）、それ以外は保存場所を書き添えて読ませる */
@@ -306,20 +367,36 @@ export class CodexRunner implements AgentRunner {
     ];
   }
 
-  private async startTurn(input: UserInput[]) {
+  private async startTurn(input: UserInput[], items: QueuedMessage[] = []) {
     this.turnStarting = true;
+    this.liveOutput.clear();
+    this.activeMode = this.mode;
     this.lastText = '';
     this.lastErrorText = null;
     const policy = codexPolicy(this.mode);
-    this.hub.update(this.id, { status: 'running', activity: '作業を始めます', pending: null, pendingCount: 0, lastError: null });
+    this.hub.update(this.id, { status: 'running', activity: '作業を始めます', ...this.pendingState(), lastError: null });
     try {
+      const session = this.hub.get(this.id) ?? this.session;
+      // 未選択の通常モードはCodexの既存設定をそのまま使う。計画→通常の明示変更は送る。
+      const collaborationMode = session.codexCollaborationMode;
+      const actualModel = session.effectiveModel ?? session.model;
+      if (collaborationMode && !actualModel) throw new Error('作業モードの変更に必要な実行モデルを取得できませんでした。再開してもう一度試してください。');
       const r = await this.rpc!.request<{ turn: { id: string } }>('turn/start', {
         threadId: this.threadId,
         input,
         approvalPolicy: policy.approvalPolicy,
         sandboxPolicy: policy.sandboxPolicy,
+        ...(this.session.requestedReasoningEffort ? { effort: this.session.requestedReasoningEffort } : {}),
+        ...(collaborationMode ? { collaborationMode: { mode: collaborationMode, settings: {
+          model: actualModel!, reasoning_effort: session.requestedReasoningEffort ?? session.reasoningEffort ?? null, developer_instructions: null,
+        } } } : {}),
       });
-      if (!this.doneTurns.has(r.turn.id)) this.turnId = r.turn.id;
+      if (!this.ended && !this.stoppedByUser && !this.doneTurns.has(r.turn.id)) {
+        this.turnId = r.turn.id;
+        this.liveOutput.start(r.turn.id);
+      }
+      this.turnStarting = false;
+      if (!this.ended && !this.stoppedByUser) this.acknowledgeQuestions(items);
     } catch (e) {
       this.turnStarting = false;
       this.fail(e);
@@ -329,19 +406,31 @@ export class CodexRunner implements AgentRunner {
     this.flush(); // 始めるのを待っている間に来た指示を差し込む
   }
 
-  private async steer(input: UserInput[], items: { text: string; attachments: SavedAttachment[] }[]) {
+  private async steer(input: UserInput[], items: QueuedMessage[]) {
     try {
       await this.rpc!.request('turn/steer', { threadId: this.threadId, input, expectedTurnId: this.turnId });
-    } catch {
-      // ちょうど手番が終わった: 次の手番で渡す
-      this.queued.unshift(...items);
-      if (!this.turnId) this.flush();
+      if (!this.ended && !this.stoppedByUser) this.acknowledgeQuestions(items);
+    } catch (error) {
+      if (this.ended || this.stoppedByUser) return;
+      // Only the documented active-turn race is eligible for automatic retry.
+      if (error instanceof RpcError && /no active turn|(?:expected[_ ]?turn|turn)[^\n]*(?:mismatch|does not match)|turn[^\n]*(?:already completed|not active)/i.test(error.message)) {
+        this.queued.unshift(...items);
+        if (!this.turnId) this.flush();
+        return;
+      }
+      const ids = items.flatMap(item => item.asyncQuestionId ? [item.asyncQuestionId] : []);
+      for (const id of ids) this.answeringQuestions.delete(id);
+      const message = '回答の送信に失敗しました。入力を確認して、もう一度送信してください。';
+      this.hub.update(this.id, { asyncQuestions: this.asyncQuestions.map(p => ids.includes(p.id) ? { ...p, answerError: message } : p) });
+      this.timeline('error', ids.length ? message : '追加指示を送信できませんでした。もう一度送信してください。');
+      this.syncPending('送信に失敗しました。もう一度送信してください');
     }
   }
 
   // ---- Codex からの問い合わせ（許可・質問・道具） ----
 
   private onRequest(method: string, p: Params, rpcId: RpcId): Promise<unknown> {
+    if (this.ended || this.stoppedByUser || this.rpc?.closed) return Promise.reject(new RpcError('この確認は接続終了のため無効です。再開後にもう一度質問してください。', -32000));
     const id = randomUUID();
     const key = String(rpcId);
     switch (method) {
@@ -362,8 +451,16 @@ export class CodexRunner implements AgentRunner {
       }
       case 'mcpServer/elicitation/request': {
         const params = p as ElicitationParams;
+        if (isFormElicitation(params)) {
+          const pending = { id, kind: 'form' as const, serverName: params.serverName, message: params.message ?? params.description ?? '入力内容を確認してください', schema: params.requestedSchema ?? false, createdAt: Date.now() };
+          this.timeline('permission', `${serverLabel(params.serverName)}からの入力を待っています`);
+          return new Promise((resolve) => this.enqueue({ pending, key,
+            formReply: (body) => resolve({ action: body.action, content: body.action === 'accept' ? body.content : null, _meta: null }),
+            cancel: () => resolve({ action: 'cancel', content: null, _meta: null }),
+          }));
+        }
         if (params.mode === 'openai/userVerification') {
-          this.timeline('error', `${serverLabel(params.serverName)}が本人確認を求めましたが、Tower からは行えません。VS Code の Codex で行ってください`);
+          this.timeline('error', 'このCodexの実行環境は本人確認に対応していないため、この依頼は辞退しました。');
           return Promise.resolve({ action: 'decline', content: null, _meta: null });
         }
         return this.ask<{ action: string; content: unknown; _meta: null }>(
@@ -371,7 +468,7 @@ export class CodexRunner implements AgentRunner {
           key,
           (d) => elicitationResponse(params, d),
           () => ({ action: 'cancel', content: null, _meta: null }),
-          { kind: 'other' },
+          { kind: 'user_confirmation' },
         );
       }
       case 'item/tool/requestUserInput': {
@@ -386,10 +483,10 @@ export class CodexRunner implements AgentRunner {
   }
 
   private ask<T>(pending: PendingPermission, key: string, answer: (d: Decision) => T, cancel: () => T, req: AutoRequest): Promise<T> {
-    // 許可方針で決まっているものは聞かない（全自動・読むだけのコマンド・「編集は自動」の編集）
-    const auto = autoAllow(this.mode, req);
+    // 実行中の手番に渡した許可方針で判断する（次の手番用の選択とは区別する）
+    const auto = autoAllow(this.activeMode, req);
     if (auto) {
-      // 全自動の時だけ年表に残す（読むだけ・編集は、その操作自体が年表に出る）
+      // 全自動の時だけ年表に残す（編集は、その操作自体が年表に出る）
       if (auto === '全自動') this.timeline('permission', `自動で許可: ${pending.headline}`, pending.detail, pending.toolName);
       return Promise.resolve(answer('allow'));
     }
@@ -417,26 +514,47 @@ export class CodexRunner implements AgentRunner {
     return w;
   }
 
+  private get asyncQuestions(): PendingQuestion[] { return this.hub.get(this.id)?.asyncQuestions ?? []; }
+
+  private acknowledgeQuestions(items: QueuedMessage[]) {
+    const ids = items.flatMap((item) => item.asyncQuestionId ? [item.asyncQuestionId] : []);
+    if (!ids.length) return;
+    for (const id of ids) this.answeringQuestions.delete(id);
+    this.hub.update(this.id, { asyncQuestions: this.asyncQuestions.filter((p) => !ids.includes(p.id)), resolvedAsyncQuestionIds: [...new Set([...(this.hub.get(this.id)?.resolvedAsyncQuestionIds ?? []), ...ids])] });
+    this.syncPending('回答を受けて作業を続けています');
+  }
+
+  private pendingState(): Pick<Session, 'pending' | 'pendingCount'> {
+    return { pending: this.queue[0] ?? this.asyncQuestions[0] ?? null, pendingCount: this.queue.length + this.asyncQuestions.length };
+  }
+
+  private cancelWaiting(reason: string) {
+    if (this.queue.some((p) => p.kind === 'question')) this.timeline('system', reason);
+    for (const w of this.waiting.values()) w.cancel();
+    this.waiting.clear();
+    this.queue = [];
+  }
+
   /** 行列の先頭を UI に反映する。空なら作業中に戻す */
   private syncPending(activityWhenEmpty: string) {
     if (this.stoppedByUser || this.ended) return;
-    const head = this.queue[0];
+    const head = this.queue[0] ?? this.asyncQuestions[0];
     if (!head) {
       if (this.turnId || this.turnStarting) {
         this.hub.update(this.id, { status: 'running', activity: activityWhenEmpty || '作業中', pending: null, pendingCount: 0 });
       } else {
-        this.hub.update(this.id, { pending: null, pendingCount: 0 });
+        this.hub.update(this.id, { pending: null, pendingCount: 0, ...(this.hub.get(this.id)?.status === 'waiting_question' ? { status: 'idle' as const, activity: '指示待ち' } : {}) });
       }
       return;
     }
     this.hub.update(this.id, {
-      status: head.kind === 'permission' ? 'waiting_permission' : 'waiting_question',
+      status: head.kind === 'question' && head.delivery === 'async' && (this.turnId || this.turnStarting) ? 'running' : head.kind === 'permission' ? 'waiting_permission' : 'waiting_question',
       activity:
         head.kind === 'permission'
           ? `許可待ち: ${head.headline}${this.queue.length > 1 ? `（他 ${this.queue.length - 1} 件）` : ''}`
-          : 'あなたの回答を待っています',
+          : head.kind === 'question' && head.delivery === 'async' && (this.turnId || this.turnStarting) ? '回答を待ちながら作業を続けています' : 'あなたの回答を待っています',
       pending: head,
-      pendingCount: this.queue.length,
+      pendingCount: this.queue.length + this.asyncQuestions.length,
     });
   }
 
@@ -456,18 +574,49 @@ export class CodexRunner implements AgentRunner {
   // ---- Codex からの知らせ ----
 
   private onNotification(method: string, p: Params) {
+    if (this.ended || this.stoppedByUser) return;
     // サブエージェントの会話の知らせは本体の年表に混ぜない
-    if (typeof p.threadId === 'string' && this.threadId && p.threadId !== this.threadId) return;
+    if (typeof p.threadId === 'string' && this.threadId && p.threadId !== this.threadId) {
+      const current = this.hub.get(this.id);
+      if (current?.subagents?.some(agent => agent.id === p.threadId)) {
+        if (method === 'item/completed' && p.item?.type === 'agentMessage' && typeof p.item.text === 'string') {
+          this.updateChild(p.threadId, { message: p.item.text });
+        } else if (method === 'turn/started') this.updateChild(p.threadId, { status: 'running' });
+        else if (method === 'turn/completed') {
+          const status = p.turn?.status === 'failed' ? 'errored' : p.turn?.status === 'interrupted' ? 'interrupted' : 'completed';
+          this.updateChild(p.threadId, { status, ...(p.turn?.error?.message ? { message: String(p.turn.error.message) } : {}) });
+        }
+      }
+      return;
+    }
+    if (typeof p.turnId === 'string' && (this.doneTurns.has(p.turnId) || (this.turnId && p.turnId !== this.turnId))) return;
     switch (method) {
+      case 'model/rerouted': {
+        if (typeof p.toModel !== 'string' || !p.toModel) break;
+        this.hub.update(this.id, { effectiveModel: p.toModel, reasoningEffort: null });
+        const reason = p.reason === 'highRiskCyberActivity' ? '高度なサイバー関連の内容に対応するため' : String(p.reason ?? 'Codex側の判断');
+        this.timeline('system', `実行モデルが ${String(p.fromModel ?? '以前のモデル')} から ${p.toModel} に変更されました`, `理由: ${reason}`);
+        break;
+      }
       case 'turn/started': {
         const t = String(p.turn?.id ?? '');
-        if (t && !this.doneTurns.has(t)) this.turnId = t;
+        if (t && !this.doneTurns.has(t) && (!this.turnId || this.turnId === t)) {
+          this.turnId = t;
+          this.liveOutput.start(t);
+        }
         return;
       }
+      case 'item/agentMessage/delta':
+      case 'item/commandExecution/outputDelta':
+        if (typeof p.delta === 'string' && typeof p.itemId === 'string') {
+          this.liveOutput.append(String(p.turnId ?? this.turnId ?? ''), p.itemId, method === 'item/agentMessage/delta' ? 'assistant_text' : 'command_output', p.delta);
+        }
+        return;
       case 'item/started':
         this.onItem('started', (p.item ?? {}) as Params);
         return;
       case 'item/completed':
+        this.liveOutput.complete(String(p.item?.id ?? ''));
         this.onItem('completed', (p.item ?? {}) as Params);
         return;
       case 'turn/plan/updated': {
@@ -497,6 +646,8 @@ export class CodexRunner implements AgentRunner {
         for (const [id, w] of [...this.waiting]) {
           if (w.key !== key) continue;
           this.take(id);
+          w.cancel();
+          if (w.pending.kind === 'question') this.timeline('system', 'Codex側で同期の質問が終了しました。この質問には回答できません。必要ならもう一度質問してもらってください。');
           this.syncPending('作業中');
         }
         return;
@@ -517,6 +668,14 @@ export class CodexRunner implements AgentRunner {
     switch (item.type) {
       case 'agentMessage': {
         const text = String(item.text ?? '');
+        if (phase === 'completed' && typeof item.id === 'string' && Array.isArray(item.questions) && item.questions.length) {
+          const questions = item.questions.filter((q: Params) => typeof q?.title === 'string');
+          const pending = asyncQuestionPending(item.id, questions);
+          if (pending.questions.length && !this.asyncQuestions.some((p) => p.id === pending.id) && !(cur.resolvedAsyncQuestionIds ?? []).includes(pending.id)) {
+            this.hub.update(this.id, { asyncQuestions: [...this.asyncQuestions, pending] });
+            this.syncPending('');
+          }
+        }
         if (phase === 'completed' && text.trim()) {
           this.timeline('assistant_text', firstLine(text).slice(0, 140), text);
           this.lastText = text;
@@ -593,18 +752,35 @@ export class CodexRunner implements AgentRunner {
           this.timeline('tool_use', `画像を見ています（${path.basename(file)}）`, file, 'Read', file);
         }
         return;
-      case 'collabAgentToolCall':
+      case 'collabAgentToolCall': {
+        const agents = mergeAgentStates(cur.subagents, item);
+        this.hub.update(this.id, { subagents: agents });
         if (phase === 'started') {
           const spawned = item.tool === 'spawnAgent';
           this.activity(spawned ? 'サブエージェントを動かしています' : 'サブエージェントとやりとりしています');
           if (spawned) this.timeline('tool_use', 'サブエージェントを動かしています', item.prompt ? String(item.prompt) : undefined, 'Agent');
+        } else {
+          const states = agents.filter(agent => (item.receiverThreadIds ?? []).includes(agent.id) || item.agentsStates?.[agent.id]);
+          const failed = item.status === 'failed' || states.some(agent => agent.status === 'errored' || agent.status === 'notFound');
+          this.timeline(failed ? 'error' : 'tool_result', failed ? 'サブエージェントの処理で問題が発生しました' : 'サブエージェントの状態を確認しました', states.map(agent => `${agent.name ?? agent.id}: ${agentStatusLabel(agent.status)}${agent.message ? `\n${agent.message}` : ''}`).join('\n\n'), 'Agent');
         }
         return;
+      }
+      case 'subAgentActivity': {
+        if (typeof item.agentThreadId !== 'string') return;
+        const status = item.kind === 'completed' ? 'completed' : item.kind === 'interrupted' ? 'interrupted' : 'running';
+        this.updateChild(item.agentThreadId, { name: String(item.agentPath ?? item.agentThreadId), status });
+        return;
+      }
       case 'contextCompaction':
         if (phase === 'completed') this.timeline('system', '会話が長くなったので、これまでの内容を要約しました');
         return;
       case 'imageGeneration':
-        if (phase === 'completed') this.timeline('tool_use', '画像を作りました', undefined, 'ImageGen');
+        if (phase === 'started') this.activity('画像を生成しています');
+        else {
+          const display = generatedImageDisplay(item, workDir(cur));
+          this.timeline(display.kind, display.text, display.detail, 'ImageGen', display.imagePath);
+        }
         return;
       default:
         return;
@@ -613,13 +789,13 @@ export class CodexRunner implements AgentRunner {
 
   private onTurnCompleted(turn: Params) {
     const tid = String(turn.id ?? '');
+    if (this.doneTurns.has(tid)) return;
     this.doneTurns.add(tid);
     if (this.turnId && this.turnId !== tid) return;
     this.turnId = null;
+    this.liveOutput.clear();
     // 手番が終わったので、答えを待っていた確認は取り下げる
-    for (const w of this.waiting.values()) w.cancel();
-    this.waiting.clear();
-    this.queue = [];
+    this.cancelWaiting('応答が終了したため、同期の質問は無効になりました。必要ならもう一度質問してもらってください。');
     if (this.stoppedByUser || this.ended) return;
     const cur = this.hub.get(this.id);
     if (!cur) return;
@@ -627,12 +803,12 @@ export class CodexRunner implements AgentRunner {
     if (turn.status === 'failed') {
       const msg = friendlyError(String(turn.error?.message ?? this.lastErrorText ?? '原因の分からないエラーで止まりました'), CODEX_MISSING);
       this.timeline('error', msg, turn.error?.additionalDetails ?? undefined);
-      this.hub.update(this.id, { status: 'error', activity: 'エラーで止まりました', lastError: msg, pending: null, pendingCount: 0 });
+      this.hub.update(this.id, { status: 'error', activity: 'エラーで止まりました', lastError: msg, ...this.pendingState() });
       this.shutdown();
       return;
     }
     if (turn.status === 'interrupted') {
-      this.hub.update(this.id, { status: 'idle', activity: '中断しました。指示を送ると続けます', pending: null, pendingCount: 0 });
+      this.hub.update(this.id, { status: 'idle', activity: '中断しました。指示を送ると続けます', ...this.pendingState() });
       this.flush();
       return;
     }
@@ -642,13 +818,12 @@ export class CodexRunner implements AgentRunner {
     const known = new Set(cur.changedFiles.map((f) => path.basename(f)));
     for (const f of report.changedFiles) if (!known.has(path.basename(f))) changed.add(f);
     this.hub.update(this.id, {
-      status: 'idle',
+      status: this.asyncQuestions.length ? 'waiting_question' : 'idle',
       activity: report.needsDecision ? `判断待ち: ${firstLine(report.needsDecision).slice(0, 60)}` : '指示待ち',
       report,
       turns: cur.turns + 1,
       changedFiles: [...changed],
-      pending: null,
-      pendingCount: 0,
+      ...this.pendingState(),
       lastError: null,
     });
     if (changed.size > 0) void this.verify();
@@ -660,29 +835,36 @@ export class CodexRunner implements AgentRunner {
 
   /** Codex が勝手に終わった（落ちた） */
   private onExit(code: number | null) {
+    this.verificationAbort?.abort();
     this.proc = null;
-    for (const w of this.waiting.values()) w.cancel();
-    this.waiting.clear();
-    this.queue = [];
+    this.liveOutput.clear();
+    this.cancelWaiting('接続が終了したため、同期の質問は無効になりました。再開後にもう一度質問してもらってください。');
     void this.browser.close();
     if (this.stoppedByUser || this.ended) return;
     this.ended = true;
     const msg = `Codex が途中で終了しました（終了コード ${code ?? '?'}）。指示を送ると続きから再開します`;
     this.timeline('error', msg);
-    this.hub.update(this.id, { status: 'error', activity: 'Codex が止まりました', lastError: msg, pending: null, pendingCount: 0 });
+    this.hub.update(this.id, { status: 'error', activity: 'Codex が止まりました', lastError: msg, ...this.pendingState() });
   }
 
   private fail(e: unknown) {
     if (this.stoppedByUser || this.ended) return;
     const msg = friendlyError(e instanceof Error ? e.message : String(e), CODEX_MISSING);
     this.timeline('error', msg);
-    this.hub.update(this.id, { status: 'error', activity: 'エラーで止まりました', lastError: msg, pending: null, pendingCount: 0 });
+    this.cancelWaiting('接続が終了したため、同期の質問は無効になりました。再開後にもう一度質問してもらってください。');
+    this.hub.update(this.id, { status: 'error', activity: 'エラーで止まりました', lastError: msg, ...this.pendingState() });
     this.shutdown();
   }
 
   /** Codex とブラウザーを止める。次の指示は Manager が新しいランナーで続きから再開する */
   private shutdown() {
     this.ended = true;
+    this.verificationAbort?.abort();
+    const children = this.hub.get(this.id)?.subagents;
+    if (children?.some(agent => ['running', 'pendingInit'].includes(agent.status))) {
+      this.hub.update(this.id, { subagents: children.map(agent => ['running', 'pendingInit'].includes(agent.status) ? { ...agent, status: 'interrupted' } : agent) });
+    }
+    this.liveOutput.clear();
     const p = this.proc;
     this.proc = null;
     this.rpc?.close(new Error('Codex を止めました'));
@@ -697,6 +879,15 @@ export class CodexRunner implements AgentRunner {
 
   private activity(text: string) {
     if (!this.stoppedByUser && !this.ended) this.hub.update(this.id, { activity: text });
+  }
+
+  private updateChild(id: string, patch: Partial<NonNullable<Session['subagents']>[number]>) {
+    const agents = this.hub.get(this.id)?.subagents ?? [];
+    const found = agents.some(agent => agent.id === id);
+    this.hub.update(this.id, { subagents: found
+      ? agents.map(agent => agent.id === id ? { ...agent, ...patch, id } : agent)
+      : [...agents, { id, status: 'pendingInit', ...patch }],
+    });
   }
 
   private timeline(kind: TimelineKind, text: string, detail?: string, toolName?: string, imagePath?: string, attachments?: Attachment[]) {
@@ -717,16 +908,21 @@ export class CodexRunner implements AgentRunner {
   private async verify() {
     const dir = workDir(this.session);
     const cmd = detectVerifyCommand(dir, this.session.project.path);
-    if (!cmd || this.verifying) return;
+    if (!cmd || this.verifying || this.stoppedByUser || this.ended) return;
     this.verifying = true;
+    const controller = new AbortController();
+    this.verificationAbort = controller;
     const at = Date.now();
     this.hub.update(this.id, { verification: { command: cmd, ok: null, output: '', at, durationMs: 0 } });
     try {
-      const r = await runVerify(dir, cmd);
+      const r = await runVerify(dir, cmd, undefined, controller.signal);
+      if (this.verificationAbort !== controller || this.hub.get(this.id)?.verification?.at !== at) return;
       this.hub.update(this.id, { verification: { command: cmd, ok: r.ok, output: r.output, summary: r.summary, failed: r.failed, at, durationMs: r.durationMs } });
+      if (this.stoppedByUser || this.ended || controller.signal.aborted) return;
       this.timeline('system', r.ok ? `自動チェック 成功: ${cmd}` : `自動チェック 失敗: ${cmd}`, r.output);
     } finally {
       this.verifying = false;
+      if (this.verificationAbort === controller) this.verificationAbort = null;
     }
   }
 }

@@ -1,0 +1,141 @@
+{
+  "passed": true,
+  "scenario": "async-after-turn",
+  "sessionId": "a0e5ad35-650e-4508-ae3f-a9916e41b8be",
+  "thread": "01a09941-f8fe-7543-a17a-eb19d1ba6ce5",
+  "requestId": "async:call_XI7OWLwbNI9MyUw1X8cxHzLC",
+  "questionIds": [
+    "call_XI7OWLwbNI9MyUw1X8cxHzLC:0",
+    "call_XI7OWLwbNI9MyUw1X8cxHzLC:1"
+  ],
+  "initialStatus": "waiting_question",
+  "sameThread": true,
+  "modelAcknowledged": true,
+  "secretsAbsentFromTimeline": true,
+  "websocket": [
+    {
+      "at": 1789278875415,
+      "status": "waiting_question",
+      "requestId": "async:call_XI7OWLwbNI9MyUw1X8cxHzLC",
+      "delivery": "async",
+      "toolCalls": 7
+    },
+    {
+      "at": 1789278876454,
+      "status": "running",
+      "requestId": "async:call_XI7OWLwbNI9MyUw1X8cxHzLC",
+      "delivery": "async",
+      "toolCalls": 7
+    },
+    {
+      "at": 1789278876455,
+      "status": "running",
+      "requestId": "async:call_XI7OWLwbNI9MyUw1X8cxHzLC",
+      "delivery": "async",
+      "toolCalls": 7
+    },
+    {
+      "at": 1789278876477,
+      "status": "running",
+      "requestId": "async:call_XI7OWLwbNI9MyUw1X8cxHzLC",
+      "delivery": "async",
+      "toolCalls": 7
+    },
+    {
+      "at": 1789278876479,
+      "status": "running",
+      "toolCalls": 7
+    },
+    {
+      "at": 1789278884941,
+      "status": "running",
+      "toolCalls": 7
+    },
+    {
+      "at": 1789278885301,
+      "status": "running",
+      "toolCalls": 7
+    },
+    {
+      "at": 1789278885503,
+      "status": "running",
+      "toolCalls": 7
+    },
+    {
+      "at": 1789278885719,
+      "status": "running",
+      "toolCalls": 7
+    },
+    {
+      "at": 1789278885950,
+      "status": "running",
+      "toolCalls": 7
+    },
+    {
+      "at": 1789278886332,
+      "status": "running",
+      "toolCalls": 7
+    },
+    {
+      "at": 1789278886541,
+      "status": "running",
+      "toolCalls": 7
+    },
+    {
+      "at": 1789278886817,
+      "status": "running",
+      "toolCalls": 7
+    },
+    {
+      "at": 1789278887033,
+      "status": "running",
+      "toolCalls": 7
+    },
+    {
+      "at": 1789278887249,
+      "status": "running",
+      "toolCalls": 7
+    },
+    {
+      "at": 1789278887586,
+      "status": "running",
+      "toolCalls": 7
+    },
+    {
+      "at": 1789278887865,
+      "status": "running",
+      "toolCalls": 7
+    },
+    {
+      "at": 1789278888083,
+      "status": "running",
+      "toolCalls": 7
+    },
+    {
+      "at": 1789278888312,
+      "status": "running",
+      "toolCalls": 7
+    },
+    {
+      "at": 1789278888528,
+      "status": "running",
+      "toolCalls": 7
+    },
+    {
+      "at": 1789278888623,
+      "status": "running",
+      "toolCalls": 7
+    },
+    {
+      "at": 1789278888651,
+      "status": "running",
+      "toolCalls": 7
+    },
+    {
+      "at": 1789278888661,
+      "status": "idle",
+      "toolCalls": 7
+    }
+  ],
+  "errors": []
+}

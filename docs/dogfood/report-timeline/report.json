@@ -1,0 +1,126 @@
+{
+  "result": "pass",
+  "checkedAt": "2026-09-13T07:09:31.243Z",
+  "target": "http://127.0.0.1:5191",
+  "browser": "Edge headless",
+  "fixtures": "all API/WS intercepted",
+  "results": [
+    {
+      "name": "01-before-merge",
+      "assertions": [
+        "取り込み案内が見える",
+        "取り込みボタンが有効"
+      ],
+      "status": "pass",
+      "capturedAt": "2026-09-13T07:09:00.229Z",
+      "target": "http://127.0.0.1:5191",
+      "project": "時系列検証用プロジェクト"
+    },
+    {
+      "name": "02-merge-failed",
+      "assertions": [
+        "失敗後も案内が見える",
+        "再試行できる"
+      ],
+      "status": "pass",
+      "capturedAt": "2026-09-13T07:09:00.383Z",
+      "target": "http://127.0.0.1:5191",
+      "project": "時系列検証用プロジェクト"
+    },
+    {
+      "name": "03-merged",
+      "assertions": [
+        "古い取り込み案内は折り畳み",
+        "取り込み済み説明",
+        "取り込みボタン無効"
+      ],
+      "status": "pass",
+      "capturedAt": "2026-09-13T07:09:00.498Z",
+      "target": "http://127.0.0.1:5191",
+      "project": "時系列検証用プロジェクト"
+    },
+    {
+      "name": "04-history-expanded",
+      "assertions": [
+        "履歴展開で古い提案を読める"
+      ],
+      "status": "pass",
+      "capturedAt": "2026-09-13T07:09:00.576Z",
+      "target": "http://127.0.0.1:5191",
+      "project": "時系列検証用プロジェクト"
+    },
+    {
+      "name": "05-resumed",
+      "assertions": [
+        "前回報告・チェックが折り畳み",
+        "取り込み結果に前回の明記",
+        "作業中は追加取り込み無効"
+      ],
+      "status": "pass",
+      "capturedAt": "2026-09-13T07:09:30.748Z",
+      "target": "http://127.0.0.1:5191",
+      "project": "時系列検証用プロジェクト"
+    },
+    {
+      "name": "06-stopped",
+      "assertions": [
+        "停止後も古い報告・チェックは履歴",
+        "追加取り込み操作は有効"
+      ],
+      "status": "pass",
+      "capturedAt": "2026-09-13T07:09:30.882Z",
+      "target": "http://127.0.0.1:5191",
+      "project": "時系列検証用プロジェクト"
+    },
+    {
+      "name": "07-error",
+      "assertions": [
+        "エラー後も古い報告・チェックは履歴"
+      ],
+      "status": "pass",
+      "capturedAt": "2026-09-13T07:09:30.984Z",
+      "target": "http://127.0.0.1:5191",
+      "project": "時系列検証用プロジェクト"
+    },
+    {
+      "name": "08-new-report",
+      "assertions": [
+        "新報告の案内が再表示",
+        "新しい変更の取り込みが有効"
+      ],
+      "status": "pass",
+      "capturedAt": "2026-09-13T07:09:31.061Z",
+      "target": "http://127.0.0.1:5191",
+      "project": "時系列検証用プロジェクト"
+    },
+    {
+      "name": "09-user-completed",
+      "assertions": [
+        "利用者完了後は提案を履歴に移す"
+      ],
+      "status": "pass",
+      "capturedAt": "2026-09-13T07:09:31.165Z",
+      "target": "http://127.0.0.1:5191",
+      "project": "時系列検証用プロジェクト"
+    },
+    {
+      "name": "10-completed-history",
+      "assertions": [
+        "利用者完了後も履歴展開で提案を読める"
+      ],
+      "status": "pass",
+      "capturedAt": "2026-09-13T07:09:31.242Z",
+      "target": "http://127.0.0.1:5191",
+      "project": "時系列検証用プロジェクト"
+    }
+  ],
+  "actions": [
+    "merge",
+    "merge",
+    "message",
+    "stop",
+    "complete"
+  ],
+  "errors": [],
+  "unmatchedBlockedRequests": []
+}

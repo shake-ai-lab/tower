@@ -1,0 +1,24 @@
+{
+  "passed": false,
+  "id": "4f7d5a6d-f216-4ea6-95be-9966d1d9938a",
+  "thread": "01a098ee-1335-70f0-b783-bd7af87876ea",
+  "permissions": 1,
+  "outputs": [
+    "ConstrainedLanguage\r\n���{��m�F_PS\r\nutf-8\r\n日本語確認_PY"
+  ],
+  "report": {
+    "request": "指定コマンドで日本語出力を確認",
+    "outcome": "done",
+    "summary": [
+      "指定のコマンドを実行しました。",
+      "実行モードは「ConstrainedLanguage」（機能が制限された状態）でした。",
+      "PowerShellは「���{��m�F_PS」と文字化けしていました。",
+      "Pythonの文字コードは「utf-8」、出力は「日本語確認_PY」でした。"
+    ],
+    "changedFiles": [],
+    "needsDecision": null,
+    "nextStep": null,
+    "raw": "【報告】\n依頼: 指定コマンドで日本語出力を確認\n結果: 完了\nやったこと:\n\n- 指定のコマンドを実行しました。\n- 実行モードは「ConstrainedLanguage」（機能が制限された状態）でした。\n- PowerShellは「���{��m�F_PS」と文字化けしていました。\n- Pythonの文字コードは「utf-8」、出力は「日本語確認_PY」でした。\n\n変更ファイル:\n\n- なし\n\n判断が必要:\nなし\n\n次の一手:\nなし",
+    "generatedAt": 1789273292682
+  }
+}

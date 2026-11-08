@@ -1,0 +1,181 @@
+{
+  "passed": true,
+  "scenario": "async-stop-resume",
+  "sessionId": "a0e5ad35-650e-4508-ae3f-a9916e41b8be",
+  "thread": "01a09941-f8fe-7543-a17a-eb19d1ba6ce5",
+  "requestId": "async:call_hkrYPC3kWN1Klr5Im5CgMQf8",
+  "questionIds": [
+    "call_hkrYPC3kWN1Klr5Im5CgMQf8:0",
+    "call_hkrYPC3kWN1Klr5Im5CgMQf8:1"
+  ],
+  "initialStatus": "waiting_question",
+  "sameThread": true,
+  "modelAcknowledged": true,
+  "secretsAbsentFromTimeline": true,
+  "websocket": [
+    {
+      "at": 1789280060236,
+      "status": "waiting_question",
+      "requestId": "async:call_hkrYPC3kWN1Klr5Im5CgMQf8",
+      "delivery": "async",
+      "toolCalls": 13
+    },
+    {
+      "at": 1789280061648,
+      "status": "stopped",
+      "requestId": "async:call_hkrYPC3kWN1Klr5Im5CgMQf8",
+      "delivery": "async",
+      "toolCalls": 13
+    },
+    {
+      "at": 1789280061822,
+      "status": "starting",
+      "requestId": "async:call_hkrYPC3kWN1Klr5Im5CgMQf8",
+      "delivery": "async",
+      "toolCalls": 13
+    },
+    {
+      "at": 1789280061824,
+      "status": "running",
+      "requestId": "async:call_hkrYPC3kWN1Klr5Im5CgMQf8",
+      "delivery": "async",
+      "toolCalls": 13
+    },
+    {
+      "at": 1789280062170,
+      "status": "running",
+      "requestId": "async:call_hkrYPC3kWN1Klr5Im5CgMQf8",
+      "delivery": "async",
+      "toolCalls": 13
+    },
+    {
+      "at": 1789280062172,
+      "status": "running",
+      "requestId": "async:call_hkrYPC3kWN1Klr5Im5CgMQf8",
+      "delivery": "async",
+      "toolCalls": 13
+    },
+    {
+      "at": 1789280062174,
+      "status": "running",
+      "requestId": "async:call_hkrYPC3kWN1Klr5Im5CgMQf8",
+      "delivery": "async",
+      "toolCalls": 13
+    },
+    {
+      "at": 1789280062177,
+      "status": "running",
+      "requestId": "async:call_hkrYPC3kWN1Klr5Im5CgMQf8",
+      "delivery": "async",
+      "toolCalls": 13
+    },
+    {
+      "at": 1789280062225,
+      "status": "running",
+      "requestId": "async:call_hkrYPC3kWN1Klr5Im5CgMQf8",
+      "delivery": "async",
+      "toolCalls": 13
+    },
+    {
+      "at": 1789280062226,
+      "status": "running",
+      "toolCalls": 13
+    },
+    {
+      "at": 1789280068547,
+      "status": "running",
+      "toolCalls": 13
+    },
+    {
+      "at": 1789280068794,
+      "status": "running",
+      "toolCalls": 13
+    },
+    {
+      "at": 1789280069165,
+      "status": "running",
+      "toolCalls": 13
+    },
+    {
+      "at": 1789280069398,
+      "status": "running",
+      "toolCalls": 13
+    },
+    {
+      "at": 1789280069614,
+      "status": "running",
+      "toolCalls": 13
+    },
+    {
+      "at": 1789280069835,
+      "status": "running",
+      "toolCalls": 13
+    },
+    {
+      "at": 1789280070057,
+      "status": "running",
+      "toolCalls": 13
+    },
+    {
+      "at": 1789280070280,
+      "status": "running",
+      "toolCalls": 13
+    },
+    {
+      "at": 1789280070558,
+      "status": "running",
+      "toolCalls": 13
+    },
+    {
+      "at": 1789280070820,
+      "status": "running",
+      "toolCalls": 13
+    },
+    {
+      "at": 1789280071721,
+      "status": "running",
+      "toolCalls": 13
+    },
+    {
+      "at": 1789280071936,
+      "status": "running",
+      "toolCalls": 13
+    },
+    {
+      "at": 1789280072168,
+      "status": "running",
+      "toolCalls": 13
+    },
+    {
+      "at": 1789280072665,
+      "status": "running",
+      "toolCalls": 13
+    },
+    {
+      "at": 1789280072867,
+      "status": "running",
+      "toolCalls": 13
+    },
+    {
+      "at": 1789280073087,
+      "status": "running",
+      "toolCalls": 13
+    },
+    {
+      "at": 1789280073106,
+      "status": "running",
+      "toolCalls": 13
+    },
+    {
+      "at": 1789280073184,
+      "status": "running",
+      "toolCalls": 13
+    },
+    {
+      "at": 1789280073197,
+      "status": "idle",
+      "toolCalls": 13
+    }
+  ],
+  "errors": []
+}

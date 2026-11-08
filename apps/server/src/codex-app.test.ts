@@ -77,7 +77,7 @@ test('許可方針を Codex の「いつ聞くか」「どこまで触れるか�
   assert.deepEqual(pick('default'), ['untrusted', 'read-only']);
   assert.deepEqual(pick('acceptEdits'), ['untrusted', 'workspace-write']);
   assert.deepEqual(pick('auto'), ['on-request', 'workspace-write']);
-  assert.deepEqual(pick('bypassPermissions'), ['never', 'danger-full-access']);
+  assert.deepEqual(pick('bypassPermissions'), [{ granular: { sandbox_approval: false, rules: false, mcp_elicitations: true, request_permissions: false, skill_approval: false } }, 'danger-full-access']);
   const ws = codexPolicy('acceptEdits').sandboxPolicy;
   assert.equal(ws.type === 'workspaceWrite' && ws.networkAccess, true, '作業フォルダの中で動かす時もネットは使える');
 });
@@ -125,7 +125,7 @@ test('「以後も許可」: このタスクの間だけの許可が無ければ
   assert.equal(commandDecision({ itemId: 'i', command: 'npm test', availableDecisions: ['accept', 'decline'] }, 'allow_always'), 'accept', '出せない時はふつうの許可');
 });
 
-test('読むだけのコマンドは聞かずに通す（書く・消す・動かすものは聞く）', () => {
+test('表示用の読み取りコマンド判定（承認の可否には使わない）', () => {
   for (const c of [
     `${PS} 'Get-Content -LiteralPath index.html -Encoding UTF8'`,
     'Get-Location; rg --files -g README.md',
@@ -156,7 +156,7 @@ test('許可方針ごとに、Tower が代わりに許可するもの', () => {
   assert.equal(autoAllow('acceptEdits', { kind: 'file', outside: false }), '編集は自動');
   assert.equal(autoAllow('acceptEdits', { kind: 'file', outside: true }), null, '作業フォルダの外への書き込みは聞く');
   assert.equal(autoAllow('default', { kind: 'file', outside: false }), null, '毎回確認なら編集も聞く');
-  assert.equal(autoAllow('default', { kind: 'command', command: 'Get-Content a' }), '読むだけのコマンド');
+  assert.equal(autoAllow('default', { kind: 'command', command: 'Get-Content a' }), null, 'Codex の承認要求は独自のコマンド判定で省略しない');
   assert.equal(autoAllow('acceptEdits', { kind: 'command', command: 'Get-Content a', network: true }), null, 'ネットへの接続は聞く');
   assert.equal(autoAllow('acceptEdits', { kind: 'command', command: 'npm test' }), null);
   assert.equal(autoAllow('bypassPermissions', { kind: 'other' }), '全自動');
@@ -199,14 +199,14 @@ test('質問: 画面の答え（質問文 → 答え）を Codex の形（質問
   assert.deepEqual(userInputAnswers(qs, {}).answers.q1, { answers: [] });
 });
 
-test('道具からの確認: 入力欄は決まった値で埋めて答える', () => {
+test('道具からの確認: 未対応の入力欄に値を作って答えない', () => {
   const form = {
     serverName: 'cua_repl',
     mode: 'form',
     message: '操作してよいですか',
     requestedSchema: { properties: { ok: { type: 'boolean' }, app: { type: 'string', enum: ['Excel', 'Word'] }, note: { type: 'string' } }, required: ['note'] },
   };
-  assert.deepEqual(elicitationResponse(form, 'allow'), { action: 'accept', content: { ok: true, app: 'Excel', note: '' }, _meta: null });
+  assert.deepEqual(elicitationResponse(form, 'allow'), { action: 'decline', content: null, _meta: null });
   assert.deepEqual(elicitationResponse(form, 'deny'), { action: 'decline', content: null, _meta: null });
 });
 

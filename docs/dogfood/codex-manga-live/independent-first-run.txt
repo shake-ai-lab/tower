@@ -1,0 +1,27 @@
+2026-09-13 / C:\Users\kouta\project\manga
+Parent independent verification after the first final report; no code edits.
+Command: PYTHONIOENCODING=utf-8 python -m pytest -o addopts='' -q -rs
+Result: 487 passed, 1 skipped, 1 error in 70.67s; exit 1.
+
+ERROR at setup of test_page_decoration_editor_opens_and_adds_a_row
+tests/conftest.py:187 ui_page fixture:
+  page.set_default_timeout(15000)
+  page.goto(url)
+  page.wait_for_function("w => document.getElementById('work-select').value === w", arg=UI_WORK)
+Page.wait_for_function: Timeout 15000ms exceeded.
+
+Captured HTTP requests (all 200):
+GET /
+GET /static/css/style.css
+GET /static/css/studio.css
+GET /static/js/main.js
+GET /static/js/api.js
+GET /static/js/app.js
+GET /static/js/layoutDesigner.js
+GET /static/js/navigation.js
+No work API request was logged in this failed setup.
+
+SKIPPED tests/test_explicit_vocab.py:371:
+タグの照合ができない(キャッシュ未整備)。不明を不在と混同しない
+
+This is a failed verification, not counted as a pass. Returned to the real Tower Codex for diagnostics and correction.

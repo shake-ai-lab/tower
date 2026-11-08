@@ -1,0 +1,6 @@
+{
+  "passed": true,
+  "defaultAfterRestart": "auto",
+  "taskAfterRestart": "acceptEdits",
+  "permissionUpdateStatus": 200
+}

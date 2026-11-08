@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
-import type { SettingsStatus, TowerSettings } from '@tower/shared';
+import { CODEX_PERMISSION_CHOICES, type PermissionChoice, type SettingsStatus, type TowerSettings } from '@tower/shared';
 import { api, errMsg } from '../api';
 import { btn, clearSavedWidths } from '../lib';
 import { CodexAccount } from './CodexAccount';
+import { CodexEnvironmentPanel } from './CodexEnvironmentPanel';
 
 const CHECKBOX_LABELS = {
   autoVerify: '報告後にテストを自動実行',
@@ -38,8 +39,16 @@ export function SettingsPanel() {
   }}>
     <h2 className="font-semibold">設定</h2>
     <CodexAccount />
+    <CodexEnvironmentPanel />
     {error && <p role="alert" className="text-red-300 break-words">{error}</p>}
     {!draft ? <p>設定を読み込み中…</p> : <fieldset disabled={busy} className="space-y-3 min-w-0">
+      <label className="block">Codexの既定の権限
+        <select aria-label="Codexの既定の権限" className={input} value={draft.codexPermissionMode} onChange={(e) => setDraft({ ...draft, codexPermissionMode: e.target.value as PermissionChoice })}>
+          {CODEX_PERMISSION_CHOICES.map((p) => <option key={p.value} value={p.value}>{p.label}</option>)}
+        </select>
+      </label>
+      <p className="text-xs text-zinc-400">{CODEX_PERMISSION_CHOICES.find((p) => p.value === draft.codexPermissionMode)?.hint}</p>
+      <p className="text-xs text-zinc-400">新しいCodexタスクの初期値です。既存のタスクの権限は変わりません。タスクごとにも変更できます。</p>
       <label className="block">プロジェクトの親フォルダ（1行に1つ）<textarea className={input} rows={4} value={roots} onChange={(e) => setRoots(e.target.value)} /></label>
       {(['autoVerify', 'reformatReports', 'autoResume', 'autoCommit'] as const).map((key) => <label key={key} className="flex gap-2 items-center">
         <input type="checkbox" checked={draft[key]} onChange={(e) => setDraft({ ...draft, [key]: e.target.checked })} />

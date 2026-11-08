@@ -1,0 +1,502 @@
+{
+  "sessionId": "494d1c97-137f-4dcd-82b5-cbf372294fbb",
+  "thread": "01a098d9-391b-7e23-9c82-025cfbe01651",
+  "status": "idle",
+  "report": {
+    "request": "独立検証結果を照合し、作業を完了する。",
+    "outcome": "done",
+    "summary": [
+      "Towerの497件成功・1件省略・失敗0が、こちらの結果と一致しました。",
+      "独立レビューで重大指摘なし。既存5000番でも旧HTMLからの起動・作品選択・概要表示・例外なしを親側で確認済みです。",
+      "検証証拠は保持し、追加の編集・テスト・ブラウザー操作はしていません。"
+    ],
+    "changedFiles": [],
+    "needsDecision": null,
+    "nextStep": null,
+    "raw": "【報告】\n依頼: 独立検証結果を照合し、作業を完了する。\n結果: 完了\nやったこと:\n\n- Towerの497件成功・1件省略・失敗0が、こちらの結果と一致しました。\n- 独立レビューで重大指摘なし。既存5000番でも旧HTMLからの起動・作品選択・概要表示・例外なしを親側で確認済みです。\n- 検証証拠は保持し、追加の編集・テスト・ブラウザー操作はしていません。\n\n変更ファイル:\n\n- なし（今回の確認返信）\n\n判断が必要:\nなし\n\n次の一手:\nなし",
+    "generatedAt": 1789275063614
+  },
+  "baseline": {
+    "command": "python -m pytest",
+    "ok": true,
+    "output": "........................................................................ [ 15%]\r\n........................................................................ [ 31%]\r\ns....................................................................... [ 46%]\r\n........................................................................ [ 62%]\r\n........................................................................ [ 78%]\r\n........................................................................ [ 93%]\r\n............................                                             [100%]\r\n459 passed, 1 skipped in 19.60s",
+    "summary": "全部成功（459 件）",
+    "failed": [],
+    "at": 1789270767617,
+    "durationMs": 21293
+  },
+  "verification": {
+    "command": "python -m pytest",
+    "ok": true,
+    "output": "........................................................................ [ 14%]\r\n........................................................................ [ 28%]\r\n....s................................................................... [ 43%]\r\n........................................................................ [ 57%]\r\n........................................................................ [ 72%]\r\n........................................................................ [ 86%]\r\n..................................................................       [100%]\r\n497 passed, 1 skipped in 66.79s (0:01:06)",
+    "summary": "全部成功（497 件）",
+    "failed": [],
+    "at": 1789274968031,
+    "durationMs": 67774
+  },
+  "modelPolicies": [
+    {
+      "at": "2026-09-13T03:39:30.536Z",
+      "model": "gpt-6-astra",
+      "effort": "high",
+      "approvalPolicy": "never",
+      "sandbox": {
+        "type": "danger-full-access"
+      }
+    },
+    {
+      "at": "2026-09-13T04:09:06.997Z",
+      "model": "gpt-6-astra",
+      "effort": "high",
+      "approvalPolicy": "never",
+      "sandbox": {
+        "type": "danger-full-access"
+      }
+    },
+    {
+      "at": "2026-09-13T04:14:42.274Z",
+      "model": "gpt-6-astra",
+      "effort": "high",
+      "approvalPolicy": "never",
+      "sandbox": {
+        "type": "danger-full-access"
+      }
+    },
+    {
+      "at": "2026-09-13T04:31:49.484Z",
+      "model": "gpt-6-astra",
+      "effort": "high",
+      "approvalPolicy": "never",
+      "sandbox": {
+        "type": "danger-full-access"
+      }
+    },
+    {
+      "at": "2026-09-13T04:36:36.724Z",
+      "model": "gpt-6-astra",
+      "effort": "high",
+      "approvalPolicy": "never",
+      "sandbox": {
+        "type": "danger-full-access"
+      }
+    },
+    {
+      "at": "2026-09-13T04:45:04.108Z",
+      "model": "gpt-6-astra",
+      "effort": "high",
+      "approvalPolicy": "never",
+      "sandbox": {
+        "type": "danger-full-access"
+      }
+    },
+    {
+      "at": "2026-09-13T04:50:55.433Z",
+      "model": "gpt-6-astra",
+      "effort": "high",
+      "approvalPolicy": "never",
+      "sandbox": {
+        "type": "danger-full-access"
+      }
+    }
+  ],
+  "changedFiles": [
+    {
+      "path": "C:\\Users\\kouta\\project\\manga\\tests\\test_navigation.py",
+      "sha256": "63b3d3c46d541905a65c170bbbd07c2013741331bd166703b221738ea79559f4"
+    },
+    {
+      "path": "C:\\Users\\kouta\\project\\manga\\apps\\picker\\static\\js\\main.js",
+      "sha256": "bf722a69cef6b8307f571f61c8d4a3446e6cc8f49819d5254a740a697e4451e7"
+    },
+    {
+      "path": "C:\\Users\\kouta\\project\\manga\\apps\\picker\\static\\js\\navigation.js",
+      "sha256": "148e2fdbf936aa1704766016ca7472e6ae8c206b9d027ccc410a40197114b190"
+    },
+    {
+      "path": "C:\\Users\\kouta\\project\\manga\\apps\\picker\\templates\\index.html",
+      "sha256": "50423bbec2a4483855a4b547b84296d1067d0de9f35a3cc15a55c0f82bcab893"
+    },
+    {
+      "path": "C:\\Users\\kouta\\project\\manga\\apps\\picker\\static\\js\\app.js",
+      "sha256": "fba13112bcc95a170be2c9965d2ad88e33ba0e30ba4182c9b9cc05aa2617a765"
+    },
+    {
+      "path": "C:\\Users\\kouta\\project\\manga\\apps\\picker\\static\\js\\designer\\interaction.js",
+      "sha256": "a4ee2c865fe0ea1447bcc986b156070f0e7dfc832bca0f51c291ecaf9d30e621"
+    },
+    {
+      "path": "C:\\Users\\kouta\\project\\manga\\apps\\picker\\static\\js\\designer\\structureRef.js",
+      "sha256": "7673f45c8427e2ef493b64422c8f5cdd47d4c20040af26e58b72c2d0a2c6aa85"
+    },
+    {
+      "path": "C:\\Users\\kouta\\project\\manga\\apps\\picker\\static\\js\\layoutDesigner.js",
+      "sha256": "a2d46571a3344bf3f84dea1ae5af42e149ffbcfb25d06a1b08c32ea0979c238d"
+    },
+    {
+      "path": "C:\\Users\\kouta\\project\\manga\\tests\\test_designer_modules.py",
+      "sha256": "710c8e99330693e8a1f9a7738251e2def602d238a0711c4035d92216df8e3302"
+    },
+    {
+      "path": "C:\\Users\\kouta\\project\\manga\\apps\\picker\\static\\js\\designer\\locations.js",
+      "sha256": "db35ba4e60e5e974e0023980f6ad3293f185ec9fa85a1baf187e47c732f01d02"
+    },
+    {
+      "path": "C:\\Users\\kouta\\project\\manga\\apps\\picker\\static\\js\\designer\\pages.js",
+      "sha256": "7c0d099a4c75a4e8a24d71774fbd86a57796eb710240c6ccc1e70d32bea6f598"
+    },
+    {
+      "path": "C:\\Users\\kouta\\project\\manga\\apps\\picker\\static\\js\\designer\\presets.js",
+      "sha256": "b91bb64f6e7ba3db1a45878fcc1b849708c5803fba3536ba347c13c505641e87"
+    },
+    {
+      "path": "C:\\Users\\kouta\\project\\manga\\apps\\picker\\static\\js\\designer\\save.js",
+      "sha256": "f464033fc0b76d4e20827ee31c2329ba22f46e4f9d9c3ec72f941511e6147fee"
+    },
+    {
+      "path": "C:\\Users\\kouta\\project\\manga\\apps\\picker\\static\\js\\designer\\state.js",
+      "sha256": "ae9defe60f1fdcf81a5b0c226ece6675512a6d9cd1125caf9605978308522e59"
+    },
+    {
+      "path": "C:\\Users\\kouta\\project\\manga\\apps\\picker\\static\\js\\studio.js",
+      "sha256": "c23cc2de75cf5350f5b2b7ff9aec21ad68fedace7c9162fadd3563e1fea73116"
+    },
+    {
+      "path": "C:\\Users\\kouta\\project\\manga\\tests\\browser_diagnostics.py",
+      "sha256": "6bf1a62a5e323fddf5a2d38a123c16d3e45a3b26aa93af01f48c4c6cf3db375c"
+    },
+    {
+      "path": "C:\\Users\\kouta\\project\\manga\\tests\\conftest.py",
+      "sha256": "3a9f4befc5d21a2bdf1c3693f3beefd5c4c3c3e427ba01c2317d07a24dc3d3df"
+    },
+    {
+      "path": "C:\\Users\\kouta\\project\\manga\\tests\\test_browser_startup.py",
+      "sha256": "513bbe86d632fc4eb0c6a8d924e35016844799cad64be5da090a363509d25cb7"
+    },
+    {
+      "path": "C:\\Users\\kouta\\project\\manga\\requirements-dev.txt",
+      "sha256": "f0ae08dc01a2c7259d37fab72a5cc29d9fa18841ea8971810877e2abb1e8363b"
+    },
+    {
+      "path": "C:\\Users\\kouta\\project\\manga\\tests\\live_server.py",
+      "sha256": "4eea1d91087378abe8daaf7489c5707600355a04da68417f35caf54e6a35e19f"
+    },
+    {
+      "path": "[apps/picker/static/js/main.js]",
+      "sha256": null
+    },
+    {
+      "path": "[tests/test_navigation.py]",
+      "sha256": null
+    },
+    {
+      "path": "C:\\Users\\kouta\\project\\manga\\tests\\test_picker_ui.py",
+      "sha256": "eb60884ae4ef9350852bb95bcf2efb21067bfa7bb74afacf7f89e9736cf8652c"
+    },
+    {
+      "path": "[tests/test_picker_ui.py]",
+      "sha256": null
+    }
+  ],
+  "toolCalls": 214,
+  "turns": 6,
+  "browserActions": [
+    {
+      "text": "ブラウザーで開きました（http://127.0.0.1:50067/?view=studio&work=older_sto…）",
+      "tool": "Browser",
+      "imagePath": "C:\\Users\\kouta\\project\\editor\\playground\\runs\\codex-manga-live\\shots\\494d1c97-137f-4dcd-82b5-cbf372294fbb\\browser-1789271042745.jpg"
+    },
+    {
+      "text": "画面を撮りました",
+      "tool": "Browser",
+      "imagePath": "C:\\Users\\kouta\\project\\editor\\playground\\runs\\codex-manga-live\\shots\\494d1c97-137f-4dcd-82b5-cbf372294fbb\\browser-1789271049407.jpg"
+    },
+    {
+      "text": "クリックしました（#work-select）",
+      "tool": "Browser",
+      "imagePath": "C:\\Users\\kouta\\project\\editor\\playground\\runs\\codex-manga-live\\shots\\494d1c97-137f-4dcd-82b5-cbf372294fbb\\browser-1789271062347.jpg"
+    },
+    {
+      "text": "キーを押しました（Home）",
+      "tool": "Browser",
+      "imagePath": "C:\\Users\\kouta\\project\\editor\\playground\\runs\\codex-manga-live\\shots\\494d1c97-137f-4dcd-82b5-cbf372294fbb\\browser-1789271062657.jpg"
+    },
+    {
+      "text": "キーを押しました（Enter）",
+      "tool": "Browser",
+      "imagePath": "C:\\Users\\kouta\\project\\editor\\playground\\runs\\codex-manga-live\\shots\\494d1c97-137f-4dcd-82b5-cbf372294fbb\\browser-1789271062966.jpg"
+    },
+    {
+      "text": "クリックしました（#mode-designer-btn）",
+      "tool": "Browser",
+      "imagePath": "C:\\Users\\kouta\\project\\editor\\playground\\runs\\codex-manga-live\\shots\\494d1c97-137f-4dcd-82b5-cbf372294fbb\\browser-1789271075206.jpg"
+    },
+    {
+      "text": "前のページに戻りました",
+      "tool": "Browser",
+      "imagePath": "C:\\Users\\kouta\\project\\editor\\playground\\runs\\codex-manga-live\\shots\\494d1c97-137f-4dcd-82b5-cbf372294fbb\\browser-1789271075529.jpg"
+    },
+    {
+      "text": "前のページに戻りました",
+      "tool": "Browser",
+      "imagePath": "C:\\Users\\kouta\\project\\editor\\playground\\runs\\codex-manga-live\\shots\\494d1c97-137f-4dcd-82b5-cbf372294fbb\\browser-1789271075839.jpg"
+    },
+    {
+      "text": "画面を撮りました",
+      "tool": "Browser",
+      "imagePath": "C:\\Users\\kouta\\project\\editor\\playground\\runs\\codex-manga-live\\shots\\494d1c97-137f-4dcd-82b5-cbf372294fbb\\browser-1789271087386.jpg"
+    },
+    {
+      "text": "画面を撮りました",
+      "tool": "Browser",
+      "imagePath": "C:\\Users\\kouta\\project\\editor\\playground\\runs\\codex-manga-live\\shots\\494d1c97-137f-4dcd-82b5-cbf372294fbb\\browser-1789271139178.jpg"
+    },
+    {
+      "text": "ブラウザーで開きました（http://127.0.0.1:50067/?view=studio&work=%E6%97%A5…）",
+      "tool": "Browser",
+      "imagePath": "C:\\Users\\kouta\\project\\editor\\playground\\runs\\codex-manga-live\\shots\\494d1c97-137f-4dcd-82b5-cbf372294fbb\\browser-1789271140133.jpg"
+    },
+    {
+      "text": "ブラウザーで開きました（http://127.0.0.1:50067/?view=picker&work=older_sto…）",
+      "tool": "Browser",
+      "imagePath": "C:\\Users\\kouta\\project\\editor\\playground\\runs\\codex-manga-live\\shots\\494d1c97-137f-4dcd-82b5-cbf372294fbb\\browser-1789271631255.jpg"
+    },
+    {
+      "text": "クリックしました（#work-select）",
+      "tool": "Browser",
+      "imagePath": "C:\\Users\\kouta\\project\\editor\\playground\\runs\\codex-manga-live\\shots\\494d1c97-137f-4dcd-82b5-cbf372294fbb\\browser-1789271642380.jpg"
+    },
+    {
+      "text": "キーを押しました（Home）",
+      "tool": "Browser",
+      "imagePath": "C:\\Users\\kouta\\project\\editor\\playground\\runs\\codex-manga-live\\shots\\494d1c97-137f-4dcd-82b5-cbf372294fbb\\browser-1789271642738.jpg"
+    },
+    {
+      "text": "キーを押しました（Enter）",
+      "tool": "Browser",
+      "imagePath": "C:\\Users\\kouta\\project\\editor\\playground\\runs\\codex-manga-live\\shots\\494d1c97-137f-4dcd-82b5-cbf372294fbb\\browser-1789271643094.jpg"
+    },
+    {
+      "text": "クリックしました（「候補・データセット」）",
+      "tool": "Browser",
+      "imagePath": "C:\\Users\\kouta\\project\\editor\\playground\\runs\\codex-manga-live\\shots\\494d1c97-137f-4dcd-82b5-cbf372294fbb\\browser-1789271643478.jpg"
+    },
+    {
+      "text": "前のページに戻りました",
+      "tool": "Browser",
+      "imagePath": "C:\\Users\\kouta\\project\\editor\\playground\\runs\\codex-manga-live\\shots\\494d1c97-137f-4dcd-82b5-cbf372294fbb\\browser-1789271643805.jpg"
+    },
+    {
+      "text": "クリックしました（#cast-btn）",
+      "tool": "Browser",
+      "imagePath": "C:\\Users\\kouta\\project\\editor\\playground\\runs\\codex-manga-live\\shots\\494d1c97-137f-4dcd-82b5-cbf372294fbb\\browser-1789271656870.jpg"
+    },
+    {
+      "text": "前のページに戻りました",
+      "tool": "Browser",
+      "imagePath": "C:\\Users\\kouta\\project\\editor\\playground\\runs\\codex-manga-live\\shots\\494d1c97-137f-4dcd-82b5-cbf372294fbb\\browser-1789271657182.jpg"
+    },
+    {
+      "text": "ブラウザーで開きました（http://127.0.0.1:50067/?view=studio&work=%E6%97%A5…）",
+      "tool": "Browser",
+      "imagePath": "C:\\Users\\kouta\\project\\editor\\playground\\runs\\codex-manga-live\\shots\\494d1c97-137f-4dcd-82b5-cbf372294fbb\\browser-1789271658162.jpg"
+    },
+    {
+      "text": "ブラウザーで開きました（http://127.0.0.1:54496/?view=designer&work=older_s…）",
+      "tool": "Browser",
+      "imagePath": "C:\\Users\\kouta\\project\\editor\\playground\\runs\\codex-manga-live\\shots\\494d1c97-137f-4dcd-82b5-cbf372294fbb\\browser-1789271902458.jpg"
+    },
+    {
+      "text": "クリックしました（#work-select）",
+      "tool": "Browser",
+      "imagePath": "C:\\Users\\kouta\\project\\editor\\playground\\runs\\codex-manga-live\\shots\\494d1c97-137f-4dcd-82b5-cbf372294fbb\\browser-1789271903061.jpg"
+    },
+    {
+      "text": "キーを押しました（Home）",
+      "tool": "Browser",
+      "imagePath": "C:\\Users\\kouta\\project\\editor\\playground\\runs\\codex-manga-live\\shots\\494d1c97-137f-4dcd-82b5-cbf372294fbb\\browser-1789271903387.jpg"
+    },
+    {
+      "text": "キーを押しました（Enter）",
+      "tool": "Browser",
+      "imagePath": "C:\\Users\\kouta\\project\\editor\\playground\\runs\\codex-manga-live\\shots\\494d1c97-137f-4dcd-82b5-cbf372294fbb\\browser-1789271903712.jpg"
+    },
+    {
+      "text": "前のページに戻りました",
+      "tool": "Browser",
+      "imagePath": "C:\\Users\\kouta\\project\\editor\\playground\\runs\\codex-manga-live\\shots\\494d1c97-137f-4dcd-82b5-cbf372294fbb\\browser-1789271904070.jpg"
+    },
+    {
+      "text": "画面を撮りました",
+      "tool": "Browser",
+      "imagePath": "C:\\Users\\kouta\\project\\editor\\playground\\runs\\codex-manga-live\\shots\\494d1c97-137f-4dcd-82b5-cbf372294fbb\\browser-1789271914358.jpg"
+    },
+    {
+      "text": "ブラウザーで開きました（http://127.0.0.1:54496/?view=designer&work=older_s…）",
+      "tool": "Browser",
+      "imagePath": "C:\\Users\\kouta\\project\\editor\\playground\\runs\\codex-manga-live\\shots\\494d1c97-137f-4dcd-82b5-cbf372294fbb\\browser-1789272417099.jpg"
+    },
+    {
+      "text": "クリックしました（#work-select）",
+      "tool": "Browser",
+      "imagePath": "C:\\Users\\kouta\\project\\editor\\playground\\runs\\codex-manga-live\\shots\\494d1c97-137f-4dcd-82b5-cbf372294fbb\\browser-1789272417483.jpg"
+    },
+    {
+      "text": "キーを押しました（Home）",
+      "tool": "Browser",
+      "imagePath": "C:\\Users\\kouta\\project\\editor\\playground\\runs\\codex-manga-live\\shots\\494d1c97-137f-4dcd-82b5-cbf372294fbb\\browser-1789272417812.jpg"
+    },
+    {
+      "text": "キーを押しました（Enter）",
+      "tool": "Browser",
+      "imagePath": "C:\\Users\\kouta\\project\\editor\\playground\\runs\\codex-manga-live\\shots\\494d1c97-137f-4dcd-82b5-cbf372294fbb\\browser-1789272418138.jpg"
+    },
+    {
+      "text": "クリックしました（#designer-svg polygon.designer-polygon）",
+      "tool": "Browser",
+      "imagePath": "C:\\Users\\kouta\\project\\editor\\playground\\runs\\codex-manga-live\\shots\\494d1c97-137f-4dcd-82b5-cbf372294fbb\\browser-1789272418527.jpg"
+    },
+    {
+      "text": "入力しました（作業元の保存テスト）",
+      "tool": "Browser",
+      "imagePath": "C:\\Users\\kouta\\project\\editor\\playground\\runs\\codex-manga-live\\shots\\494d1c97-137f-4dcd-82b5-cbf372294fbb\\browser-1789272418869.jpg"
+    },
+    {
+      "text": "クリックしました（#designer-save）",
+      "tool": "Browser",
+      "imagePath": "C:\\Users\\kouta\\project\\editor\\playground\\runs\\codex-manga-live\\shots\\494d1c97-137f-4dcd-82b5-cbf372294fbb\\browser-1789272419194.jpg"
+    },
+    {
+      "text": "前のページに戻りました",
+      "tool": "Browser",
+      "imagePath": "C:\\Users\\kouta\\project\\editor\\playground\\runs\\codex-manga-live\\shots\\494d1c97-137f-4dcd-82b5-cbf372294fbb\\browser-1789272419552.jpg"
+    },
+    {
+      "text": "クリックしました（#designer-svg polygon.designer-polygon）",
+      "tool": "Browser",
+      "imagePath": "C:\\Users\\kouta\\project\\editor\\playground\\runs\\codex-manga-live\\shots\\494d1c97-137f-4dcd-82b5-cbf372294fbb\\browser-1789272557002.jpg"
+    },
+    {
+      "text": "入力しました（移動先で編集中）",
+      "tool": "Browser",
+      "imagePath": "C:\\Users\\kouta\\project\\editor\\playground\\runs\\codex-manga-live\\shots\\494d1c97-137f-4dcd-82b5-cbf372294fbb\\browser-1789272567671.jpg"
+    },
+    {
+      "text": "画面を撮りました",
+      "tool": "Browser",
+      "imagePath": "C:\\Users\\kouta\\project\\editor\\playground\\runs\\codex-manga-live\\shots\\494d1c97-137f-4dcd-82b5-cbf372294fbb\\browser-1789272577618.jpg"
+    },
+    {
+      "text": "クリックしました（#designer-save）",
+      "tool": "Browser",
+      "imagePath": "C:\\Users\\kouta\\project\\editor\\playground\\runs\\codex-manga-live\\shots\\494d1c97-137f-4dcd-82b5-cbf372294fbb\\browser-1789272601057.jpg"
+    },
+    {
+      "text": "画像を見ています（screen.png）",
+      "tool": "Read",
+      "imagePath": "C:\\Users\\kouta\\AppData\\Local\\Temp\\manga-startup-evidence-kiyydud2\\reproduction\\page-077\\screen.png"
+    },
+    {
+      "text": "ブラウザーで開きました（http://127.0.0.1:64926/?view=studio&work=startup_o…）",
+      "tool": "Browser",
+      "imagePath": "C:\\Users\\kouta\\project\\editor\\playground\\runs\\codex-manga-live\\shots\\494d1c97-137f-4dcd-82b5-cbf372294fbb\\browser-1789273520000.jpg"
+    },
+    {
+      "text": "クリックしました（#work-select）",
+      "tool": "Browser",
+      "imagePath": "C:\\Users\\kouta\\project\\editor\\playground\\runs\\codex-manga-live\\shots\\494d1c97-137f-4dcd-82b5-cbf372294fbb\\browser-1789273556964.jpg"
+    },
+    {
+      "text": "キーを押しました（Home）",
+      "tool": "Browser",
+      "imagePath": "C:\\Users\\kouta\\project\\editor\\playground\\runs\\codex-manga-live\\shots\\494d1c97-137f-4dcd-82b5-cbf372294fbb\\browser-1789273557275.jpg"
+    },
+    {
+      "text": "キーを押しました（ArrowDown）",
+      "tool": "Browser",
+      "imagePath": "C:\\Users\\kouta\\project\\editor\\playground\\runs\\codex-manga-live\\shots\\494d1c97-137f-4dcd-82b5-cbf372294fbb\\browser-1789273557586.jpg"
+    },
+    {
+      "text": "キーを押しました（Enter）",
+      "tool": "Browser",
+      "imagePath": "C:\\Users\\kouta\\project\\editor\\playground\\runs\\codex-manga-live\\shots\\494d1c97-137f-4dcd-82b5-cbf372294fbb\\browser-1789273557913.jpg"
+    },
+    {
+      "text": "キーを押しました（Home）",
+      "tool": "Browser",
+      "imagePath": "C:\\Users\\kouta\\project\\editor\\playground\\runs\\codex-manga-live\\shots\\494d1c97-137f-4dcd-82b5-cbf372294fbb\\browser-1789273566909.jpg"
+    },
+    {
+      "text": "キーを押しました（Enter）",
+      "tool": "Browser",
+      "imagePath": "C:\\Users\\kouta\\project\\editor\\playground\\runs\\codex-manga-live\\shots\\494d1c97-137f-4dcd-82b5-cbf372294fbb\\browser-1789273567235.jpg"
+    },
+    {
+      "text": "クリックしました（#mode-designer-btn）",
+      "tool": "Browser",
+      "imagePath": "C:\\Users\\kouta\\project\\editor\\playground\\runs\\codex-manga-live\\shots\\494d1c97-137f-4dcd-82b5-cbf372294fbb\\browser-1789273567623.jpg"
+    },
+    {
+      "text": "前のページに戻りました",
+      "tool": "Browser",
+      "imagePath": "C:\\Users\\kouta\\project\\editor\\playground\\runs\\codex-manga-live\\shots\\494d1c97-137f-4dcd-82b5-cbf372294fbb\\browser-1789273591713.jpg"
+    },
+    {
+      "text": "前のページに戻りました",
+      "tool": "Browser",
+      "imagePath": "C:\\Users\\kouta\\project\\editor\\playground\\runs\\codex-manga-live\\shots\\494d1c97-137f-4dcd-82b5-cbf372294fbb\\browser-1789273592018.jpg"
+    },
+    {
+      "text": "クリックしました（#mode-designer-btn）",
+      "tool": "Browser",
+      "imagePath": "C:\\Users\\kouta\\project\\editor\\playground\\runs\\codex-manga-live\\shots\\494d1c97-137f-4dcd-82b5-cbf372294fbb\\browser-1789273609471.jpg"
+    },
+    {
+      "text": "クリックしました（#designer-decor summary）",
+      "tool": "Browser",
+      "imagePath": "C:\\Users\\kouta\\project\\editor\\playground\\runs\\codex-manga-live\\shots\\494d1c97-137f-4dcd-82b5-cbf372294fbb\\browser-1789273609795.jpg"
+    },
+    {
+      "text": "クリックしました（#designer-decor-add）",
+      "tool": "Browser",
+      "imagePath": "C:\\Users\\kouta\\project\\editor\\playground\\runs\\codex-manga-live\\shots\\494d1c97-137f-4dcd-82b5-cbf372294fbb\\browser-1789273610121.jpg"
+    },
+    {
+      "text": "ブラウザーで開きました（http://127.0.0.1:57251/?view=studio&work=preview_s…）",
+      "tool": "Browser",
+      "imagePath": "C:\\Users\\kouta\\project\\editor\\playground\\runs\\codex-manga-live\\shots\\494d1c97-137f-4dcd-82b5-cbf372294fbb\\browser-1789274371298.jpg"
+    },
+    {
+      "text": "ブラウザーで開きました（http://127.0.0.1:57251/?view=studio&work=not_found…）",
+      "tool": "Browser",
+      "imagePath": "C:\\Users\\kouta\\project\\editor\\playground\\runs\\codex-manga-live\\shots\\494d1c97-137f-4dcd-82b5-cbf372294fbb\\browser-1789274383472.jpg"
+    },
+    {
+      "text": "ブラウザーで開きました（http://127.0.0.1:53533/?view=picker&work=one_futon）",
+      "tool": "Browser",
+      "imagePath": "C:\\Users\\kouta\\project\\editor\\playground\\runs\\codex-manga-live\\shots\\494d1c97-137f-4dcd-82b5-cbf372294fbb\\browser-1789274928471.jpg"
+    },
+    {
+      "text": "クリックしました（#page-content button:has-text('候補・データセット…）",
+      "tool": "Browser",
+      "imagePath": "C:\\Users\\kouta\\project\\editor\\playground\\runs\\codex-manga-live\\shots\\494d1c97-137f-4dcd-82b5-cbf372294fbb\\browser-1789274928830.jpg"
+    }
+  ],
+  "results": [
+    "1 passed, 16 deselected in 2.22s",
+    "41 passed in 31.79s",
+    "2 passed, 17 deselected in 4.03s",
+    "476 passed, 1 skipped in 36.16s",
+    "6 passed, 19 deselected in 7.96s",
+    "5 passed, 25 deselected in 6.77s",
+    "488 passed, 1 skipped in 49.97s",
+    "39 passed in 39.80s",
+    "2 passed in 3.51s",
+    "3 passed in 29.95s",
+    "43 passed in 53.59s",
+    "4 passed in 28.18s",
+    "492 passed, 1 skipped in 65.42s (0:01:05)",
+    "496 passed, 1 skipped in 69.40s (0:01:09)",
+    "4 passed in 2.95s",
+    "497 passed, 1 skipped in 67.59s (0:01:07)"
+  ]
+}

@@ -1,5 +1,5 @@
 // Hub: 全セッションの現在状態を持ち、変更を WebSocket の購読者へ流す。
-import type { ServerEvent, Session, TimelineItem } from '@tower/shared';
+import type { ServerEvent, Session, TimelineItem, Verification } from '@tower/shared';
 import type { Db, UsageRow } from './db.ts';
 
 type Listener = (ev: ServerEvent) => void;
@@ -48,12 +48,20 @@ export function ledgerRowsFor(s: Session): UsageRow[] {
  */
 export function interruptForRestart(s: Session, now: number): Session | null {
   if (s.origin === 'external') return null;
-  if (!['starting', 'running', 'waiting_permission', 'waiting_question'].includes(s.status)) return null;
+  const interruptedCheck = (check: Verification | null | undefined) => check?.ok === null
+    ? { ...check, ok: false, summary: '中断（サーバー再起動）', output: `${check.output}${check.output ? '\n' : ''}サーバー再起動によりチェックを中断しました。`, durationMs: Math.max(check.durationMs, now - check.at) }
+    : check;
+  const checks = { verification: interruptedCheck(s.verification), baseline: interruptedCheck(s.baseline) };
+  if (!['starting', 'running', 'waiting_permission', 'waiting_question'].includes(s.status)) {
+    return s.verification?.ok === null || s.baseline?.ok === null ? { ...s, ...checks } : null;
+  }
   return {
     ...s,
+    ...checks,
     status: 'stopped',
-    pending: null,
-    pendingCount: 0,
+    pending: s.asyncQuestions?.[0] ?? null,
+    pendingCount: s.asyncQuestions?.length ?? 0,
+    liveOutput: null,
     interrupted: { at: now, status: s.status },
     activity: s.agentSessionId
       ? 'サーバー再起動で中断。指示を送ると続きから再開します'
@@ -71,11 +79,16 @@ export class Hub {
     const now = Date.now();
     this.bootAt = now;
     for (const loaded of db.loadSessions()) {
+      // 古い保存データにも適用する。年表が長くても最後の指示を見落とさず、一覧の並び順は変えない。
+      const lastInstructionAt = loaded.lastInstructionAt ?? db.lastInstructionAt(loaded.id);
+      const restored = lastInstructionAt !== undefined && loaded.lastInstructionAt === undefined
+        ? { ...loaded, lastInstructionAt }
+        : loaded;
       // サーバー再起動でプロセスは死んでいるので、作業中だったものは止まった扱いにする
       // （外部セッションは Tower の子プロセスではないので触らない）
-      const interrupted = interruptForRestart(loaded, now);
-      const s = interrupted ?? loaded;
-      if (interrupted) db.saveSession(s);
+      const interrupted = interruptForRestart(restored, now);
+      const s = interrupted ?? restored;
+      if (interrupted || restored !== loaded) db.saveSession(s);
       this.sessions.set(s.id, s);
     }
     this.importUsageHistory();
@@ -141,6 +154,10 @@ export class Hub {
 
   timeline(item: TimelineItem) {
     this.db.appendTimeline(item);
+    const s = this.sessions.get(item.sessionId);
+    if (item.kind === 'user' && s && (s.lastInstructionAt === undefined || item.ts > s.lastInstructionAt)) {
+      this.update(item.sessionId, { lastInstructionAt: item.ts });
+    }
     this.emit({ type: 'timeline', item });
   }
 

@@ -1,0 +1,21 @@
+{
+  "passed": true,
+  "mode": "modern",
+  "thread": "01a09941-f8fe-7543-a17a-eb19d1ba6ce5",
+  "effectiveModel": "gpt-6-astra",
+  "effort": "high",
+  "typedValues": {
+    "name": "漫画テスト",
+    "enabled": false,
+    "count": 0,
+    "style": "manga",
+    "tags": [
+      "story"
+    ],
+    "token": "[redacted]",
+    "layout": {
+      "columns": 2
+    }
+  },
+  "errors": []
+}

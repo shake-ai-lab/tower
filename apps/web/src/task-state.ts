@@ -3,7 +3,25 @@
 // ボタンは「完了にする」と食い違っていた）。画面から切り離してテストできるようにしている
 import type { Session } from '@tower/shared';
 
-type Judged = Pick<Session, 'status' | 'pending' | 'report' | 'verification' | 'completedByUser'> & Partial<Pick<Session, 'baseline' | 'workspace'>>;
+type Dated = Partial<Pick<Session, 'lastInstructionAt' | 'lastManualEditAt'>>;
+type Judged = Pick<Session, 'status' | 'pending' | 'report' | 'verification' | 'completedByUser'> & Partial<Pick<Session, 'baseline' | 'workspace'>> & Dated;
+
+/** 更新時刻には検証や取り込みも含まれるため、指示を受けた時刻だけと比較する。 */
+export function reportIsStale(s: Pick<Session, 'report'> & Dated): boolean {
+  return !!s.report && (s.lastInstructionAt ?? 0) > s.report.generatedAt;
+}
+
+export function verificationIsStale(s: Pick<Session, 'verification'> & Partial<Pick<Session, 'report'>> & Dated): boolean {
+  return !!s.verification && s.verification.at < Math.max(s.lastInstructionAt ?? 0, s.lastManualEditAt ?? 0, s.report?.generatedAt ?? 0);
+}
+
+export type ReportContext = 'current' | 'previous' | 'merged' | 'completed';
+export function reportContext(s: Pick<Session, 'report' | 'status'> & Partial<Pick<Session, 'workspace' | 'completedByUser'>> & Dated): ReportContext {
+  if (reportIsStale(s) || ['starting', 'running', 'waiting_permission', 'waiting_question'].includes(s.status)) return 'previous';
+  if (s.report && (s.completedByUser ?? 0) >= s.report.generatedAt) return 'completed';
+  const m = s.workspace?.lastMerge;
+  return m?.ok && s.report && m.at >= s.report.generatedAt ? 'merged' : 'current';
+}
 
 /**
  * 自動チェックの失敗が、作業を始める前からのものだけか（修正前も失敗していて、新しく失敗したものが無い）。
@@ -46,18 +64,18 @@ export type TaskState =
  * 取り込んだ = その報告を受け入れたということなので、報告の「判断が必要」はもう待たない
  * （待ち続けると、取り込んだ後も「判断待ち」に数えられていた）
  */
-export function mergedSinceReport(s: Pick<Session, 'report'> & Partial<Pick<Session, 'workspace'>>): boolean {
+export function mergedSinceReport(s: Pick<Session, 'report'> & Partial<Pick<Session, 'workspace'>> & Dated): boolean {
   const m = s.workspace?.lastMerge;
-  return !!m?.ok && !!s.report && m.at >= s.report.generatedAt;
+  return !!m?.ok && !!s.report && m.at >= Math.max(s.report.generatedAt, s.lastInstructionAt ?? 0, s.lastManualEditAt ?? 0);
 }
 
 /**
  * あなたの判断を待っているか。許可・質問（pending）に加えて、報告で「判断が必要」「質問あり」と言って
  * 止まっているもの（idle）も含める。次の指示を送る・停止する・取り込むと外れる
  */
-export function needsYou(s: Pick<Session, 'status' | 'pending' | 'report'> & Partial<Pick<Session, 'workspace'>>): boolean {
+export function needsYou(s: Pick<Session, 'status' | 'pending' | 'report'> & Partial<Pick<Session, 'workspace'>> & Dated): boolean {
   if (s.pending) return true;
-  if (mergedSinceReport(s)) return false;
+  if (reportContext(s) !== 'current') return false;
   return s.status === 'idle' && !!s.report && (!!s.report.needsDecision || s.report.outcome === 'question');
 }
 
@@ -76,18 +94,19 @@ export function taskState(s: Judged): TaskState {
     case 'stopped':
       return 'stopped';
     case 'done':
-      return s.completedByUser || s.report?.outcome === 'done' ? 'done' : 'ended';
+      return s.completedByUser || (!reportIsStale(s) && s.report?.outcome === 'done') ? 'done' : 'ended';
     case 'idle':
       break;
   }
   if (needsYou(s)) return 'decision';
   if (mergedSinceReport(s)) return 'merged';
+  if (reportIsStale(s)) return 'waiting';
   switch (s.report?.outcome) {
     case undefined:
       return 'waiting';
     case 'done':
       // 前からの失敗が残っているだけなら、今回の変更は何も壊していないので「完了」のまま（詳細の自動チェック欄に黄色で出る）
-      return s.verification?.ok === false && !onlyOldFailures(s) ? 'mismatch' : 'done';
+      return !verificationIsStale(s) && s.verification?.ok === false && !onlyOldFailures(s) ? 'mismatch' : 'done';
     case 'partial':
       return 'partial';
     case 'failed':

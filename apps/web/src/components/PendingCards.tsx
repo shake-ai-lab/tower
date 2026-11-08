@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import type { PendingPermission, PendingQuestion, Session } from '@tower/shared';
 import { api } from '../api';
 import { RISK, btn } from '../lib';
+import { FormCard } from './FormCard';
 
 const errMsg = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
@@ -46,6 +47,11 @@ export function PermissionCard({ session, pending }: { session: Session; pending
   };
 
   const risk = RISK[pending.risk];
+  const urlProcedure = pending.toolName === 'Mcp' && pending.input.mode === 'url';
+  let procedureUrl: string | null = null;
+  if (urlProcedure && typeof pending.input.url === 'string') {
+    try { const url = new URL(pending.input.url); if (['https:', 'http:'].includes(url.protocol) && !url.username && !url.password) procedureUrl = url.href; } catch { /* display the original request without opening an invalid URL */ }
+  }
   const external = session.origin === 'external';
   const hint = session.externalHint ?? '元の画面';
   const vscodeUrl = `vscode://file/${session.project.path.replace(/\\/g, '/')}`;
@@ -78,6 +84,7 @@ export function PermissionCard({ session, pending }: { session: Session; pending
       </div>
       <div className="mt-1.5 font-medium leading-snug">{pending.headline}</div>
       {pending.detail && <DetailBlock detail={pending.detail} />}
+      {procedureUrl && <a href={procedureUrl} target="_blank" rel="noopener noreferrer" className={`${btn.base} ${btn.ghost} inline-block mt-2`}>手続きのページを開く</a>}
       <input
         value={reason}
         onChange={(e) => setReason(e.target.value)}
@@ -86,7 +93,7 @@ export function PermissionCard({ session, pending }: { session: Session; pending
       />
       <div className="mt-2 flex flex-wrap gap-2">
         <button disabled={busy} onClick={() => decide('allow')} className={`${btn.base} ${btn.success}`}>
-          許可
+          {urlProcedure ? '手続きが完了しました' : '許可'}
         </button>
         {pending.canAlwaysAllow && (
           <button
@@ -125,6 +132,12 @@ export function QuestionCard({ session, pending }: { session: Session; pending: 
   const [other, setOther] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  useEffect(() => {
+    if (pending.delivery === 'async' && ['stopped', 'error'].includes(session.status)) setBusy(false);
+  }, [session.status, pending.delivery]);
+  useEffect(() => {
+    if (pending.answerError) { setBusy(false); setErr(pending.answerError); }
+  }, [pending]);
 
   const toggle = (q: string, label: string, multi: boolean) =>
     setPicked((p) => {
@@ -133,15 +146,20 @@ export function QuestionCard({ session, pending }: { session: Session; pending: 
       return { ...p, [q]: cur.includes(label) ? cur.filter((l) => l !== label) : [...cur, label] };
     });
 
-  const answerOf = (q: string) => other[q]?.trim() || (picked[q] ?? []).join(', ');
-  const ready = pending.questions.every((q) => answerOf(q.question));
+  const keyOf = (q: PendingQuestion['questions'][number]) => q.id ?? q.question;
+  const answerOf = (q: PendingQuestion['questions'][number]) => {
+    const key = keyOf(q);
+    return (q.isSecret ? other[key] : other[key]?.trim()) || (picked[key] ?? []).join(', ');
+  };
+  const ready = pending.questions.every((q) => answerOf(q));
 
   const submit = async () => {
     setBusy(true);
     setErr(null);
     try {
-      const answers = Object.fromEntries(pending.questions.map((q) => [q.question, answerOf(q.question)]));
+      const answers = Object.fromEntries(pending.questions.map((q) => [keyOf(q), answerOf(q)]));
       await api.answer(session.id, { requestId: pending.id, answers });
+      if (pending.delivery !== 'async') { setOther({}); setPicked({}); }
     } catch (e) {
       setErr(errMsg(e));
       setBusy(false);
@@ -150,20 +168,23 @@ export function QuestionCard({ session, pending }: { session: Session; pending: 
 
   return (
     <div className="rounded-lg border border-violet-400/40 bg-violet-400/5 p-3 space-y-3">
+      <p className="text-xs text-zinc-400">{pending.delivery === 'async'
+        ? ['stopped', 'error', 'done'].includes(session.status) ? '回答を送ると、同じ会話を再開して伝えます。' : session.status === 'running' || session.status === 'starting' ? 'この質問への回答を待ちながら、ほかの作業を続けています。' : '回答を送ると、同じ会話で作業を続けます。'
+        : 'この質問は停止・応答終了・接続切断で無効になります。秘密の回答は経過に表示しません。'}</p>
       {pending.questions.map((q) => (
-        <div key={q.question}>
+        <div key={keyOf(q)}>
           <div className="flex items-center gap-2 text-xs">
             <span className="px-2 py-0.5 rounded bg-violet-900/70 text-violet-200">{q.header}</span>
             {q.multiSelect && <span className="text-zinc-500">複数選択可</span>}
           </div>
           <div className="mt-1 font-medium leading-snug">{q.question}</div>
           <div className="mt-2 grid gap-1.5">
-            {q.options.map((o) => {
-              const on = (picked[q.question] ?? []).includes(o.label);
+            {!q.isSecret && q.options.map((o) => {
+              const on = (picked[keyOf(q)] ?? []).includes(o.label);
               return (
                 <button
                   key={o.label}
-                  onClick={() => toggle(q.question, o.label, q.multiSelect)}
+                  onClick={() => toggle(keyOf(q), o.label, q.multiSelect)}
                   className={`text-left rounded-md border px-3 py-2 text-sm transition ${on ? 'border-violet-400 bg-violet-500/20' : 'border-zinc-700 bg-black/20 hover:border-zinc-500'}`}
                 >
                   <div className="font-medium">{o.label}</div>
@@ -172,9 +193,12 @@ export function QuestionCard({ session, pending }: { session: Session; pending: 
               );
             })}
             <input
-              value={other[q.question] ?? ''}
-              onChange={(e) => setOther((p) => ({ ...p, [q.question]: e.target.value }))}
-              placeholder="その他（自由に書く）"
+              aria-label={`${q.question}${q.isSecret ? '（非公開）' : ''}`}
+              type={q.isSecret ? 'password' : 'text'}
+              autoComplete="off"
+              value={other[keyOf(q)] ?? ''}
+              onChange={(e) => setOther((p) => ({ ...p, [keyOf(q)]: e.target.value }))}
+              placeholder={q.isSecret ? '非公開の回答（経過には記録しません）' : 'その他（自由に書く）'}
               className="text-sm bg-black/30 border border-zinc-700 rounded px-3 py-1.5 outline-none focus:border-zinc-500"
             />
           </div>
@@ -182,7 +206,7 @@ export function QuestionCard({ session, pending }: { session: Session; pending: 
       ))}
       <div className="flex items-center gap-2">
         <button disabled={!ready || busy} onClick={submit} className={`${btn.base} ${btn.primary}`}>
-          回答を送る
+          {pending.delivery === 'async' && ['stopped', 'error', 'done'].includes(session.status) ? '再開して回答を送る' : '回答を送る'}
         </button>
         {err && <span className="text-red-400 text-xs">{err}</span>}
       </div>
@@ -193,9 +217,10 @@ export function QuestionCard({ session, pending }: { session: Session; pending: 
 export function PendingCard({ session }: { session: Session }) {
   const p = session.pending;
   if (!p) return null;
+  if (p.kind === 'form') return <FormCard key={p.id} session={session} pending={p} />;
   return p.kind === 'permission' ? (
-    <PermissionCard session={session} pending={p} />
+    <PermissionCard key={p.id} session={session} pending={p} />
   ) : (
-    <QuestionCard session={session} pending={p} />
+    <QuestionCard key={p.id} session={session} pending={p} />
   );
 }

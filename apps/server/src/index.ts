@@ -10,6 +10,7 @@ import { WebSocketServer } from 'ws';
 import {
   workDir,
   type AnswerBody,
+  type FormAnswerBody,
   type CreateFeedbackBody,
   type CreateSessionBody,
   type CompareBody,
@@ -25,6 +26,7 @@ import {
 import { isInlineImage, readAttachment } from './attachments.ts';
 import { Bridge, type HookInput } from './bridge.ts';
 import { CONFIG_PATH, applyEnvOverrides, loadConfig, saveConfig, validateSettings } from './config.ts';
+import { discoverCodexModels } from './codex-models.ts';
 import { apiCors, apiGuard } from './guard.ts';
 import { Db } from './db.ts';
 import { collectChanges, lineMarks } from './diff.ts';
@@ -42,6 +44,8 @@ import { VERSION } from './version.ts';
 import { diffBase } from './worktree.ts';
 import { browseProjects } from './project-browser.ts';
 import { codexLoginState, startCodexLogin } from './codex-login.ts';
+import { discoverCodexEnvironment } from './codex-environment.ts';
+import { saveFormAttachment } from './form-attachments.ts';
 
 const config = loadConfig();
 /** 起動時の待ち受け。画面から変えても、これと違う間は「開き直してください」と出す */
@@ -52,7 +56,7 @@ setReformatEnabled(config.reformatReports);
 setAutoCommitEnabled(config.autoCommit);
 const db = new Db();
 const hub = new Hub(db);
-const manager = new SessionManager(hub);
+const manager = new SessionManager(hub, () => config.codexPermissionMode);
 const bridge = new Bridge(hub, { port: config.port, waitSeconds: config.bridgeWaitSeconds });
 let stopJanitor = startJanitor(hub, config.externalKeepHours);
 
@@ -128,6 +132,7 @@ app.put('/api/settings', async (c) => {
   }
 });
 app.get('/api/agents', (c) => c.json(agentAvailability(c.req.query('refresh') === '1')));
+app.get('/api/codex/models', async (c) => c.json(await discoverCodexModels(c.req.query('refresh') === '1', c.req.query('cwd') || undefined)));
 app.use('/api/agents/codex/login', async (c, next) => {
   const origin = c.req.header('origin');
   if (origin && origin !== new URL(c.req.url).origin) return c.json({ error: '同じTower画面から操作してください' }, 403);
@@ -385,12 +390,43 @@ app.post('/api/bridge', async (c) => {
   }
 });
 
+app.get('/api/codex/environment', async (c) => c.json(await discoverCodexEnvironment(c.req.query('refresh') === '1', c.req.query('cwd') || undefined)));
+
 app.post('/api/sessions/:id/answer', async (c) => {
-  const r = manager.runner(c.req.param('id'));
-  if (!r) return c.json({ error: 'このセッションは動いていません' }, 404);
-  const body = (await c.req.json()) as AnswerBody;
-  const ok = r.answerQuestion(body.requestId, body.answers);
-  return ok ? c.json({ ok: true }) : c.json({ error: 'その質問はもう有効ではありません' }, 409);
+  try {
+    const body = (await c.req.json()) as AnswerBody;
+    if (!body || typeof body.requestId !== 'string' || !body.answers || Array.isArray(body.answers) || typeof body.answers !== 'object' || Object.values(body.answers).some((answer) => typeof answer !== 'string')) return c.json({ error: '回答の形式が不正です' }, 400);
+    const ok = manager.answerQuestion(c.req.param('id'), body.requestId, body.answers);
+    return ok ? c.json({ ok: true }) : c.json({ error: 'この質問はもう有効ではありません。同期の質問は停止・応答終了・接続切断で無効になります。再開後にもう一度質問してもらってください。' }, 409);
+  } catch (e) { return c.json({ error: e instanceof Error ? e.message : '回答を送信できませんでした' }, 400); }
+});
+
+app.put('/api/sessions/:id/codex-collaboration-mode', async (c) => {
+  try {
+    const body = await c.req.json();
+    return c.json(manager.setCodexCollaborationMode(c.req.param('id'), body?.mode));
+  } catch (error) { return c.json({ error: error instanceof Error ? error.message : '作業モードを変更できませんでした' }, 400); }
+});
+
+app.post('/api/sessions/:id/form-answer', async (c) => {
+  const runner = manager.runner(c.req.param('id'));
+  if (!runner?.answerForm) return c.json({ error: 'このセッションではフォームに回答できません' }, 404);
+  try {
+    const body = await c.req.json() as FormAnswerBody;
+    if (!body || typeof body.requestId !== 'string' || !['accept', 'decline', 'cancel'].includes(body.action)) return c.json({ error: '回答の形式が不正です' }, 400);
+    return runner.answerForm(body) ? c.json({ ok: true }) : c.json({ error: 'この入力フォームはもう有効ではありません' }, 409);
+  } catch (e) {
+    return c.json({ error: e instanceof Error ? e.message : '回答を送信できませんでした' }, 400);
+  }
+});
+
+app.post('/api/sessions/:id/form-attachment', async (c) => {
+  try {
+    const body: unknown = await c.req.json();
+    return c.json(saveFormAttachment(hub.get(c.req.param('id')), body));
+  } catch (e) {
+    return c.json({ error: e instanceof Error ? e.message : 'ファイルを選択できませんでした' }, 400);
+  }
 });
 
 // ---- 気づいたこと（使いながらの不満・要望を Markdown に溜める。Claude Code がそれを読んで直す） ----

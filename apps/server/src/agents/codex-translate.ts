@@ -2,11 +2,11 @@
 // 型は `codex app-server generate-ts --experimental` が出す定義のうち、Tower が使う所だけを写したもの
 import path from 'node:path';
 import type { PendingPermission, PendingQuestion, PermissionChoice, RiskLevel, Usage } from '@tower/shared';
-import { assessRisk, describePermission, isReadOnlyCommand, unwrapShell } from '../humanize.ts';
+import { assessRisk, describePermission, unwrapShell } from '../humanize.ts';
 
 // ---- 許可方針 ----
 
-export type AskForApproval = 'untrusted' | 'on-request' | 'never';
+export type AskForApproval = 'untrusted' | 'on-request' | 'never' | { granular: { sandbox_approval: boolean; rules: boolean; mcp_elicitations: boolean; request_permissions: boolean; skill_approval: boolean } };
 export type SandboxMode = 'read-only' | 'workspace-write' | 'danger-full-access';
 export type SandboxPolicy =
   | { type: 'dangerFullAccess' }
@@ -41,8 +41,8 @@ export function codexPolicy(mode: PermissionChoice): CodexPolicy {
       // おまかせ（Codex の標準の動き）: 作業フォルダの中は自動で進め、そこから出る必要がある時だけ聞く
       return { approvalPolicy: 'on-request', sandbox: 'workspace-write', sandboxPolicy: workspaceWrite() };
     case 'bypassPermissions':
-      // 全自動（VS Code の Codex の「Full access」と同じ）
-      return { approvalPolicy: 'never', sandbox: 'danger-full-access', sandboxPolicy: { type: 'dangerFullAccess' } };
+      // フルアクセスでもMCPの入力・手続きは人が答える。neverだとCodex本体が問い合わせ前に辞退してしまう。
+      return { approvalPolicy: { granular: { sandbox_approval: false, rules: false, mcp_elicitations: true, request_permissions: false, skill_approval: false } }, sandbox: 'danger-full-access', sandboxPolicy: { type: 'dangerFullAccess' } };
     case 'acceptEdits':
     default:
       // 編集は自動: 作業フォルダの中の編集は自動、読むだけと分かっているもの以外のコマンドは聞く
@@ -107,16 +107,16 @@ export function commandDecision(p: CommandApprovalParams, d: Decision): CommandD
 }
 
 /** 利用者に聞かずに許可してよいかを決める材料 */
-export type AutoRequest = { kind: 'command'; command: string; network?: boolean } | { kind: 'file'; outside: boolean } | { kind: 'other' };
+export type AutoRequest = { kind: 'command'; command: string; network?: boolean } | { kind: 'file'; outside: boolean } | { kind: 'user_confirmation' } | { kind: 'other' };
 
 /**
  * 利用者に聞かずに許可してよいか（Tower の許可方針に合わせる）。聞かない時はその理由、聞く時は null。
- * Codex は PowerShell のコマンドを「安全」と見なさず、「untrusted」ではファイルの編集も毎回聞いてくるので、
- * 読むだけのコマンドと、「編集は自動」の時の作業フォルダ内の編集は Tower が代わりに許可する
+ * コマンドの承認要求は Codex の判断を尊重する。名前が読み取り用でも、オプションや式で書き込めるため
+ * Tower 独自のコマンド解析では自動承認しない。
  */
 export function autoAllow(mode: PermissionChoice, req: AutoRequest): string | null {
+  if (req.kind === 'user_confirmation') return null;
   if (mode === 'bypassPermissions') return '全自動';
-  if (req.kind === 'command' && !req.network && isReadOnlyCommand(req.command)) return '読むだけのコマンド';
   if (req.kind === 'file' && !req.outside && (mode === 'acceptEdits' || mode === 'auto')) return '編集は自動';
   return null;
 }
@@ -249,13 +249,6 @@ export function serverLabel(name: string): string {
   return name;
 }
 
-interface SchemaProp {
-  type?: string;
-  default?: unknown;
-  enum?: unknown[];
-  oneOf?: { const?: unknown }[];
-}
-
 export interface ElicitationParams {
   serverName: string;
   mode: string;
@@ -263,7 +256,7 @@ export interface ElicitationParams {
   url?: string;
   title?: string;
   description?: string;
-  requestedSchema?: { properties?: Record<string, SchemaProp | undefined>; required?: string[] } | null;
+  requestedSchema?: import('@tower/shared').FormSchema | null;
 }
 
 export function elicitationPending(id: string, p: ElicitationParams, now = Date.now()): PendingPermission {
@@ -272,9 +265,9 @@ export function elicitationPending(id: string, p: ElicitationParams, now = Date.
     id,
     kind: 'permission',
     toolName: 'Mcp',
-    input: { server: p.serverName, mode: p.mode },
+    input: { server: p.serverName, mode: p.mode, ...(p.mode === 'url' ? { url: p.url } : {}) },
     headline: p.mode === 'url' ? `${who}: ページを開いて手続きしてほしい` : `${who}が確認を求めています`,
-    detail: [p.title, p.message ?? p.description, p.url].filter(Boolean).join('\n\n'),
+    detail: [p.title, p.message ?? p.description, p.url, p.mode === 'url' ? 'ページでの手続きが完了してから「手続きが完了しました」を押してください。まだ完了していない場合は、この確認を残してください。' : ''].filter(Boolean).join('\n\n'),
     risk: 'mid',
     canAlwaysAllow: false,
     alwaysRules: [],
@@ -282,25 +275,14 @@ export function elicitationPending(id: string, p: ElicitationParams, now = Date.
   };
 }
 
-/** 入力欄のある確認は、決まっている値（既定値・はい・最初の選択肢）で答える */
-function formDefaults(schema: ElicitationParams['requestedSchema']): Record<string, unknown> {
-  const out: Record<string, unknown> = {};
-  const required = new Set(schema?.required ?? []);
-  for (const [key, s] of Object.entries(schema?.properties ?? {})) {
-    if (!s) continue;
-    if (s.default !== undefined) out[key] = s.default;
-    else if (s.type === 'boolean') out[key] = true;
-    else if (s.enum?.length) out[key] = s.enum[0];
-    else if (s.oneOf?.length && s.oneOf[0].const !== undefined) out[key] = s.oneOf[0].const;
-    else if (required.has(key)) out[key] = s.type === 'number' || s.type === 'integer' ? 0 : '';
-  }
-  return out;
+export function isFormElicitation(p: ElicitationParams): boolean {
+  return p.mode === 'form' || p.mode === 'openai/form' || p.mode === 'openaiForm' || (!p.mode && !!p.requestedSchema);
 }
 
 export function elicitationResponse(p: ElicitationParams, d: Decision): { action: 'accept' | 'decline'; content: unknown; _meta: null } {
-  if (d === 'deny') return { action: 'decline', content: null, _meta: null };
-  const form = p.mode === 'form' || p.mode === 'openai/form' || p.mode === 'openaiForm';
-  return { action: 'accept', content: form ? formDefaults(p.requestedSchema) : null, _meta: null };
+  // 入力フォームは専用の回答経路を使い、許可方針から入力内容を作って返さない。
+  if (d === 'deny' || isFormElicitation(p)) return { action: 'decline', content: null, _meta: null };
+  return { action: 'accept', content: null, _meta: null };
 }
 
 // ---- 質問 ----
@@ -319,19 +301,52 @@ export function userInputPending(id: string, questions: UserInputQuestion[], now
     id,
     kind: 'question',
     // 選択肢の無い質問は、画面の「その他（自由に書く）」で答える
-    questions: questions.map((q) => ({ question: q.question, header: q.header, options: q.options ?? [], multiSelect: false })),
+    questions: questions.map((q) => ({ id: q.id, isSecret: q.isSecret, question: q.question, header: q.header, options: q.options ?? [], multiSelect: false })),
     createdAt: now,
   };
 }
 
 /** 画面の答え（質問文 → 答え）→ Codex の答え（質問の id → 答えの並び） */
 export function userInputAnswers(questions: UserInputQuestion[], answers: Record<string, string>): { answers: Record<string, { answers: string[] }> } {
-  const out: Record<string, { answers: string[] }> = {};
-  for (const q of questions) {
-    const a = answers[q.question] ?? answers[q.header] ?? answers[q.id];
-    out[q.id] = { answers: a ? [a] : [] };
-  }
-  return { answers: out };
+  return { answers: Object.fromEntries(questions.map((q) => {
+    const a = answerForQuestion(q, questions, answers);
+    return [q.id, { answers: a === undefined ? [] : [a] }];
+  })) };
+}
+
+/** 回答全体で形式を決める。IDと旧画面の質問文/見出しキーを混ぜない。 */
+export function answerForQuestion(q: { id?: string; question: string; header: string }, questions: { id?: string; question: string; header: string }[], answers: Record<string, string>): string | undefined {
+  const keys = Object.keys(answers);
+  const complete = (candidate: (string | undefined)[]): candidate is string[] => candidate.length === keys.length && new Set(candidate).size === candidate.length && candidate.every(key => typeof key === 'string' && Object.hasOwn(answers, key));
+  const ids = questions.map(item => item.id);
+  const usesId = ids.some(id => id && Object.hasOwn(answers, id));
+  if (usesId && !complete(ids)) return undefined;
+  const candidates = [ids, questions.map(item => item.question), questions.map(item => item.header)].filter(complete);
+  if (!candidates.length) return undefined;
+  const index = questions.indexOf(q);
+  if (index < 0) return undefined;
+  // A payload which has two different interpretations must be re-entered with unambiguous IDs.
+  if (candidates.some(candidate => candidate.some((key, i) => answers[key] !== answers[candidates[0][i]]))) return undefined;
+  return answers[candidates[0][index]];
+}
+
+export function questionAnswerHistory(pending: PendingQuestion, answers: Record<string, string>): string {
+  return pending.questions.map((q) => `${q.question} → ${q.isSecret ? '（非公開の回答）' : answerForQuestion(q, pending.questions, answers) ?? '（回答なし）'}`).join('\n');
+}
+
+export function asyncQuestionPending(itemId: string, questions: { title: string; options?: string[] | null }[], now = Date.now()): PendingQuestion {
+  return { id: `async:${itemId}`, kind: 'question', delivery: 'async', itemId, createdAt: now,
+    questions: questions.map((q, index) => ({ id: `${itemId}:${index}`, question: q.title, header: `質問 ${index + 1}`, multiSelect: false, options: (q.options ?? []).map((label) => ({ label, description: '' })) })),
+  };
+}
+
+export function asyncQuestionAnswer(pending: PendingQuestion, answers: Record<string, string>): { text: string; history: string } {
+  const responses = pending.questions.map((q) => {
+    const answer = answerForQuestion(q, pending.questions, answers);
+    if (typeof answer !== 'string') throw new Error('すべての質問に回答してください。');
+    return { id: q.id, question: q.question, answer };
+  });
+  return { text: `非同期の質問（メッセージ ${pending.itemId ?? pending.id}）への回答です:\n${JSON.stringify(responses)}`, history: questionAnswerHistory(pending, answers) };
 }
 
 // ---- 使った量 ----

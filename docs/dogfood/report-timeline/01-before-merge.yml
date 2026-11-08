@@ -1,0 +1,25 @@
+- region "タスク詳細":
+  - text: 時系列検証用プロジェクト 分離 一部完了
+  - button "完了にする"
+  - button "停止"
+  - button "削除"
+  - text: 報告と取り込みの順序を確認 許可方針
+  - combobox "タスクの許可方針":
+    - option "編集は自動"
+    - option "毎回確認" [selected]
+    - option "おまかせ"
+    - option "全自動"
+  - text: ファイル編集もコマンドも、都度あなたが許可する 架空の報告を受信 1往復 · 0操作 報告 ⚠️ 一部完了 16:08 依頼 取り込み案内の時系列を確認 やったこと
+  - list:
+    - listitem: 検証用の変更を用意しました。
+  - text: 次の一手 元のプロジェクトに取り込んでください。
+  - button "原文を見る"
+  - text: 別の作業場所（コピー）で作業しています。変更は「取り込む」を押すまで元のプロジェクトには反映されません。
+  - button "元のプロジェクトに取り込む"
+  - text: tower/timeline-fixture
+  - button "✔ 裏取りOK（全部成功（3件）） — Tower が fixture-check を実行 出力を見る"
+  - button "変更されたファイル 0 差分を見る"
+  - text: 経過（クリックで詳細）
+  - textbox "追加の指示（Ctrl+Enter で送信）。画像は貼り付け（Ctrl+V）かドラッグで添えられます"
+  - button "送信" [disabled]
+  - button "📎 ファイルを添える"

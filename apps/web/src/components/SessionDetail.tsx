@@ -1,10 +1,10 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import type { Preview, Report, Screenshot, Session, TimelineItem, Verification } from '@tower/shared';
-import { PERMISSION_CHOICES, type PermissionChoice } from '@tower/shared';
+import { CODEX_PERMISSION_CHOICES, PERMISSION_CHOICES, type PermissionChoice } from '@tower/shared';
 import { api, errMsg } from '../api';
 import { OUTCOME, STATUS, btn, fmtElapsed, fmtTime, fmtTokens, fmtUsd, isAlive, verifyBadge, useDesktop, useResizable } from '../lib';
-import { canMarkDone, mergedSinceReport, onlyOldFailures } from '../task-state';
+import { canMarkDone, mergedSinceReport, onlyOldFailures, reportContext, verificationIsStale, type ReportContext } from '../task-state';
 import { useStore } from '../store';
 import { openTask } from '../layout';
 import { PendingCard } from './PendingCards';
@@ -229,12 +229,13 @@ function PreviewStrip({ p }: { p: Preview }) {
 }
 
 /** 分離した作業場所の説明と「取り込む」ボタン */
-function WorkspaceStrip({ s }: { s: Session }) {
+export function WorkspaceStrip({ s }: { s: Session }) {
   const ws = s.workspace;
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   if (!ws) return null;
   const working = ['starting', 'running', 'waiting_permission', 'waiting_question'].includes(s.status);
+  const merged = mergedSinceReport(s) && !working;
 
   const merge = async () => {
     if (!confirm('この作業場所の変更を、元のプロジェクトに取り込みますか？')) return;
@@ -252,18 +253,20 @@ function WorkspaceStrip({ s }: { s: Session }) {
   return (
     <div className="text-xs bg-fuchsia-400/5 border border-fuchsia-400/30 rounded-md p-2 leading-relaxed space-y-1.5">
       <div className="text-fuchsia-200/90">
-        {ws.autoMerge
+        {merged ? 'この報告までの変更は、元のプロジェクトに取り込み済みです。再度取り込む必要はありません。'
+          : ws.lastMerge?.ok ? '前回の変更は取り込み済みです。その後の作業は、このコピーで進めています。'
+          : ws.autoMerge
           ? '別の作業場所（コピー）で作業しています。報告が「完了」で裏取りが通れば、Tower が自動で元のプロジェクトに取り込みます（手で押すこともできます）。'
           : '別の作業場所（コピー）で作業しています。変更は「取り込む」を押すまで元のプロジェクトには反映されません。'}
       </div>
       <div className="flex items-center gap-2 flex-wrap">
         <button
-          disabled={busy || working}
+          disabled={busy || working || merged}
           onClick={merge}
           title={working ? '作業中は取り込めません。報告が来てから押してください' : undefined}
           className={`${btn.base} ${btn.success} !py-1 !text-xs`}
         >
-          {busy ? '取り込み中…' : '元のプロジェクトに取り込む'}
+          {busy ? '取り込み中…' : merged ? '取り込み済み' : ws.lastMerge?.ok ? '追加の変更を取り込む' : '元のプロジェクトに取り込む'}
         </button>
         <span className="mono text-zinc-500">{ws.branch}</span>
         {working && <span className="text-zinc-500">作業中は取り込めません</span>}
@@ -276,6 +279,7 @@ function WorkspaceStrip({ s }: { s: Session }) {
       ) : ws.lastMerge && (
         <div className={`whitespace-pre-wrap ${ws.lastMerge.ok ? 'text-emerald-200' : 'text-red-200'}`}>
           {ws.lastMerge.ok ? '✔ ' : '✖ '}
+          {ws.lastMerge.at < (s.lastInstructionAt ?? 0) && '前回の取り込み結果: '}
           {ws.lastMerge.message}
           <span className="text-zinc-500 ml-2">{fmtTime(ws.lastMerge.at)}</span>
         </div>
@@ -295,7 +299,7 @@ function CompareStrip({ s }: { s: Session }) {
     .filter((x) => x.compare?.group === c.group)
     .sort((a, b) => a.createdAt - b.createdAt);
   const others = group.filter((x) => x.id !== s.id);
-  const merged = !!s.workspace?.lastMerge?.ok;
+  const merged = mergedSinceReport(s) && !WORKING.includes(s.status);
 
   // 他の案を片付けた後: 表を出しても比べる相手がいないので、一言だけにする
   if (others.length === 0) {
@@ -326,7 +330,7 @@ function CompareStrip({ s }: { s: Session }) {
   return (
     <div className="text-xs bg-violet-400/5 border border-violet-400/30 rounded-md p-2 leading-relaxed space-y-1.5">
       <div className="text-violet-200/90">
-        同じ依頼を {group.length} つのモデルに投げて比べています。下の表で見比べて、気に入った案を「元のプロジェクトに取り込む」で採用し、残りは片付けてください。
+        {merged ? 'この案は取り込み済みです。下の表で、他の案と報告時点の結果を見比べられます。' : `同じ依頼の ${group.length} つの案を比べています。採用する案の取り込み状況は、下の作業場所の欄で確認できます。`}
       </div>
       <div className="overflow-x-auto">
         <table className="w-full whitespace-nowrap">
@@ -334,7 +338,7 @@ function CompareStrip({ s }: { s: Session }) {
             <tr>
               <th className="text-left font-normal pr-2">モデル</th>
               <th className="text-left font-normal pr-2">状態</th>
-              <th className="text-left font-normal pr-2">結果</th>
+              <th className="text-left font-normal pr-2">報告時点の結果</th>
               <th className="text-left font-normal pr-2">裏取り</th>
               <th className="text-right font-normal pr-2">変更</th>
               <th className="text-right font-normal pr-2">時間</th>
@@ -352,7 +356,7 @@ function CompareStrip({ s }: { s: Session }) {
                   <td className="py-1 pr-2">
                     {x.compare?.label}
                     {me && <span className="ml-1 text-violet-300">← いま見ている</span>}
-                    {x.workspace?.lastMerge?.ok && <span className="ml-1 text-emerald-300">採用済み</span>}
+                    {mergedSinceReport(x) && !WORKING.includes(x.status) && <span className="ml-1 text-emerald-300">採用済み</span>}
                   </td>
                   <td className="pr-2">
                     <StatusBadge s={x} className="text-[11px]" />
@@ -443,14 +447,14 @@ function Row({ label, children, highlight }: { label: string; children: React.Re
   );
 }
 
-/** settled = この報告の後に元のプロジェクトへ取り込んだ（「判断が必要」はもう済んでいる） */
-function ReportCard({ r, onFileClick, settled = false }: { r: Report; onFileClick?: () => void; settled?: boolean }) {
+/** 原文は変えず、報告の後に起きたことと当時の提案を分ける。 */
+export function ReportCard({ r, onFileClick, context = 'current' }: { r: Report; onFileClick?: () => void; context?: ReportContext }) {
   const [raw, setRaw] = useState(false);
   const o = OUTCOME[r.outcome];
   return (
     <div className="rounded-md border border-zinc-700 bg-[#171a21] p-2 space-y-2">
       <div className="flex items-center gap-2">
-        <span className="text-xs text-zinc-500">報告</span>
+        <span className="text-xs text-zinc-500">{context === 'current' ? '報告' : '報告時点の結果'}</span>
         <span className={`text-xs px-2 py-0.5 rounded ${o.cls}`}>{o.label}</span>
         {r.reformatted && (
           <span
@@ -462,6 +466,11 @@ function ReportCard({ r, onFileClick, settled = false }: { r: Report; onFileClic
         )}
         <span className="text-xs text-zinc-500 ml-auto">{fmtTime(r.generatedAt)}</span>
       </div>
+      {context !== 'current' && <div className="text-xs text-zinc-300">
+        {context === 'merged' ? 'この報告の後、変更を元のプロジェクトに取り込みました。'
+          : context === 'completed' ? 'この報告の後、利用者がタスクを完了にしました。'
+          : 'この報告の後に作業を再開しています。現在の作業結果ではありません。'}
+      </div>}
       <Row label="依頼"><Linkify text={r.request} /></Row>
       {r.summary.length > 0 && (
         <Row label="やったこと">
@@ -492,21 +501,26 @@ function ReportCard({ r, onFileClick, settled = false }: { r: Report; onFileClic
           </div>
         </Row>
       )}
-      {r.needsDecision && (settled ? (
-        <Row label="判断が必要（済み）">
-          <div className="text-xs text-emerald-300 mb-1">✔ 元のプロジェクトに取り込んだので、判断待ちから外しました。</div>
-          <div className="text-zinc-400"><Linkify text={r.needsDecision} /></div>
-        </Row>
-      ) : (
+      {context !== 'current' && (r.needsDecision || r.nextStep) ? (
+        <details className="text-xs text-zinc-400">
+          <summary className="cursor-pointer">報告時点の提案を見る（履歴）</summary>
+          <div className="mt-2 space-y-2">
+            {r.needsDecision && <Row label="当時の判断事項"><Linkify text={r.needsDecision} /></Row>}
+            {r.nextStep && <Row label="当時の次の一手"><Linkify text={r.nextStep} /></Row>}
+          </div>
+        </details>
+      ) : <>
+      {r.needsDecision && (
         <Row label="判断が必要" highlight>
           <Linkify text={r.needsDecision} />
         </Row>
-      ))}
+      )}
       {r.nextStep && (
         <Row label="次の一手">
           <Linkify text={r.nextStep} />
         </Row>
       )}
+      </>}
       <button onClick={() => setRaw((v) => !v)} className="text-xs text-zinc-500 hover:text-zinc-300">
         {raw ? '原文を隠す' : '原文を見る'}
       </button>
@@ -626,6 +640,7 @@ export function SessionDetail({ id, onShowWorkspace, embedded = false, onClose, 
   const desktop = useDesktop(1100);
   const resize = useResizable('detail', 600, 300, 1000, 'right');
   const [permissionBusy, setPermissionBusy] = useState(false);
+  const [collaborationBusy, setCollaborationBusy] = useState(false);
   const s = useStore((st) => st.sessions[id]);
   const timeline = useStore((st) => st.timelines[id]);
   const setTimeline = useStore((st) => st.setTimeline);
@@ -646,18 +661,20 @@ export function SessionDetail({ id, onShowWorkspace, embedded = false, onClose, 
   });
   const bottom = useRef<HTMLDivElement>(null);
   const scroller = useRef<HTMLDivElement>(null);
+  const followOutput = useRef(true);
 
   useEffect(() => {
     if (!timeline) api.timeline(id).then((items) => setTimeline(id, items)).catch((e) => setErr(errMsg(e)));
   }, [id, timeline, setTimeline]);
 
-  // 報告や判断待ちが来たら一番上（カード）へ。作業中に年表が伸びる時だけ下へ追従する
-  useEffect(() => {
+  // 報告や判断待ちが来たら一番上（カード）へ。上の経過を読んでいる間は末尾へ戻さない
+  useLayoutEffect(() => {
+    followOutput.current = true;
     scroller.current?.scrollTo({ top: 0 });
   }, [id, s?.pending?.id, s?.report?.generatedAt]);
-  useEffect(() => {
-    if (s?.status === 'running' && scroller.current) scroller.current.scrollTop = scroller.current.scrollHeight;
-  }, [timeline?.length, s?.status]);
+  useLayoutEffect(() => {
+    if (s?.status === 'running' && followOutput.current && scroller.current) scroller.current.scrollTop = scroller.current.scrollHeight;
+  }, [timeline?.length, s?.status, s?.liveOutput]);
 
   if (!s) return null;
   // 経過は最後の指示から後だけを見せ、それより前のやりとりは畳む。報告はいちばん新しいやりとりのものなので、
@@ -669,9 +686,10 @@ export function SessionDetail({ id, onShowWorkspace, embedded = false, onClose, 
   const latest = lastUser > 0 ? items.slice(lastUser) : items;
   const st = STATUS[s.status];
   const external = s.origin === 'external';
-  const alive = isAlive(s.status) && !external;
+  const alive = (isAlive(s.status) || s.verification?.ok === null || s.baseline?.ok === null) && !external;
   const canSend = alive || !!s.agentSessionId;
   const working = WORKING.includes(s.status);
+  const permissionChoices = s.agent === 'codex' ? CODEX_PERMISSION_CHOICES : PERMISSION_CHOICES;
 
   const send = async () => {
     const t = text.trim();
@@ -718,7 +736,9 @@ export function SessionDetail({ id, onShowWorkspace, embedded = false, onClose, 
           <span className="font-semibold">{s.project.name}</span>
           <SessionTags s={s} agent={false} />
           <StatusBadge s={s} />
-          {s.model && <span className="hidden sm:inline text-xs text-zinc-500">{s.model}</span>}
+          {(s.effectiveModel || s.model) && <span className="text-xs text-zinc-400" title={s.effectiveModel ? 'Codexが返した実際の設定' : '指定したモデル（実適用値は未取得）'}>
+            {s.effectiveModel || s.model}{s.reasoningEffort ? ` · ${s.reasoningEffort}` : ''}
+          </span>}
           <div className="ml-auto flex gap-1.5">
             {canComplete && (
               <button onClick={complete} title="報告が一部完了・失敗でも、これで終わりにする。判断待ちから外れます" className={`${btn.base} ${btn.success} !py-1 !text-xs`}>
@@ -740,14 +760,23 @@ export function SessionDetail({ id, onShowWorkspace, embedded = false, onClose, 
         </div>
         <div title={s.title} className="text-sm text-zinc-300 line-clamp-2 break-words [overflow-wrap:anywhere]">{s.title}</div>
         {!desktop && !embedded && <button className="text-xs text-sky-300 text-left" onClick={onShowWorkspace}>ファイル・Git・設定を見る</button>}
-        {s.agent === 'claude' && !external && <label className="block text-xs text-zinc-400">許可方針
+        {!external && s.agent === 'codex' && <label className="block text-xs text-zinc-400">作業モード
+          <select aria-label="タスクの作業モード" disabled={collaborationBusy} value={s.codexCollaborationMode ?? 'default'} className="ml-2 bg-zinc-800 rounded px-2 py-1" onChange={async e => {
+            setCollaborationBusy(true); setErr(null);
+            try { useStore.getState().upsertSession(await api.setCodexCollaborationMode(id, e.target.value as 'default' | 'plan')); }
+            catch (error) { setErr(errMsg(error)); } finally { setCollaborationBusy(false); }
+          }}><option value="default">通常</option><option value="plan">計画</option></select>
+          <span className="block mt-1">計画モードでは調査・質問をして計画を立てます。現在の応答が終わった後の新しい指示から反映します。すぐに切り替えるには停止してから指示を送ってください。</span>
+        </label>}
+        {!external && <label className="block text-xs text-zinc-400">許可方針
           <select aria-label="タスクの許可方針" disabled={permissionBusy} value={s.permissionMode ?? 'default'} className="ml-2 bg-zinc-800 rounded px-2 py-1" onChange={async (e) => {
             const mode = e.target.value as PermissionChoice;
             setPermissionBusy(true); setErr(null);
             try { useStore.getState().upsertSession(await api.setPermissionMode(id, mode)); }
             catch (e) { setErr(errMsg(e)); } finally { setPermissionBusy(false); }
-          }}>{PERMISSION_CHOICES.map((p) => <option key={p.value} value={p.value}>{p.label}</option>)}</select>
-          {!embedded && <span className="block mt-1">{PERMISSION_CHOICES.find((p) => p.value === s.permissionMode)?.hint}</span>}
+          }}>{permissionChoices.map((p) => <option key={p.value} value={p.value}>{p.label}</option>)}</select>
+          <span className="block mt-1">{permissionChoices.find((p) => p.value === (s.permissionMode ?? 'default'))?.hint}</span>
+          {s.agent === 'codex' && <span className="block mt-1">現在の応答が終わった後の新しい指示から反映します。すぐに切り替えるには停止してから指示を送ってください。</span>}
         </label>}
         <div className={`text-xs flex items-center gap-2 ${st.working ? 'text-sky-200' : 'text-zinc-500'}`}>
           <span className={`inline-block w-2 h-2 rounded-full ${st.dot}`} />
@@ -759,7 +788,10 @@ export function SessionDetail({ id, onShowWorkspace, embedded = false, onClose, 
         {st.working && <span aria-hidden="true" className="working-bar absolute bottom-0 inset-x-0" />}
       </header>
 
-      <div ref={scroller} className="flex-1 overflow-y-auto p-2 space-y-2">
+      <div ref={scroller} onScroll={(e) => {
+        const el = e.currentTarget;
+        followOutput.current = el.scrollHeight - el.scrollTop - el.clientHeight <= 64;
+      }} className="flex-1 overflow-y-auto p-2 space-y-2">
         {/* 外で作業している最中だけ注意する。止まっている時は指示欄の案内で足りる（毎回の大きな枠は場所を取るだけだった） */}
         {external && working && (
           <div className="text-xs text-indigo-200/80 bg-indigo-400/5 border border-indigo-400/30 rounded-md p-2 leading-relaxed">
@@ -767,22 +799,33 @@ export function SessionDetail({ id, onShowWorkspace, embedded = false, onClose, 
           </div>
         )}
         {s.pending && <PendingCard session={s} />}
-        {s.report && (working ? (
+        {s.report && (reportContext(s) === 'previous' ? (
           // 作業中は前の回の報告をたたみ、今の作業の経過を先に見せる
           <details className="rounded-md border border-zinc-800 bg-[#12151b] px-3 py-2 text-xs text-zinc-400">
             <summary className="cursor-pointer hover:text-zinc-200">前回の報告を見る（{OUTCOME[s.report.outcome].label}）</summary>
-            <div className="mt-2"><ReportCard r={s.report} settled={mergedSinceReport(s)} onFileClick={() => setShowChanges(true)} /></div>
+            <div className="mt-2"><ReportCard r={s.report} context="previous" onFileClick={() => setShowChanges(true)} /></div>
           </details>
-        ) : <ReportCard r={s.report} settled={mergedSinceReport(s)} onFileClick={() => setShowChanges(true)} />)}
+        ) : <ReportCard r={s.report} context={reportContext(s)} onFileClick={() => setShowChanges(true)} />)}
         {s.compare && <CompareStrip s={s} />}
         {s.workspace && <WorkspaceStrip s={s} />}
         {s.verification ? (
-          <VerificationStrip v={s.verification} baseline={s.baseline} reportOutcome={s.report?.outcome ?? null} />
+          verificationIsStale(s) ? <details className="rounded-md border border-zinc-800 p-2 text-xs text-zinc-400">
+            <summary className="cursor-pointer">前回の自動チェックを見る（{fmtTime(s.verification.at)}）</summary>
+            <div className="mt-2">現在の作業に対するチェック結果はまだありません。</div>
+            <VerificationStrip v={s.verification} baseline={s.baseline} reportOutcome={null} />
+          </details> : <VerificationStrip v={s.verification} baseline={s.baseline} reportOutcome={s.report?.outcome ?? null} />
         ) : (
           s.baseline && <BaselineStrip b={s.baseline} />
         )}
         {s.preview && <PreviewStrip p={s.preview} />}
         <UsageStrip s={s} />
+        {!!s.subagents?.length && <details className="rounded-md border border-zinc-800 bg-[#12151b] p-3 text-xs" open={s.subagents.some(a => ['running', 'pendingInit', 'errored'].includes(a.status))}>
+          <summary className="cursor-pointer">サブエージェント（{s.subagents.length}）</summary>
+          <div className="mt-2 space-y-2">{s.subagents.map(agent => <div key={agent.id} className="rounded border border-zinc-800 p-2">
+            <div className="flex gap-2"><span className="break-all">{agent.name || agent.id}</span><span className={agent.status === 'errored' ? 'text-red-300' : 'text-sky-200'}>{({ pendingInit: '起動中', running: '作業中', completed: '完了', interrupted: '中断', errored: '失敗', shutdown: '終了', notFound: '見つかりません' } as Record<string, string>)[agent.status] ?? agent.status}</span></div>
+            {agent.message && <details className="mt-1"><summary className="cursor-pointer text-zinc-400">結果を見る</summary><div className="whitespace-pre-wrap break-words mt-1">{agent.message}</div></details>}
+          </div>)}</div>
+        </details>}
         {s.lastError && (
           <div className="rounded-md border border-red-500/50 bg-red-500/10 p-2 text-xs text-red-200 whitespace-pre-wrap">
             {s.lastError}
@@ -836,6 +879,13 @@ export function SessionDetail({ id, onShowWorkspace, embedded = false, onClose, 
             ))}
             {!timeline && <div className="text-xs text-zinc-500 px-1">読み込み中…</div>}
           </div>
+          {working && !!s.liveOutput?.length && <section aria-label="現在の出力" className="mt-2 space-y-2">
+            {s.liveOutput.map((output) => <div key={output.itemId} className="rounded-md border border-sky-900 bg-sky-950/20 p-3">
+              <div className="text-xs text-sky-300 mb-2">{output.kind === 'assistant_text' ? 'Codex が回答中' : 'コマンドの実行出力'}</div>
+              {output.truncated && <p className="text-xs text-zinc-400 mb-1">出力が長いため、末尾を表示しています。</p>}
+              <pre tabIndex={0} className={`max-h-80 overflow-auto whitespace-pre-wrap break-words text-xs text-zinc-200 leading-relaxed ${output.kind === 'command_output' ? 'mono' : 'font-sans'}`}>{output.text}</pre>
+            </div>)}
+          </section>}
           <div ref={bottom} />
         </div>
       </div>

@@ -1,0 +1,24 @@
+{
+  "passed": true,
+  "id": "4f7d5a6d-f216-4ea6-95be-9966d1d9938a",
+  "thread": "01a098ee-1335-70f0-b783-bd7af87876ea",
+  "permissions": 1,
+  "outputs": [
+    "ConstrainedLanguage\r\n#< CLIXML\r\n日本語確認_PS\r\nutf-8\r\n日本語確認_PY\r\n<Objs Version=\"1.1.0.1\" xmlns=\"http://schemas.microsoft.com/powershell/2004/04\"><Obj S=\"progress\" RefId=\"0\"><TN RefId=\"0\"><T>System.Management.Automation.PSCustomObject</T><T>System.Object</T></TN><MS><I64 N=\"SourceId\">1</I64><PR N=\"Record\"><AV>Preparing modules for first use.</AV><AI>0</AI><Nil /><PI>-1</PI><PC>-1</PC><T>Completed</T><SR>-1</SR><SD> </SD></PR></MS></Obj></Objs>"
+  ],
+  "report": {
+    "request": "指定コマンドで日本語出力を確認",
+    "outcome": "done",
+    "summary": [
+      "「日本語確認_PS」「日本語確認_PY」が文字化けせず表示されました。",
+      "Pythonの文字コードは「utf-8」でした。",
+      "実行モードは「ConstrainedLanguage」（機能が制限された状態）でした。",
+      "追加で、初回準備の進行情報が表示されました。"
+    ],
+    "changedFiles": [],
+    "needsDecision": null,
+    "nextStep": null,
+    "raw": "【報告】\n依頼: 指定コマンドで日本語出力を確認\n結果: 完了\nやったこと:\n\n- 「日本語確認_PS」「日本語確認_PY」が文字化けせず表示されました。\n- Pythonの文字コードは「utf-8」でした。\n- 実行モードは「ConstrainedLanguage」（機能が制限された状態）でした。\n- 追加で、初回準備の進行情報が表示されました。\n\n変更ファイル:\n\n- なし\n\n判断が必要:\nなし\n\n次の一手:\nなし",
+    "generatedAt": 1789273710966
+  }
+}

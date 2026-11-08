@@ -1,0 +1,14 @@
+{
+  "passed": true,
+  "sessionId": "e3eb9dbc-d79f-4780-9aa2-9b1bb9a01412",
+  "thread": "01a09970-0a7e-70c0-b31b-a1d89e4e3b4b",
+  "model": "gpt-6-astra",
+  "effort": "high",
+  "permissionMode": "default",
+  "approvals": 2,
+  "textAttachmentRead": true,
+  "imageAttachmentRecognized": true,
+  "japaneseOutput": true,
+  "asyncReplyReceived": true,
+  "errors": []
+}

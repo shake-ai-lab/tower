@@ -1,7 +1,7 @@
 // フリート（一覧）の 1 枚。ふつうのカードと、1 行に詰めたコンパクト表示の 2 種類
 import type { Session } from '@tower/shared';
 import { OUTCOME, STATUS, fmtElapsed, fmtUsd, needsYou, projectStyle, verifyBadge } from '../lib';
-import { badgeRepeatsReport, mergedSinceReport } from '../task-state';
+import { badgeRepeatsReport, reportContext, reportIsStale } from '../task-state';
 import { SessionTags, StatusBadge, agentLabel } from './SessionBadges';
 
 type CardProps = { s: Session; selected: boolean; onClick: () => void };
@@ -42,7 +42,7 @@ function FullCard({ s, selected, onClick }: CardProps) {
   const st = STATUS[s.status];
   const frame = selected ? 'border-sky-500' : st.attention || needsYou(s) ? 'border-amber-400/70 attention' : st.working ? 'working-card' : 'border-zinc-800';
   // 作業中・許可や質問の待ちの間は、前の回の報告（「質問あり」など）を出さない。今の状態と食い違って見える
-  const showReport = !!s.report && !st.working && !s.pending;
+  const showReport = !!s.report && !reportIsStale(s) && !st.working && !s.pending;
   // 報告を受けて止まっている時は、報告の 1 行が今の様子を表す（「指示待ち」「判断待ち: …」と同じことを 2 度書かない）
   const showActivity = !(showReport && (s.status === 'idle' || s.status === 'done'));
   return (
@@ -95,7 +95,7 @@ function ReportLine({ s, report }: { s: Session; report: NonNullable<Session['re
         </span>
       )}
       {/* 取り込み済みなら「判断が必要」はもう済んでいるので、やったことの 1 行目を出す */}
-      <span className="line-clamp-2 break-words [overflow-wrap:anywhere]">{(mergedSinceReport(s) ? null : report.needsDecision) ?? report.summary[0] ?? ''}</span>
+      <span className="line-clamp-2 break-words [overflow-wrap:anywhere]">{(reportContext(s) === 'current' ? report.needsDecision : null) ?? report.summary[0] ?? ''}</span>
     </div>
   );
 }
