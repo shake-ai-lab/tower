@@ -51,7 +51,8 @@ npm run deploy       # 直したものを使う: 画面ビルド → インス�
 - `apps/server/src/agents/codex.ts` — Codex を `codex app-server`（VS Code の Codex 拡張と同じ本式のつなぎ方。1 行 1 JSON）で動かす。~/.codex の設定・プラグインがそのまま効き、許可・質問は判断待ちに出す。途中の指示は turn/steer で差し込む。`codex-rpc.ts`（受け渡し）/ `codex-translate.ts`（許可方針の写し方・許可と質問の翻訳・使った量）/ `codex-browser.ts`（Codex アプリの内蔵ブラウザーは Tower では借りられないので、Tower の Edge を dynamicTools で渡す）。プロトコルの型は `codex app-server generate-ts --experimental --out <dir>` で見られる。`codex-login.ts` — 画面からのログイン（codex を起動して URL を出す）。`codex-bin.ts` — Codex の本体を探す（インストーラには入れないので VS Code の Codex 拡張の codex.exe を使う。ログインは ~/.codex を共有。開発中は node_modules）
 - `apps/server/src/bridge.ts` + `apps/server/hooks/tower-hook.mjs` — VS Code / ターミナルの Claude Code を hooks で観測・許可の橋渡し
 - `apps/server/src/verify.ts` — 報告の裏取り（テスト実行）。`apps/server/src/diff.ts` — 差分と履歴（Git グラフ用）
-- `apps/server/src/worktree.ts` — 別の作業場所（git worktree）の作成・取り込み（merge）・後片付け。cwd は必ず `workDir(session)` で取る
+- `apps/server/src/worktree.ts` — 別の作業場所（git worktree）の作成・取り込み（merge）・後片付け。cwd は必ず `workDir(session)` で取る。3 日使っていない作業場所はフォルダだけ片付けてブランチは残し（`parkBlocker` が未記録の変更・作業場所にしか無い生成物を見たら残す）、使う時に `manager.ensureWorkspace` が作り直す。作業場所のフォルダに触る API は `hub.get` ではなく `manager.ensureWorkspace` で取る
+- 溜まるものの片付けは `manager.startHousekeeping`: 指示待ちのまま 30 分動きの無いエージェントのプロセスを手放す（`AgentRunner.release`。状態は変えず、次の指示で会話の続きから起動）。エラー・終了したランナーもプロセスごと手放す。報告ごとの自動コミットは 1MB 超のバイナリと 5MB 超のファイルを入れない（`commit.ts`）
 - `apps/server/src/humanize.ts` — ツール呼び出し → 日本語の「今やってること」「許可の見出し」「危険度」。英語の description は使わず、コマンドの中身から日本語を作る（`describeCommand`）
 - `apps/server/src/report.ts` — 【報告】書式（システムプロンプト追記）と、その解析。`apps/server/src/reformat.ts` — 書式が無かった時に Haiku で整形し直す（裏で走らせて差し替え）
 - `apps/server/src/files.ts` — 画面からの直接編集（Monaco）の読み書きとエクスプローラ（tree）。作業フォルダの外は拒否。保存後の後始末は `manager.manualEdit`（次の指示に補足を付ける）。`search.ts` — ファイル名で開く用の全ファイル一覧と全体検索（.gitignore に従う）、変わった行の印

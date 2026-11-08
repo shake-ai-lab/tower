@@ -191,6 +191,22 @@ export function FileEditor({
 
   const dirty = orig !== null && value !== orig;
 
+  // エディタへ渡す設定と受け口は、中身が変わった時だけ作り直す。毎回新しく作ると、
+  // ほかのタスクの知らせが来るたびに開いている全部のエディタが設定をやり直していた
+  const options = useMemo<monaco.editor.IStandaloneEditorConstructionOptions>(
+    () => ({
+      fontSize: Math.round(13 * fontScale * 10) / 10,
+      readOnly,
+      minimap: { enabled: false },
+      wordWrap: 'on',
+      scrollBeyondLastLine: false,
+      automaticLayout: true,
+      renderWhitespace: 'selection',
+    }),
+    [fontScale, readOnly],
+  );
+  const onChange = useCallback((v: string | undefined) => setValue(v ?? ''), []);
+
   useEffect(() => onDirty(dirty), [dirty, onDirty]);
 
   // 保存していない書きかけを端末に残す（再起動・入れ直しのあとに戻せるように）。前回の書きかけを戻すか決まるまでは触らない
@@ -373,18 +389,10 @@ export function FileEditor({
                   theme="vs-dark"
                   language={langOf(path)}
                   value={value}
-                  onChange={(v) => setValue(v ?? '')}
+                  onChange={onChange}
                   onMount={onMount}
                   loading={<div className="p-4 text-sm text-zinc-500">エディタを準備中…</div>}
-                  options={{
-                    fontSize: Math.round(13 * fontScale * 10) / 10,
-                    readOnly,
-                    minimap: { enabled: false },
-                    wordWrap: 'on',
-                    scrollBeyondLastLine: false,
-                    automaticLayout: true,
-                    renderWhitespace: 'selection',
-                  }}
+                  options={options}
                 />
               </div>
             </>

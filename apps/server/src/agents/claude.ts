@@ -221,14 +221,27 @@ export class ClaudeRunner implements AgentRunner {
       this.resolvers.delete(id);
     }
     this.queue = [];
-    try {
-      await this.q?.interrupt();
-    } catch {
-      /* 既に終了している */
-    }
+    // 固まった CLI が中断に答えなくても、停止・削除が終わらないままにしない
+    await Promise.race([this.q?.interrupt().catch(() => {}), new Promise((r) => setTimeout(r, 3000))]);
     this.input.close();
     this.abort.abort();
     this.hub.update(this.id, { status: 'stopped', activity: '停止しました', pending: null, pendingCount: 0 });
+  }
+
+  release(force: boolean): boolean {
+    if (this.stoppedByUser) return true;
+    if (!force && (this.queue.length || this.resolvers.size || this.bgAgents.size || this.tasks.size || this.verifying)) return false;
+    // 以後の知らせ（中断による結果・例外）で状態を書き換えない
+    this.stoppedByUser = true;
+    if (force) this.verificationAbort?.abort();
+    for (const [id, r] of this.resolvers) {
+      r.resolve({ behavior: 'deny', message: 'セッションが終了しました' });
+      this.resolvers.delete(id);
+    }
+    this.queue = [];
+    this.input.close();
+    this.abort.abort();
+    return true;
   }
 
   resolvePermission(requestId: string, decision: 'allow' | 'allow_always' | 'deny', message?: string): boolean {

@@ -8,6 +8,12 @@ export interface AgentRunner {
   /** 追加指示 */
   send(text: string, attachments?: SavedAttachment[], historyText?: string, asyncQuestionId?: string): void;
   stop(): Promise<void>;
+  /**
+   * 状態（報告あり・エラーなど）は変えずに、エージェントのプロセスを手放す。手放したら true。
+   * force = false: 手が空いている時（判断待ち・裏の作業・裏取りが無い）だけ。true: 会話が終わった・エラーで止まった後の後始末。
+   * 次の指示は Manager が新しいランナーで会話の続きから再開する
+   */
+  release?(force: boolean): boolean;
   setPermissionMode?(mode: import('@tower/shared').PermissionChoice): Promise<void>;
   /** 許可要求への回答。対応していないエージェントは false */
   resolvePermission(requestId: string, decision: 'allow' | 'allow_always' | 'deny', message?: string): boolean;

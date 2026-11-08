@@ -225,6 +225,7 @@ async function ensureServer(target: Extract<PreviewTarget, { kind: 'url' }>, dir
     cwd: dir,
     shell: true,
     detached: process.platform !== 'win32',
+    windowsHide: true,
     stdio: ['ignore', 'pipe', 'pipe'],
     env: { ...process.env, BROWSER: 'none', CI: '1', FORCE_COLOR: '0' },
   });
@@ -236,6 +237,11 @@ async function ensureServer(target: Extract<PreviewTarget, { kind: 'url' }>, dir
   child.stderr?.on('data', keep);
   let exited: number | null = null;
   child.on('exit', (code) => (exited = code ?? -1));
+  // 起動そのものの失敗（受け手が無いとサーバーごと落ちる）
+  child.on('error', (e) => {
+    tail.push(String(e));
+    exited = -1;
+  });
   const stop = () => killTree(child);
   const deadline = Date.now() + (target.readySeconds ?? 60) * 1000;
   while (Date.now() < deadline) {

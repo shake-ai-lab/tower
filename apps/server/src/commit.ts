@@ -33,7 +33,8 @@ export function commitMessage(s: Pick<Session, 'id' | 'title'>, report: Report |
 }
 
 export type CommitOutcome =
-  | { kind: 'committed'; commit: TaskCommit; files: string[]; message: string }
+  /** largeNote = 大きすぎて記録に入れなかったファイルの説明 */
+  | { kind: 'committed'; commit: TaskCommit; files: string[]; message: string; largeNote?: string }
   /** message が null = 記録するものが無いので黙って見送る */
   | { kind: 'skipped'; message: string | null }
   | { kind: 'failed'; message: string };
@@ -60,6 +61,43 @@ export function parseStatusZ(out: string): string[] {
 }
 
 const key = (p: string) => (process.platform === 'win32' ? p.toLowerCase() : p);
+
+/** 自動の記録に入れない大きさ。git の記録は後から消せず、生成した画像や PDF を報告のたびに積むとリポジトリが膨らみ続ける */
+const MAX_TEXT_BYTES = 5 * 1024 * 1024;
+const MAX_BINARY_BYTES = 1024 * 1024;
+
+/** 先頭に NUL を含むものをバイナリ（画像・PDF・動画など）とみなす */
+function looksBinary(abs: string): boolean {
+  let fd: number | null = null;
+  try {
+    fd = fs.openSync(abs, 'r');
+    const buf = Buffer.alloc(8000);
+    const n = fs.readSync(fd, buf, 0, buf.length, 0);
+    return buf.subarray(0, n).includes(0);
+  } catch {
+    return false;
+  } finally {
+    if (fd !== null) fs.closeSync(fd);
+  }
+}
+
+/** 自動の記録に入れない大きなファイル（リポジトリの根からのパス）。消したファイルは大きさが無いので入れる */
+export function tooLargeToRecord(root: string, paths: string[]): string[] {
+  return paths.filter((p) => {
+    let size: number;
+    try {
+      const st = fs.statSync(path.join(root, p));
+      if (!st.isFile()) return false;
+      size = st.size;
+    } catch {
+      return false;
+    }
+    return size > MAX_TEXT_BYTES || (size > MAX_BINARY_BYTES && looksBinary(path.join(root, p)));
+  });
+}
+
+const sizeNote = (big: string[]) =>
+  `大きなファイル ${big.length} 件（1MB を超える画像・PDF などと、5MB を超えるファイル）は、リポジトリが膨らまないよう自動の記録には入れていません（ファイルはそのまま残っています）: ${big.slice(0, 5).join('、')}${big.length > 5 ? ' ほか' : ''}`;
 
 /**
  * タスクの変更を記録する。
@@ -90,7 +128,9 @@ export function commitTaskWork(s: Session, report: Report | null): CommitOutcome
     }
     picked = dirty.filter((p) => touched.has(key(p)));
   }
-  if (!picked.length) return { kind: 'skipped', message: null };
+  const big = new Set(tooLargeToRecord(root, picked));
+  if (big.size) picked = picked.filter((p) => !big.has(p));
+  if (!picked.length) return { kind: 'skipped', message: big.size ? sizeNote([...big]) : null };
 
   const input = picked.join('\0');
   const spec = ['--pathspec-from-file=-', '--pathspec-file-nul'];
@@ -103,7 +143,13 @@ export function commitTaskWork(s: Session, report: Report | null): CommitOutcome
     return { kind: 'failed', message: `変更を記録（コミット）できませんでした。コミット前のチェックなどで止まった可能性があります: ${(c.err || c.out).slice(0, 400)}` };
   }
   const hash = git(root, ['rev-parse', 'HEAD']).out;
-  return { kind: 'committed', commit: { hash, subject: firstLine(message), files: picked.length, at: Date.now() }, files: picked, message };
+  return {
+    kind: 'committed',
+    commit: { hash, subject: firstLine(message), files: picked.length, at: Date.now() },
+    files: picked,
+    message,
+    ...(big.size ? { largeNote: sizeNote([...big]) } : {}),
+  };
 }
 
 // ---- エージェントが自分で記録した時 ----

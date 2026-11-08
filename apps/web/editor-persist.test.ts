@@ -79,3 +79,38 @@ test('書きかけが上限を超えたら古いものから消す', () => {
   assert.ok(!ids.includes(fileKey('s1', 'f0')));
   assert.ok(ids.includes(fileKey('s1', `f${DRAFT_LIMITS.files}`)));
 });
+
+/** 入る量に限りがある置き場所（ブラウザと同じく、入りきらない時は QuotaExceededError） */
+class Limited extends Memory {
+  constructor(public capacity: number) { super(); }
+  used(except?: string) { let n = 0; for (const [k, v] of this.map) if (k !== except) n += k.length + v.length; return n; }
+  setItem(k: string, v: string) {
+    if (this.used(k) + k.length + v.length > this.capacity) throw Object.assign(new Error('入りきりません'), { name: 'QuotaExceededError' });
+    this.map.set(k, v);
+  }
+}
+
+test('入りきらない時は、ほかの古い書きかけから入るだけ消して、今打っているものを残す', () => {
+  const store = new Limited(Infinity);
+  const a = fileKey('s1', 'a.ts'), b = fileKey('s1', 'b.ts'), c = fileKey('s1', 'c.ts'), now = fileKey('s1', 'now.ts');
+  writeDraft(a, '', 'x'.repeat(100), store, 1);
+  writeDraft(b, '', 'y'.repeat(100), store, 2);
+  writeDraft(c, '', 'z'.repeat(100), store, 3);
+  store.capacity = store.used() + 10;
+  assert.ok(writeDraft(now, '', 'n'.repeat(50), store, 4));
+  assert.equal(readDraft(now, store)?.value, 'n'.repeat(50));
+  // 一番古い a だけ消えて、b・c は残る
+  assert.equal(readDraft(a, store), null);
+  assert.ok(readDraft(b, store));
+  assert.ok(readDraft(c, store));
+});
+
+test('ほかを消しても入らない時は、今の書きかけも残さない（古いものを戻さないように）', () => {
+  const store = new Limited(Infinity);
+  const a = fileKey('s1', 'a.ts'), now = fileKey('s1', 'now.ts');
+  writeDraft(a, '', 'x', store, 1);
+  writeDraft(now, '', 'old', store, 2);
+  store.capacity = store.used();
+  assert.equal(writeDraft(now, '', 'n'.repeat(10_000), store, 3), false);
+  assert.equal(readDraft(now, store), null);
+});

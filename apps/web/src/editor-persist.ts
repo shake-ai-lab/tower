@@ -95,12 +95,50 @@ export function readDraft(id: string, store = storage()): Draft | null {
   return isObj(v) && typeof v.base === 'string' && typeof v.value === 'string' ? { base: v.base, value: v.value, at: finite(v.at) ? v.at : 0 } : null;
 }
 
-/** 書きかけを残す。大きすぎる・入りきらない時は、古い書きかけを戻してしまわないよう消して false */
+/** 入りきらなかった（容量いっぱい）ための失敗か。ブラウザでは DOMException で来る */
+const isQuota = (e: unknown) => { const name = (e as { name?: unknown } | null)?.name; return name === 'QuotaExceededError' || name === 'NS_ERROR_DOM_QUOTA_REACHED'; };
+
+/**
+ * 書きかけを残す。入りきらない時は、ほかの古い書きかけから入るだけ消してもう 1 度だけ試す（今打っているものを優先する）。
+ * 大きすぎる・それでも入らない時は、古い書きかけを戻してしまわないよう消して false
+ */
 export function writeDraft(id: string, original: string, value: string, store = storage(), now = Date.now()): boolean {
-  const ok = value.length <= DRAFT_LIMITS.chars && write(DRAFT + id, { base: fingerprint(original), value, at: now } satisfies Draft, store);
+  if (!store || value.length > DRAFT_LIMITS.chars) {
+    clearDraft(id, store);
+    return false;
+  }
+  const key = DRAFT + id;
+  const raw = JSON.stringify({ base: fingerprint(original), value, at: now } satisfies Draft);
+  const put = () => { store.setItem(key, raw); return true; };
+  let ok = false;
+  try {
+    ok = put();
+  } catch (e) {
+    if (isQuota(e) && makeRoom(store, id, key.length + raw.length - draftSize(store, id))) {
+      try { ok = put(); } catch { /* それでも入らない */ }
+    }
+  }
   if (!ok) clearDraft(id, store);
-  else pruneDrafts(store!);
+  else pruneDrafts(store);
   return ok;
+}
+
+/** その書きかけが場所をどれだけ取っているか（文字数） */
+function draftSize(store: Store, id: string): number {
+  try { const raw = store.getItem(DRAFT + id); return raw === null ? 0 : DRAFT.length + id.length + raw.length; } catch { return 0; }
+}
+
+/** ほかの書きかけを古い順に、need 文字分（少なくとも 1 つ）空くまで消す。消したものがあれば true */
+function makeRoom(store: Store, keep: string, need: number): boolean {
+  const others = draftIds(store).filter((id) => id !== keep).map((id) => ({ id, at: readDraft(id, store)?.at ?? 0, size: draftSize(store, id) })).sort((a, b) => a.at - b.at);
+  let freed = 0, removed = 0;
+  for (const d of others) {
+    if (removed > 0 && freed >= need) break;
+    clearDraft(d.id, store);
+    freed += d.size;
+    removed++;
+  }
+  return removed > 0;
 }
 
 export function clearDraft(id: string, store = storage()) {

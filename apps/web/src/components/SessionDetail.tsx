@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import type { Preview, Report, Screenshot, Session, TimelineItem, Verification } from '@tower/shared';
 import { CODEX_PERMISSION_CHOICES, PERMISSION_CHOICES, type PermissionChoice } from '@tower/shared';
 import { api, errMsg } from '../api';
-import { OUTCOME, STATUS, btn, fmtElapsed, fmtTime, fmtTokens, fmtUsd, isAlive, verifyBadge, useDesktop, useResizable } from '../lib';
+import { OUTCOME, STATUS, btn, fmtElapsed, fmtTime, fmtTokens, fmtUsd, isAlive, loadLocal, saveLocal, verifyBadge, useDesktop, useResizable, useSettled } from '../lib';
 import { canMarkDone, mergedSinceReport, onlyOldFailures, reportContext, verificationIsStale, type ReportContext } from '../task-state';
 import { useStore } from '../store';
 import { openTask } from '../layout';
@@ -533,7 +533,12 @@ export function ReportCard({ r, onFileClick, context = 'current' }: { r: Report;
   );
 }
 
-function TimelineRow({ t, showImages }: { t: TimelineItem; showImages: boolean }) {
+/**
+ * 経過の 1 行。並びが伸びても、届いた行・変わった行だけを描き直す（memo）。
+ * 詳細（長いと 1 万字を超える）は開いた時に初めて作る
+ */
+const TimelineRow = React.memo(function TimelineRow({ t, showImages }: { t: TimelineItem; showImages: boolean }) {
+  const [open, setOpen] = useState(false);
   const cls =
     t.kind === 'user'
       ? 'text-sky-200'
@@ -559,15 +564,17 @@ function TimelineRow({ t, showImages }: { t: TimelineItem; showImages: boolean }
   if (!t.detail) return <div className="px-1 py-0.5">{body}</div>;
   return (
     <div className="px-1 py-0.5">
-      <details className="group">
+      <details className="group" open={open} onToggle={(e) => setOpen(e.currentTarget.open)}>
         <summary className="cursor-pointer list-none">{body}</summary>
-        <pre className="mono mt-1 ml-7 text-xs whitespace-pre-wrap break-all bg-black/40 rounded p-2 max-h-72 overflow-auto text-zinc-400">
-          {t.detail}
-        </pre>
+        {open && (
+          <pre className="mono mt-1 ml-7 text-xs whitespace-pre-wrap break-all bg-black/40 rounded p-2 max-h-72 overflow-auto text-zinc-400">
+            {t.detail}
+          </pre>
+        )}
       </details>
     </div>
   );
-}
+});
 
 const GONE_TEXT = 'この画像はもう残っていません（一時的な場所に置かれていた、など）';
 
@@ -644,6 +651,7 @@ export function SessionDetail({ id, onShowWorkspace, embedded = false, onClose, 
   const s = useStore((st) => st.sessions[id]);
   const timeline = useStore((st) => st.timelines[id]);
   const setTimeline = useStore((st) => st.setTimeline);
+  const loadingTimeline = useStore((st) => st.loadingTimeline);
   const select = useStore((st) => st.select);
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
@@ -654,27 +662,35 @@ export function SessionDetail({ id, onShowWorkspace, embedded = false, onClose, 
   const [editVersion, setEditVersion] = useState(0);
   const attach = useAttachments();
   // 経過の画像は最初は畳んでおく（場所を取るので）。まとめて出したかどうかは覚えておく
-  const [showImages, setShowImages] = useState(() => localStorage.getItem('tower.timeline-images') === '1');
+  const [showImages, setShowImages] = useState(() => loadLocal('tower.timeline-images') === '1');
   const toggleImages = () => setShowImages((v) => {
-    localStorage.setItem('tower.timeline-images', v ? '0' : '1');
+    saveLocal('tower.timeline-images', v ? '0' : '1');
     return !v;
   });
+  // 「それより前のやりとり」は開いた時に初めて行を作る（畳んだままの何百行を毎回作らない）
+  const [olderOpen, setOlderOpen] = useState(false);
+  // 変更ファイルの読み直しは、操作のたびではなく作業が 2 秒落ち着いてから（続く時も 8 秒ごとには読む）
+  const changesKey = useSettled(s ? s.turns + s.toolCalls : 0, 2000);
   const bottom = useRef<HTMLDivElement>(null);
   const scroller = useRef<HTMLDivElement>(null);
   const followOutput = useRef(true);
 
   useEffect(() => {
-    if (!timeline) api.timeline(id).then((items) => setTimeline(id, items)).catch((e) => setErr(errMsg(e)));
-  }, [id, timeline, setTimeline]);
+    if (timeline) return;
+    // 読んでいる間に届いた経過は取っておいて、読み終わった時に混ぜる（取りこぼさない）
+    loadingTimeline(id);
+    api.timeline(id).then((items) => setTimeline(id, items)).catch((e) => setErr(errMsg(e)));
+  }, [id, timeline, setTimeline, loadingTimeline]);
 
   // 報告や判断待ちが来たら一番上（カード）へ。上の経過を読んでいる間は末尾へ戻さない
   useLayoutEffect(() => {
     followOutput.current = true;
     scroller.current?.scrollTo({ top: 0 });
   }, [id, s?.pending?.id, s?.report?.generatedAt]);
+  // 経過が届いたら末尾へ。長さではなく並びそのものを見る（上限まで溜まると、届いても長さが変わらない）
   useLayoutEffect(() => {
     if (s?.status === 'running' && followOutput.current && scroller.current) scroller.current.scrollTop = scroller.current.scrollHeight;
-  }, [timeline?.length, s?.status, s?.liveOutput]);
+  }, [timeline, s?.status, s?.liveOutput]);
 
   if (!s) return null;
   // 経過は最後の指示から後だけを見せ、それより前のやりとりは畳む。報告はいちばん新しいやりとりのものなので、
@@ -844,7 +860,7 @@ export function SessionDetail({ id, onShowWorkspace, embedded = false, onClose, 
             <div className="mt-3">
               <ChangesPanel
                 sessionId={id}
-                refreshKey={s.turns + s.toolCalls + editVersion}
+                refreshKey={changesKey + editVersion}
                 onEdit={working ? undefined : setEditing}
                 editHint="エージェントが作業中は編集できません。報告が来るか、停止してから直してください"
               />
@@ -862,15 +878,17 @@ export function SessionDetail({ id, onShowWorkspace, embedded = false, onClose, 
             )}
           </div>
           {older.length > 0 && (
-            <details className="mb-1 rounded border border-zinc-800 bg-[#12151b] px-2 py-1">
+            <details className="mb-1 rounded border border-zinc-800 bg-[#12151b] px-2 py-1" open={olderOpen} onToggle={(e) => setOlderOpen(e.currentTarget.open)}>
               <summary className="cursor-pointer text-xs text-zinc-400 hover:text-zinc-200">
                 それより前のやりとりを見る（{older.length} 件）
               </summary>
-              <div className="mt-1 space-y-0.5">
-                {older.map((t) => (
-                  <TimelineRow key={t.id} t={t} showImages={showImages} />
-                ))}
-              </div>
+              {olderOpen && (
+                <div className="mt-1 space-y-0.5">
+                  {older.map((t) => (
+                    <TimelineRow key={t.id} t={t} showImages={showImages} />
+                  ))}
+                </div>
+              )}
             </details>
           )}
           <div className="space-y-0.5">

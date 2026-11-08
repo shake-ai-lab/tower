@@ -15,6 +15,17 @@ export function projectStyle(name: string): { color: string; background: string;
   return { color: `hsl(${h} 70% 78%)`, background: `hsl(${h} 55% 32% / 0.45)`, borderColor: `hsl(${h} 55% 50% / 0.55)` };
 }
 
+/**
+ * この端末（localStorage）に残した値を読む・書く。容量いっぱい・設定で拒否されている時に投げても画面を止めない
+ * （読めなければ null、書けなければ残さないだけ）
+ */
+export function loadLocal(key: string): string | null {
+  try { return localStorage.getItem(key); } catch { return null; }
+}
+export function saveLocal(key: string, value: string): void {
+  try { localStorage.setItem(key, value); } catch { /* 残せなくても画面は動く */ }
+}
+
 /** PC 幅（Tailwind の md = 768px 以上）かどうか。パネルの幅指定はこの時だけ効かせる */
 export function useDesktop(minWidth = 768): boolean {
   const [on, setOn] = useState(() => window.matchMedia(`(min-width: ${minWidth}px)`).matches);
@@ -49,10 +60,10 @@ export function useResizable(key: string, def: number, min: number, max: number,
   }, [min, max]);
   const storageKey = `tower.width.${key}`;
   const [width, setWidth] = useState(() => {
-    const v = Number(localStorage.getItem(storageKey));
+    const v = Number(loadLocal(storageKey));
     return v >= min && v <= max ? v : def;
   });
-  useEffect(() => localStorage.setItem(storageKey, String(width)), [storageKey, width]);
+  useEffect(() => saveLocal(storageKey, String(width)), [storageKey, width]);
   useEffect(() => {
     const reset = () => setWidth(def);
     window.addEventListener('tower:reset-widths', reset);
@@ -103,7 +114,9 @@ export function useResizable(key: string, def: number, min: number, max: number,
 
 /** 保存してあるパネルの幅を全部消す（設定の「元に戻す」）。次の描画で既定に戻る */
 export function clearSavedWidths() {
-  for (const k of Object.keys(localStorage)) if (k.startsWith('tower.width.')) localStorage.removeItem(k);
+  try {
+    for (const k of Object.keys(localStorage)) if (k.startsWith('tower.width.')) localStorage.removeItem(k);
+  } catch { /* 消せなくても、下の合図で今の画面は既定の幅に戻る */ }
   window.dispatchEvent(new Event('tower:reset-widths'));
 }
 
@@ -194,6 +207,25 @@ export function fmtUsd(x: number): string {
   if (x <= 0) return '$0';
   if (x < 0.005) return '$0.01 未満';
   return `$${x.toFixed(2)}`;
+}
+
+/**
+ * 値が落ち着いてから（ms の間変わらなかったら）返す。変わり続けても maxWait ごとには新しい値を返す
+ * （作業中に操作のたびに読み直さず、まとめて読み直す用）
+ */
+export function useSettled<T>(value: T, ms: number, maxWait = ms * 4): T {
+  const [settled, setSettled] = useState(value);
+  const since = useRef<number | null>(null);
+  useEffect(() => {
+    if (Object.is(value, settled)) {
+      since.current = null;
+      return;
+    }
+    since.current ??= Date.now();
+    const t = setTimeout(() => setSettled(value), Math.max(0, Math.min(ms, since.current + maxWait - Date.now())));
+    return () => clearTimeout(t);
+  }, [value, settled, ms, maxWait]);
+  return settled;
 }
 
 /** 経過時間表示のために定期的に再描画する */

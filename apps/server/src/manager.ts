@@ -31,7 +31,22 @@ import { SHOTS_DIR, capture, detectPreview, laterPreviewLabel, targetLabel } fro
 import { CODEX_MISSING, findCodexBin } from './codex-bin.ts';
 import { claudeDefaultModel, codexModels } from './model-defaults.ts';
 import { detectVerifyCommand, runVerify } from './verify.ts';
-import { createWorktree, mergeFixPrompt, mergeWorktree, originalRef, removeWorktree } from './worktree.ts';
+import {
+  createWorktree,
+  mergeFixPrompt,
+  mergeWorktree,
+  originalRef,
+  parkBlocker,
+  parkWorktree,
+  removeOrphanWorktrees,
+  removeWorktree,
+  restoreWorktree,
+} from './worktree.ts';
+
+/** 指示待ちのまま、これだけ動きが無ければエージェントのプロセスを手放す（次の指示で会話の続きから起動し直す） */
+const IDLE_RELEASE_MS = 30 * 60_000;
+/** これだけ使っていない作業場所は、フォルダだけ片付ける（ブランチは残し、開けば作り直す） */
+const PARK_AFTER_MS = 3 * 86_400_000;
 
 /** 画像・ファイルだけ添えて文を書かずに送った時の指示 */
 const DEFAULT_ATTACH_PROMPT = '添えた画像・ファイルを見てください';
@@ -138,8 +153,15 @@ export class SessionManager {
     hub.subscribe((ev) => {
       if (ev.type !== 'session') return;
       const s = ev.session;
-      // 会話が終わった（正常終了・エラー）ランナーは手放す。残すと次の指示が誰にも読まれない列に入ってしまう
-      if ((s.status === 'done' || s.status === 'error') && this.runners.has(s.id)) this.runners.delete(s.id);
+      // 会話が終わった（正常終了・エラー）ランナーは手放す。残すと次の指示が誰にも読まれない列に入ってしまう。
+      // プロセスも止める（エラーの後も Claude は次の入力を待って生き続け、次の指示で同じ会話のプロセスが 2 つになる）
+      if (s.status === 'done' || s.status === 'error') {
+        const r = this.runners.get(s.id);
+        if (r) {
+          this.runners.delete(s.id);
+          r.release?.(true);
+        }
+      }
       const at = s.report?.generatedAt ?? 0;
       if (at && at !== (this.lastReportAt.get(s.id) ?? 0)) {
         this.lastReportAt.set(s.id, at);
@@ -172,6 +194,87 @@ export class SessionManager {
     if (!cur) return;
     this.hub.update(s.id, { commits: [...(cur.commits ?? []), r.commit].slice(-200) });
     this.note(s.id, 'system', `変更を記録しました（コミット ${r.commit.hash.slice(0, 7)}・${r.files.length} ファイル）`, `${r.message}\n\n${r.files.join('\n')}`);
+    if (r.largeNote) this.note(s.id, 'system', r.largeNote);
+  }
+
+  // ---- 溜まるものの片付け ----
+
+  private housekeeping: NodeJS.Timeout[] = [];
+
+  /** 定期の片付けを始める（指示待ちのプロセスを手放す・使っていない作業場所を片付ける） */
+  startHousekeeping() {
+    const idle = setInterval(() => this.releaseIdleRunners(), 5 * 60_000);
+    const park = setInterval(() => void this.parkIdleWorkspaces(), 6 * 3600_000);
+    const first = setTimeout(() => void this.parkIdleWorkspaces(), 2 * 60_000);
+    for (const t of [idle, park, first]) t.unref();
+    this.housekeeping.push(idle, park, first);
+  }
+
+  /** 指示待ちのまま IDLE_RELEASE_MS 動きの無いエージェントのプロセスを手放す。状態（報告あり・指示待ち）は変えない */
+  releaseIdleRunners(now = Date.now()): string[] {
+    const released: string[] = [];
+    for (const [id, r] of [...this.runners]) {
+      const s = this.hub.get(id);
+      if (!s || s.status !== 'idle' || now - s.updatedAt < IDLE_RELEASE_MS) continue;
+      if (this.capturing.has(id) || this.verificationControllers.has(id)) continue;
+      if (!r.release?.(false)) continue;
+      this.runners.delete(id);
+      released.push(id);
+    }
+    if (released.length) console.log(`[manager] 指示待ちのまま ${IDLE_RELEASE_MS / 60_000} 分動きの無いエージェント ${released.length} 件のプロセスを手放しました（次の指示で続きから起動します）`);
+    return released;
+  }
+
+  /**
+   * 片付けた作業場所（フォルダだけ消してブランチは残したもの）を、使う時に作り直す。
+   * 作り直せなければそのまま返す（呼び出し側の「フォルダが見つかりません」に任せる）
+   */
+  ensureWorkspace(id: string): Session | undefined {
+    const s = this.hub.get(id);
+    if (!s?.workspace) return s;
+    const root = s.workspace.root;
+    // フォルダがあって git の作業場所として生きていれば、そのまま
+    if (fs.existsSync(root) && fs.existsSync(path.join(root, '.git'))) return s;
+    const err = restoreWorktree(s.project.path, s.workspace);
+    if (err) console.warn(`[worktree] ${id.slice(0, 8)}: ${err}`);
+    else this.note(id, 'system', '片付けていた作業場所を作り直しました', `${s.workspace.path}\nブランチ ${s.workspace.branch} から作り直しています`);
+    return this.hub.get(id);
+  }
+
+  /**
+   * PARK_AFTER_MS 使っていない作業場所のフォルダを片付ける。記録していない変更や、作業場所にしか無いファイルがあるものは残す。
+   * どのタスクも使っていない作業場所の残り（消した時に使用中で消せなかったもの）も消す
+   */
+  async parkIdleWorkspaces(now = Date.now(), worktreeRoot?: string): Promise<string[]> {
+    const parked: string[] = [];
+    const sessions = [...this.hub.sessions.values()];
+    try {
+      const orphans = await removeOrphanWorktrees(sessions.filter((s) => s.workspace).map((s) => s.workspace!.root), worktreeRoot);
+      if (orphans.length) console.log(`[worktree] どのタスクも使っていない作業場所 ${orphans.length} 件を消しました`);
+    } catch (e) {
+      console.warn('[worktree] 残りの片付けに失敗:', e instanceof Error ? e.message : e);
+    }
+    for (const s of sessions) {
+      const ws = s.workspace;
+      if (!ws || s.origin === 'external' || WORKING.includes(s.status) || now - s.updatedAt < PARK_AFTER_MS) continue;
+      if (this.runners.has(s.id) || this.capturing.has(s.id) || this.verificationControllers.has(s.id)) continue;
+      if (!fs.existsSync(ws.root) || parkBlocker(ws)) continue;
+      const err = await parkWorktree(s.project.path, ws);
+      // 片付けている間に動き出したものは、作り直す
+      const cur = this.hub.get(s.id);
+      if (cur && WORKING.includes(cur.status)) this.ensureWorkspace(s.id);
+      if (err) {
+        console.warn(`[worktree] ${s.id.slice(0, 8)}: ${err}`);
+        continue;
+      }
+      parked.push(s.id);
+      if (cur && !WORKING.includes(cur.status)) {
+        // updatedAt を変えない（一覧の並びを片付けで崩さない）ので、hub.update ではなく年表だけに残す
+        this.note(s.id, 'system', `${Math.round(PARK_AFTER_MS / 86_400_000)} 日使っていない作業場所のフォルダを片付けました。作業の記録（ブランチ ${ws.branch}）は残してあり、開くと作り直します`);
+      }
+    }
+    if (parked.length) console.log(`[worktree] 使っていない作業場所 ${parked.length} 件のフォルダを片付けました`);
+    return parked;
   }
 
   private autoMerged = new Map<string, number>();
@@ -402,7 +505,7 @@ export class SessionManager {
     const targets = pickInterrupted(all, this.hub.bootAt);
     for (let i = 0; i < targets.length; i++) {
       if (i > 0) await new Promise((r) => setTimeout(r, AUTO_RESUME_GAP_MS));
-      const s = this.hub.get(targets[i].id);
+      const s = this.ensureWorkspace(targets[i].id);
       if (!s?.interrupted) continue; // その間に消された / 利用者が先に指示を送った
       try {
         if (s.workspace && !fs.existsSync(s.workspace.path)) {
@@ -424,7 +527,7 @@ export class SessionManager {
 
   /** 追加指示。動いていなければ会話IDで再開する（外部セッションはここで Tower が引き継ぐ）。auto = 起動時の自動再開 */
   send(id: string, text: string, uploads?: AttachmentUpload[], opts?: { auto?: boolean; historyText?: string; asyncQuestionId?: string }): void {
-    const s = this.hub.get(id);
+    const s = this.ensureWorkspace(id);
     if (!s) throw new Error('セッションが見つかりません');
     const checked = checkUploads(uploads);
     if (!text && !checked.length) throw new Error('指示が空です');
@@ -494,7 +597,7 @@ export class SessionManager {
 
   /** 画面から直接編集してよい状態なら、作業フォルダを返す */
   editableDir(id: string): string {
-    const s = this.hub.get(id);
+    const s = this.ensureWorkspace(id);
     if (!s) throw new Error('セッションが見つかりません');
     if (WORKING.includes(s.status)) {
       throw new Error('エージェントが作業中はファイルを編集できません。報告が来るか、停止してから編集してください');
@@ -627,6 +730,7 @@ export class SessionManager {
     // 一覧からは先に消す（後片付けはプロセス終了待ちで数秒かかることがある）
     this.hub.remove(id);
     this.lastReportAt.delete(id);
+    this.autoMerged.delete(id);
     fs.rmSync(path.join(SHOTS_DIR, id), { recursive: true, force: true });
     removeAttachments(id);
     if (s?.workspace) {
@@ -641,7 +745,7 @@ export class SessionManager {
    * 競合したら、利用者に git の作業を頼まず、そのタスクの AI に合わせて直すよう頼む（やり直しでも駄目なら、そこで利用者に返す）
    */
   merge(id: string, via: 'button' | 'auto' | 'retry' = 'button'): MergeResult {
-    const s = this.hub.get(id);
+    const s = this.ensureWorkspace(id);
     if (!s) throw new Error('セッションが見つかりません');
     if (!s.workspace) throw new Error('このセッションは別の作業場所を使っていません（プロジェクトのフォルダで直接作業しています）');
     if (WORKING.includes(s.status)) {
@@ -707,6 +811,7 @@ export class SessionManager {
   }
 
   async stopAll() {
+    for (const t of this.housekeeping.splice(0)) clearTimeout(t);
     await Promise.all([...new Set([...this.runners.keys(), ...this.verificationControllers.keys()])].map((id) => this.stop(id)));
   }
 }

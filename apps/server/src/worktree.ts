@@ -18,17 +18,29 @@ interface GitResult {
  * @param opts.input 標準入力に渡す文字列（--pathspec-from-file=- など）
  * @param opts.raw   出力の前後の空白を削らない（status --porcelain は先頭の空白に意味がある）
  */
+/**
+ * git の 1 回の呼び出しの上限。サーバーはこの間ほかの仕事ができないので、
+ * コミット前のチェック（フック）や署名の入力待ちで止まったままにならないよう切る
+ */
+const GIT_TIMEOUT_MS = 120_000;
+
 export function git(cwd: string, args: string[], opts: { input?: string; raw?: boolean } = {}): GitResult {
   const r = spawnSync('git', ['-c', 'core.quotepath=false', ...args], {
     cwd,
     encoding: 'utf8',
     maxBuffer: 16 * 1024 * 1024,
     input: opts.input,
+    timeout: GIT_TIMEOUT_MS,
+    windowsHide: true,
     // メッセージを英語に固定して判定しやすくする。認証プロンプトで止まらないようにする
     env: { ...process.env, LC_ALL: 'C', GIT_TERMINAL_PROMPT: '0' },
   });
   const out = r.stdout ?? '';
-  return { ok: r.status === 0, out: opts.raw ? out : out.trim(), err: (r.stderr ?? '').trim() };
+  const timedOut = (r.error as NodeJS.ErrnoException | undefined)?.code === 'ETIMEDOUT';
+  const err = timedOut
+    ? `git ${args[0] ?? ''} が ${GIT_TIMEOUT_MS / 1000} 秒たっても終わらないので止めました（コミット前のチェックや署名の入力待ちで止まっている可能性があります）`
+    : (r.stderr ?? '').trim();
+  return { ok: r.status === 0, out: opts.raw ? out : out.trim(), err };
 }
 
 /** コミットする。名前・メールアドレスが git に設定されていなければ「Tower」の名前で記録する */
@@ -164,35 +176,161 @@ export function createWorktree(projectPath: string, sessionId: string): { worksp
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+/** フォルダを消す（git の登録も外す）。消せなければ理由を返す */
+async function removeFolder(projectPath: string | null, root: string, timeoutMs: number): Promise<string | null> {
+  const t0 = Date.now();
+  let lastErr = '';
+  while (fs.existsSync(root)) {
+    unlinkNodeModules(root);
+    const r = projectPath ? git(projectPath, ['worktree', 'remove', '--force', root]) : { ok: false, out: '', err: '' };
+    if (!r.ok && fs.existsSync(root)) {
+      try {
+        fs.rmSync(root, { recursive: true, force: true, maxRetries: 3, retryDelay: 300 });
+      } catch (e) {
+        lastErr = e instanceof Error ? e.message : String(e);
+      }
+    }
+    if (!fs.existsSync(root)) break;
+    if (Date.now() - t0 > timeoutMs) return `作業場所のフォルダを消せませんでした（何かが使用中）: ${root}\n${lastErr || r.err}`;
+    await sleep(500);
+  }
+  if (projectPath) git(projectPath, ['worktree', 'prune']);
+  return null;
+}
+
 /**
  * worktree とブランチを消す。失敗しても例外は投げず、警告文を返す。
  * Windows では、そのフォルダを作業フォルダにしている子プロセス（エージェント）が終わるまで消せないので、しばらく再試行する。
  */
 export async function removeWorktree(projectPath: string, ws: Workspace, timeoutMs = 15_000): Promise<string | null> {
   const warnings: string[] = [];
-  const t0 = Date.now();
-  let lastErr = '';
-  while (fs.existsSync(ws.root)) {
-    unlinkNodeModules(ws.root);
-    const r = git(projectPath, ['worktree', 'remove', '--force', ws.root]);
-    if (!r.ok && fs.existsSync(ws.root)) {
-      try {
-        fs.rmSync(ws.root, { recursive: true, force: true, maxRetries: 3, retryDelay: 300 });
-      } catch (e) {
-        lastErr = e instanceof Error ? e.message : String(e);
-      }
-    }
-    if (!fs.existsSync(ws.root)) break;
-    if (Date.now() - t0 > timeoutMs) {
-      warnings.push(`作業場所のフォルダを消せませんでした（何かが使用中）: ${ws.root}\n${lastErr || r.err}`);
-      break;
-    }
-    await sleep(500);
-  }
-  git(projectPath, ['worktree', 'prune']);
+  const folder = await removeFolder(projectPath, ws.root, timeoutMs);
+  if (folder) warnings.push(folder);
   const b = git(projectPath, ['branch', '-D', ws.branch]);
   if (!b.ok && !/not found/i.test(b.err)) warnings.push(`ブランチ ${ws.branch} を消せませんでした: ${b.err}`);
   return warnings.length ? warnings.join('\n') : null;
+}
+
+// ---- 使っていない作業場所の片付け ----
+// 作業場所はプロジェクトまるごとの写しなので、タスクを消さないと溜まり続ける。
+// しばらく使っていないものはフォルダだけ消し、ブランチ（記録した作業）は残す。また開いた時に restoreWorktree で作り直す。
+
+/** 作り直せる（消しても困らない）ので、片付けの妨げにしない除外ファイル。依存パッケージ・キャッシュ・ビルドの出力 */
+const REGENERABLE = new Set([
+  'node_modules', '__pycache__', '.pytest_cache', '.mypy_cache', '.ruff_cache', '.venv', 'venv', '.tox',
+  '.next', '.nuxt', '.turbo', '.parcel-cache', '.vite', '.cache', 'coverage', 'dist', 'build', 'stage',
+  '.DS_Store', 'Thumbs.db',
+]);
+
+const isRegenerable = (rel: string) => {
+  const name = rel.replace(/\/+$/, '').split('/').pop() ?? '';
+  return REGENERABLE.has(name) || /\.(pyc|log)$/i.test(name);
+};
+
+/**
+ * 片付けてよいか。記録していない変更があるもの、.gitignore された生成物（作り直せないもの）があるものは残す。
+ * 残す理由を返す（片付けてよければ null）
+ */
+export function parkBlocker(ws: Pick<Workspace, 'root'>): string | null {
+  if (!fs.existsSync(ws.root)) return '作業場所のフォルダがありません';
+  const status = git(ws.root, ['status', '--porcelain', '--untracked-files=all']);
+  if (!status.ok) return `状態を確かめられません: ${status.err}`;
+  if (status.out) return '記録していない変更があります';
+  if (git(ws.root, ['rev-parse', '-q', '--verify', 'MERGE_HEAD']).ok) return '合流の途中です';
+  const ignored = git(ws.root, ['ls-files', '--others', '--ignored', '--exclude-standard', '--directory']);
+  if (!ignored.ok) return `状態を確かめられません: ${ignored.err}`;
+  const keep = ignored.out.split(/\r?\n/).filter((l) => l && !isRegenerable(l));
+  if (keep.length) return `作業場所にしか無いファイルがあります（${keep.slice(0, 3).join('、')}${keep.length > 3 ? ' ほか' : ''}）`;
+  return null;
+}
+
+/**
+ * フォルダだけ消してブランチは残す（parkBlocker で確かめてから呼ぶ）。
+ * 消す前に名前を変えてみる: 何か（エディタ・開発サーバー・エージェント）がフォルダを使っていると Windows は名前を変えさせないので、
+ * その時は何も消さずに見送る（消しかけて中身だけ無くなった作業場所を残さない）
+ */
+export async function parkWorktree(projectPath: string, ws: Workspace): Promise<string | null> {
+  if (!fs.existsSync(ws.root)) return null;
+  const moved = `${ws.root}.parking-${Date.now()}`;
+  try {
+    fs.renameSync(ws.root, moved);
+  } catch (e) {
+    return `作業場所のフォルダを何かが使っているので、片付けを見送りました: ${ws.root}（${e instanceof Error ? e.message.split('\n')[0] : String(e)}）`;
+  }
+  // 名前を変えた後は、元の場所はもう空いている。消しきれなかった残りは、次の片付けで「どのタスクも使っていない残り」として消す
+  const err = await removeFolder(null, moved, 15_000);
+  git(projectPath, ['worktree', 'prune']);
+  return err;
+}
+
+/** フォルダはあるが git の作業場所として壊れている（消しかけの残り）か */
+const broken = (root: string) => fs.existsSync(root) && !fs.existsSync(path.join(root, '.git'));
+
+/** 片付けた作業場所を、残しておいたブランチから作り直す。作れなければ理由を返す */
+export function restoreWorktree(projectPath: string, ws: Workspace): string | null {
+  if (broken(ws.root)) {
+    // 中身の無い残りなら、その場所にそのまま作り直せる。中身が残っているものは触らない
+    let entries: string[] = [];
+    try {
+      entries = fs.readdirSync(ws.root);
+    } catch {
+      /* 読めない */
+    }
+    if (entries.length) return `作業場所のフォルダが壊れています（git の情報がありません）: ${ws.root}`;
+  } else if (fs.existsSync(ws.root)) {
+    return null;
+  }
+  if (!fs.existsSync(projectPath)) return `元のプロジェクトのフォルダが見つかりません: ${projectPath}`;
+  if (!git(projectPath, ['rev-parse', '--verify', '-q', `refs/heads/${ws.branch}`]).ok) {
+    return `作業場所のブランチ ${ws.branch} が見つかりません（消された可能性があります）`;
+  }
+  git(projectPath, ['worktree', 'prune']);
+  fs.mkdirSync(path.dirname(ws.root), { recursive: true });
+  const r = git(projectPath, ['worktree', 'add', ws.root, ws.branch]);
+  if (!r.ok) return `作業場所を作り直せませんでした: ${r.err || r.out}`;
+  const top = git(projectPath, ['rev-parse', '--show-toplevel']);
+  if (top.ok) linkNodeModules(path.resolve(top.out), ws.root);
+  return null;
+}
+
+/**
+ * どのタスクも使っていない作業場所のフォルダ（タスクを消した時に使用中で消せなかった残りなど）を消す。
+ * まだ git の作業場所として生きているものは、片付けと同じ条件（記録していない変更・作業場所にしか無いファイルが無い）の時だけ消し、ブランチは残す。
+ * root = 作業場所を置くフォルダ（試験用に差し替えられる）。used はタスクが使っている作業場所の root。消したフォルダを返す
+ */
+export async function removeOrphanWorktrees(used: Iterable<string>, root = WORKTREE_ROOT): Promise<string[]> {
+  if (!fs.existsSync(root)) return [];
+  const key = (p: string) => (process.platform === 'win32' ? path.resolve(p).toLowerCase() : path.resolve(p));
+  const inUse = new Set([...used].map(key));
+  const removed: string[] = [];
+  for (const e of fs.readdirSync(root, { withFileTypes: true })) {
+    if (!e.isDirectory()) continue;
+    const dir = path.join(root, e.name);
+    if (inUse.has(key(dir))) continue;
+    // worktree の .git ファイル（gitdir: <元のリポジトリ>/.git/worktrees/<名前>）から元のリポジトリを探し、登録も外す
+    let repo: string | null = null;
+    let linked = false;
+    try {
+      const m = /^gitdir:\s*(.+)$/m.exec(fs.readFileSync(path.join(dir, '.git'), 'utf8'));
+      if (m) {
+        linked = fs.existsSync(m[1].trim());
+        repo = path.resolve(m[1].trim(), '..', '..', '..');
+      }
+    } catch {
+      /* .git が無い = 消しかけの残り */
+    }
+    if (linked) {
+      const blocker = parkBlocker({ root: dir });
+      if (blocker) {
+        console.warn(`[worktree] どのタスクも使っていない作業場所を残しました（${blocker}）: ${dir}`);
+        continue;
+      }
+    }
+    const err = await removeFolder(repo && fs.existsSync(repo) ? repo : null, dir, 5_000);
+    if (err) console.warn('[worktree]', err);
+    else removed.push(dir);
+  }
+  return removed;
 }
 
 // ---- 取り込み ----

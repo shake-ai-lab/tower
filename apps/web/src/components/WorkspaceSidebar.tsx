@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { imageType, workDir, type Session, type TreeResponse } from '@tower/shared';
 import { api, errMsg } from '../api';
-import { needsYou, projectStyle, useDesktop, useResizable } from '../lib';
+import { loadLocal, needsYou, projectStyle, saveLocal, useDesktop, useResizable } from '../lib';
 import { useStore } from '../store';
 import { Inbox } from './Inbox';
 import { ChangesPanel } from './ChangesPanel';
@@ -47,7 +47,7 @@ function ProjectFiles({ session, git, onQuickOpen }: { session: Session; git: bo
   const setOpened = (path: string) => open(session.id, path, () => setVersion((v) => v + 1));
   const [version, setVersion] = useState(0);
   const selected = useEditorWorkspace((s) => s.files.find((f) => f.id === s.selected[s.pane] && f.sessionId === session.id)?.path);
-  const [hiddenText, setHiddenText] = useState(() => localStorage.getItem('tower.explorer.hidden') ?? '');
+  const [hiddenText, setHiddenText] = useState(() => loadLocal('tower.explorer.hidden') ?? '');
   return <div className="p-2 space-y-2">
     <h2 className="rounded border px-2 py-1 truncate font-semibold" style={projectStyle(session.project.path)} title={workDir(session)}>{session.project.name}</h2>
     <p className="text-xs text-zinc-500 break-all">{workDir(session)}</p>
@@ -56,7 +56,7 @@ function ProjectFiles({ session, git, onQuickOpen }: { session: Session; git: bo
       {!git && <button className="text-xs text-sky-300 hover:underline" onClick={onQuickOpen}>名前で開く（Ctrl+P）</button>}
     </div>
     {git ? <ChangesPanel sessionId={session.id} refreshKey={version + (session.report?.generatedAt ?? 0)} onEdit={setOpened} /> :
-      <><details className="text-xs text-zinc-400"><summary className="cursor-pointer">非表示の設定</summary><label className="block mt-2">名前または相対パスを1行ずつ入力（.* はドットで始まる項目）<textarea aria-label="非表示にする項目" className="w-full mt-2 p-2 bg-zinc-900 border border-zinc-700" rows={4} value={hiddenText} onChange={(e) => { setHiddenText(e.target.value); localStorage.setItem('tower.explorer.hidden', e.target.value); }} /></label></details><Folder id={session.id} onOpen={setOpened} version={version} selected={selected} hidden={hiddenText.split('\n').map((s) => s.trim()).filter(Boolean)} /></>}
+      <><details className="text-xs text-zinc-400"><summary className="cursor-pointer">非表示の設定</summary><label className="block mt-2">名前または相対パスを1行ずつ入力（.* はドットで始まる項目）<textarea aria-label="非表示にする項目" className="w-full mt-2 p-2 bg-zinc-900 border border-zinc-700" rows={4} value={hiddenText} onChange={(e) => { setHiddenText(e.target.value); saveLocal('tower.explorer.hidden', e.target.value); }} /></label></details><Folder id={session.id} onOpen={setOpened} version={version} selected={selected} hidden={hiddenText.split('\n').map((s) => s.trim()).filter(Boolean)} /></>}
   </div>;
 }
 

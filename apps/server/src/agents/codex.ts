@@ -185,6 +185,15 @@ export class CodexRunner implements AgentRunner {
     this.hub.update(this.id, { status: 'stopped', activity: '停止しました', ...this.pendingState() });
   }
 
+  release(force: boolean): boolean {
+    if (this.ended || this.stoppedByUser) return true;
+    const childrenWorking = this.hub.get(this.id)?.subagents?.some((agent) => ['running', 'pendingInit'].includes(agent.status));
+    const busy = this.turnId || this.turnStarting || this.queued.length || this.queue.length || this.waiting.size || this.verifying || this.asyncQuestions.length || childrenWorking;
+    if (!force && busy) return false;
+    this.shutdown();
+    return true;
+  }
+
   async setPermissionMode(mode: PermissionChoice) {
     this.mode = mode;
     this.hub.update(this.id, { permissionMode: mode });

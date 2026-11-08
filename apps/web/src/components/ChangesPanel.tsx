@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { ChangesResponse } from '@tower/shared';
 import { api } from '../api';
 import { openTask } from '../layout';
@@ -62,19 +62,32 @@ export function ChangesPanel({
   const [data, setData] = useState<ChangesResponse | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [open, setOpen] = useState<Record<string, boolean>>({});
+  /** どのタスクの中身を出しているか。別のタスクに変わった時だけ空にして「読み込み中」を出す */
+  const shownFor = useRef<string | null>(null);
+  /** 最後に頼んだ読み込みの番号。遅れて届いた古い返事で新しい中身を上書きしない */
+  const latest = useRef(0);
 
+  // 読み直す間は前の中身を出したままにする（毎回消すと、作業中に一覧がちらついていた）
   useEffect(() => {
-    let alive = true;
-    setErr(null);
-    setData(null);
+    if (shownFor.current !== sessionId) {
+      shownFor.current = sessionId;
+      setData(null);
+      setErr(null);
+    }
+    const n = ++latest.current;
     api
       .changes(sessionId)
-      .then((d) => alive && setData(d))
-      .catch((e) => alive && setErr(e instanceof Error ? e.message : String(e)));
-    return () => {
-      alive = false;
-    };
+      .then((d) => {
+        if (n !== latest.current) return;
+        setData(d);
+        setErr(null);
+      })
+      .catch((e) => n === latest.current && setErr(e instanceof Error ? e.message : String(e)));
   }, [sessionId, refreshKey]);
+  // 閉じた後に届いた返事は使わない
+  useEffect(() => () => {
+    latest.current++;
+  }, []);
 
   if (err) return <div className="text-xs text-red-400">{err}</div>;
   if (!data) return <div className="text-xs text-zinc-500">変更を読み込み中…</div>;

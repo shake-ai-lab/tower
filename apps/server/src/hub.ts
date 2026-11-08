@@ -51,9 +51,11 @@ export function interruptForRestart(s: Session, now: number): Session | null {
   const interruptedCheck = (check: Verification | null | undefined) => check?.ok === null
     ? { ...check, ok: false, summary: '中断（サーバー再起動）', output: `${check.output}${check.output ? '\n' : ''}サーバー再起動によりチェックを中断しました。`, durationMs: Math.max(check.durationMs, now - check.at) }
     : check;
-  const checks = { verification: interruptedCheck(s.verification), baseline: interruptedCheck(s.baseline) };
+  // 撮影の途中で落ちると「撮影中…」のまま残る
+  const preview = s.preview?.taking ? { preview: { ...s.preview, taking: false } } : {};
+  const checks = { verification: interruptedCheck(s.verification), baseline: interruptedCheck(s.baseline), ...preview };
   if (!['starting', 'running', 'waiting_permission', 'waiting_question'].includes(s.status)) {
-    return s.verification?.ok === null || s.baseline?.ok === null ? { ...s, ...checks } : null;
+    return s.verification?.ok === null || s.baseline?.ok === null || s.preview?.taking ? { ...s, ...checks } : null;
   }
   return {
     ...s,
@@ -92,6 +94,18 @@ export class Hub {
       this.sessions.set(s.id, s);
     }
     this.importUsageHistory();
+    this.dropUsageHistory();
+  }
+
+  /** 台帳に取り込み済みの usageHistory をセッションから外す（台帳ができる前の名残。保存・配信を軽くする） */
+  private dropUsageHistory() {
+    if (!this.db.getMeta(USAGE_IMPORTED_KEY)) return;
+    for (const s of this.sessions.values()) {
+      if (!s.usageHistory) continue;
+      const { usageHistory: _dropped, ...rest } = s;
+      this.sessions.set(s.id, rest);
+      this.db.saveSession(rest);
+    }
   }
 
   /** 台帳が無かった頃のセッションの使った量を台帳に取り込む（meta の印で 1 回だけ） */
@@ -127,10 +141,10 @@ export class Hub {
     const next: Session = { ...cur, ...patch, updatedAt: Date.now() };
     if (patch.costUsd !== undefined || patch.usage !== undefined) {
       const delta = { ts: next.updatedAt, cost: Math.max(0, next.costUsd - cur.costUsd), input: Math.max(0, (next.usage?.input ?? 0) - (cur.usage?.input ?? 0)), cacheRead: Math.max(0, (next.usage?.cacheRead ?? 0) - (cur.usage?.cacheRead ?? 0)), output: Math.max(0, (next.usage?.output ?? 0) - (cur.usage?.output ?? 0)) };
-      if (delta.cost || delta.input || delta.output || delta.cacheRead) {
-        next.usageHistory = [...(cur.usageHistory ?? []), delta];
-        // 台帳にも同じ差分を積む（セッションを消しても「使った量」が減らないように）。外部セッションは量が分からないので積まない
-        if (next.origin !== 'external') this.db.appendUsage({ ...ledgerBase(next), ts: delta.ts, cost: delta.cost, input: delta.input, cache_read: delta.cacheRead, output: delta.output, dated: 1 });
+      // 差分は台帳にだけ積む（セッションを消しても「使った量」が減らないように）。外部セッションは量が分からないので積まない。
+      // セッションの usageHistory には積まない: 長く使うタスクほど膨らみ、更新のたびに丸ごと保存・配信されて重くなる
+      if ((delta.cost || delta.input || delta.output || delta.cacheRead) && next.origin !== 'external') {
+        this.db.appendUsage({ ...ledgerBase(next), ts: delta.ts, cost: delta.cost, input: delta.input, cache_read: delta.cacheRead, output: delta.output, dated: 1 });
       }
     }
     this.sessions.set(id, next);

@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { serve } from '@hono/node-server';
 import { serveStatic } from '@hono/node-server/serve-static';
 import { Hono } from 'hono';
-import { WebSocketServer } from 'ws';
+import { WebSocketServer, type WebSocket } from 'ws';
 import {
   workDir,
   type AnswerBody,
@@ -20,6 +20,7 @@ import {
   type PermissionChoice,
   type ProjectInfo,
   type SaveFileBody,
+  type ServerEvent,
   type SettingsStatus,
   type TowerSettings,
 } from '@tower/shared';
@@ -171,7 +172,7 @@ app.post('/api/sessions/compare', async (c) => {
 app.get('/api/sessions/:id/timeline', (c) => c.json(db.loadTimeline(c.req.param('id'))));
 
 app.get('/api/sessions/:id/changes', (c) => {
-  const s = hub.get(c.req.param('id'));
+  const s = manager.ensureWorkspace(c.req.param('id'));
   if (!s) return c.json({ error: 'セッションが見つかりません' }, 404);
   try {
     const r = s.workspace
@@ -199,7 +200,7 @@ app.get('/api/sessions/:id/shots/:file', (c) => {
 
 // ---- エクスプローラ（作業フォルダの中身を 1 階層ずつ） ----
 app.get('/api/sessions/:id/tree', (c) => {
-  const s = hub.get(c.req.param('id'));
+  const s = manager.ensureWorkspace(c.req.param('id'));
   if (!s) return c.json({ error: 'セッションが見つかりません' }, 404);
   try {
     return c.json(listDir(workDir(s), c.req.query('path') ?? ''));
@@ -210,7 +211,7 @@ app.get('/api/sessions/:id/tree', (c) => {
 
 // ---- エディタの道具（ファイル名で開く・全体検索・変わった行の印） ----
 app.get('/api/sessions/:id/files', (c) => {
-  const s = hub.get(c.req.param('id'));
+  const s = manager.ensureWorkspace(c.req.param('id'));
   if (!s) return c.json({ error: 'セッションが見つかりません' }, 404);
   try {
     return c.json(listAllFiles(workDir(s)));
@@ -220,7 +221,7 @@ app.get('/api/sessions/:id/files', (c) => {
 });
 
 app.get('/api/sessions/:id/search', (c) => {
-  const s = hub.get(c.req.param('id'));
+  const s = manager.ensureWorkspace(c.req.param('id'));
   if (!s) return c.json({ error: 'セッションが見つかりません' }, 404);
   const q = c.req.query('q') ?? '';
   if (q.length > 200) return c.json({ error: '探す文字が長すぎます（200 文字まで）' }, 400);
@@ -232,7 +233,7 @@ app.get('/api/sessions/:id/search', (c) => {
 });
 
 app.get('/api/sessions/:id/line-marks', (c) => {
-  const s = hub.get(c.req.param('id'));
+  const s = manager.ensureWorkspace(c.req.param('id'));
   if (!s) return c.json({ error: 'セッションが見つかりません' }, 404);
   const rel = c.req.query('path') ?? '';
   if (!rel) return c.json({ error: 'path がありません' }, 400);
@@ -247,7 +248,7 @@ app.get('/api/sessions/:id/line-marks', (c) => {
 
 // 画像をそのまま返す（画面のエディタで表示する用）
 app.get('/api/sessions/:id/raw', (c) => {
-  const s = hub.get(c.req.param('id'));
+  const s = manager.ensureWorkspace(c.req.param('id'));
   if (!s) return c.json({ error: 'セッションが見つかりません' }, 404);
   const rel = c.req.query('path') ?? '';
   if (!rel) return c.json({ error: 'path がありません' }, 400);
@@ -261,7 +262,7 @@ app.get('/api/sessions/:id/raw', (c) => {
 
 // 年表: エージェントが読んだ画像を見せる。作業フォルダの外（一時フォルダなど）でも、その項目に記録された画像だけは返す
 app.get('/api/sessions/:id/timeline/:itemId/image', (c) => {
-  const s = hub.get(c.req.param('id'));
+  const s = manager.ensureWorkspace(c.req.param('id'));
   if (!s) return c.json({ error: 'セッションが見つかりません' }, 404);
   const item = db.getTimelineItem(s.id, c.req.param('itemId'));
   if (!item?.imagePath) return c.json({ error: '画像の記録がありません' }, 404);
@@ -296,7 +297,7 @@ app.get('/api/sessions/:id/attachments/:file', (c) => {
 
 // ---- 画面からの直接編集（Monaco） ----
 app.get('/api/sessions/:id/file', (c) => {
-  const s = hub.get(c.req.param('id'));
+  const s = manager.ensureWorkspace(c.req.param('id'));
   if (!s) return c.json({ error: 'セッションが見つかりません' }, 404);
   const rel = c.req.query('path') ?? '';
   if (!rel) return c.json({ error: 'path がありません' }, 400);
@@ -488,17 +489,48 @@ const server = serve({ fetch: app.fetch, hostname: config.host, port: config.por
 });
 
 const wss = new WebSocketServer({ server: server as HttpServer, path: '/ws' });
+/** 受け取りが追いつかない画面に溜める上限。超えたら切る（画面はつなぎ直して最新の一覧を受け取り直す） */
+const WS_MAX_BUFFERED = 16 * 1024 * 1024;
+const alive = new WeakSet<WebSocket>();
+// 文字列にするのは 1 つの知らせにつき 1 回だけ。画面ごとに購読を持たない（切れたつなぎが購読を残さない）
+hub.subscribe((ev) => {
+  if (ev.type === 'snapshot') return; // 一覧はつないだ時に個別に送る
+  const msg = JSON.stringify(ev);
+  for (const ws of wss.clients) {
+    if (ws.readyState !== ws.OPEN) continue;
+    if (ws.bufferedAmount > WS_MAX_BUFFERED) ws.terminate();
+    else ws.send(msg);
+  }
+});
 wss.on('connection', (ws) => {
-  const unsub = hub.subscribe((ev) => {
-    if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(ev));
-  });
-  ws.on('close', unsub);
-  ws.on('error', unsub);
+  alive.add(ws);
+  ws.on('pong', () => alive.add(ws));
+  ws.send(JSON.stringify({ type: 'snapshot', sessions: hub.list() } satisfies ServerEvent));
+});
+// 応答の無いつなぎ（スリープした PC・閉じたスマホなど）を 30 秒ごとに見つけて切る
+const heartbeat = setInterval(() => {
+  for (const ws of wss.clients) {
+    if (!alive.has(ws)) {
+      ws.terminate();
+      continue;
+    }
+    alive.delete(ws);
+    ws.ping();
+  }
+}, 30_000);
+heartbeat.unref();
+
+manager.startHousekeeping();
+
+// どこかで取りこぼした失敗で、サーバーごと（全部のタスクごと）落ちないようにする。記録だけ残して動き続ける
+process.on('unhandledRejection', (reason) => {
+  console.error('[tower] 処理されなかった失敗:', reason);
 });
 
 for (const sig of ['SIGINT', 'SIGTERM'] as const) {
   process.on(sig, async () => {
     console.log(`[tower] ${sig}: 全セッションを停止します`);
+    clearInterval(heartbeat);
     await manager.stopAll();
     process.exit(0);
   });

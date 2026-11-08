@@ -54,7 +54,10 @@ test('legacy sessions restore the newest user event even with over 500 newer tim
   db.appendTimeline(item(10));
   db.appendTimeline(item(15));
   for (let ts = 30; ts < 640; ts++) db.appendTimeline(item(ts, 'tool_use'));
-  assert.equal(db.loadTimeline('instruction-history').some(event => event.kind === 'user'), false);
+  // 件数の外に押し出された指示は、最後の 1 件だけ先頭に足される（それより古い指示は足さない）
+  const loaded = db.loadTimeline('instruction-history');
+  assert.deepEqual(loaded.filter(event => event.kind === 'user').map(event => event.ts), [15]);
+  assert.equal(loaded[0].ts, 15);
   const restored = new Hub(db).get('instruction-history')!;
   assert.equal(restored.lastInstructionAt, 15);
   assert.equal(restored.updatedAt, 20);

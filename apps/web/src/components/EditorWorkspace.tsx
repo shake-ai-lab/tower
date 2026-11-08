@@ -1,4 +1,5 @@
-import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { lazy, memo, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import { useEditorWorkspace, type OpenFile } from '../editor-workspace';
 import { Aquarium } from './Aquarium';
 import { DeskScene } from './DeskScene';
@@ -22,20 +23,37 @@ function scrollsWithin(target: HTMLElement, stop: HTMLElement, e: WheelEvent): b
   return false;
 }
 
+const WORKING = ['starting', 'running', 'waiting_permission', 'waiting_question'];
+
+/** 開いているファイルのタスクについて、ここで使うのは名前・場所・題名だけ */
+type TaskLabel = { project: { name: string; path: string }; title: string };
+
 function Document({ file, active, windowed, fontScale }: { file: OpenFile; active: boolean; windowed: boolean; fontScale: number }) {
-  const session = useStore((s) => s.sessions[file.sessionId]);
+  // 見るのは「作業中で閲覧のみか」だけ。タスクの様子が変わるたびに描き直さない
+  const readOnly = useStore((s) => { const session = s.sessions[file.sessionId]; return !session || WORKING.includes(session.status); });
   const dirty = useEditorWorkspace((s) => s.dirty);
   const onDirty = useCallback((value: boolean) => dirty(file.id, value), [dirty, file.id]);
   return <FileEditor sessionId={file.sessionId} path={file.path} active={active} onDirty={onDirty} windowed={windowed} fontScale={fontScale} reveal={file.reveal} focusRequest={file.focusRequest}
-    readOnly={!session || ['starting', 'running', 'waiting_permission', 'waiting_question'].includes(session.status)}
+    readOnly={readOnly}
     onClose={() => useEditorWorkspace.getState().close(file.id)} onSaved={file.onSaved} />;
 }
 
-export function EditorWorkspace({ forceVisible = false, onReturn }: { forceVisible?: boolean; onReturn?: () => void }) {
+// 親（画面全体）はタスクの知らせのたびに描き直すので、渡すものが変わらない限りここは描き直さない
+export const EditorWorkspace = memo(function EditorWorkspace({ forceVisible = false, onReturn }: { forceVisible?: boolean; onReturn?: () => void }) {
   const s = useEditorWorkspace();
   const sidebarShown = useLayout((l) => l.sidebar);
   const visible = s.visible || forceVisible;
-  const sessions = useStore((s) => s.sessions);
+  // 開いているファイルのタスクの名前・場所・題名だけを見る（タスクの様子が変わるたびに全部のエディタを描き直さない）
+  const taskIds = [...new Set(s.files.map((f) => f.sessionId))];
+  const labels = useStore(useShallow((st) => taskIds.flatMap((id) => {
+    const t = st.sessions[id];
+    return t ? [t.project.name, t.project.path, t.title] : [null, null, null];
+  })));
+  const sessions: Record<string, TaskLabel | undefined> = {};
+  taskIds.forEach((id, i) => {
+    const [name, path, title] = labels.slice(i * 3, i * 3 + 3);
+    if (name !== null && path !== null && title !== null) sessions[id] = { project: { name, path }, title };
+  });
   const activeFile = s.files.find((f) => f.id === s.selected[s.pane]);
   // 分割の比率・自由配置の位置と倍率は前回の続きから（editor-persist）
   const [saved] = useState(() => loadDesk());
@@ -256,4 +274,4 @@ export function EditorWorkspace({ forceVisible = false, onReturn }: { forceVisib
     {!s.files.length && <p className="absolute inset-0 flex items-center justify-center p-8 text-sm text-zinc-400 pointer-events-none">{sidebarShown ? '左のエクスプローラーでファイルを選んでください。' : 'Ctrl+P でファイル名から開けます。左の欄（Ctrl+B）を出すとエクスプローラーから選べます。'}</p>}
     </div>
   </section>;
-}
+});

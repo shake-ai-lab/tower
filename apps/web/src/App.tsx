@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { FeedbackContext, Session, SessionStatus } from '@tower/shared';
 import { WorkspaceChat } from './components/WorkspaceChat';
 import { EditorWorkspace } from './components/EditorWorkspace';
@@ -12,7 +12,7 @@ import { SessionCard } from './components/SessionCard';
 import { SessionDetail } from './components/SessionDetail';
 import { UsageMenu } from './components/UsageMenu';
 import { MultiSessionView } from './components/MultiSessionView';
-import { btn, needsYou, projectStyle, useDesktop, useTick } from './lib';
+import { btn, loadLocal, needsYou, projectStyle, saveLocal, useDesktop, useTick } from './lib';
 import { isFinished, stateBadge } from './task-state';
 import { useStore } from './store';
 import { projectKey } from './project-key';
@@ -140,7 +140,8 @@ export default function App() {
     if (v === 'desk' && ed.layout !== 'desk') ed.split('desk');
     if (v === 'files' && ed.layout === 'desk') ed.split(lastFlat.current);
   };
-  const leaveFiles = () => setMain(useLayout.getState().returnTo ?? 'cards');
+  // 編集領域へ渡すので作り直さない（タスクの知らせのたびに編集領域を描き直さないように）
+  const leaveFiles = useCallback(() => setMain(useLayout.getState().returnTo ?? 'cards'), [setMain]);
   const showInbox = () => useLayout.getState().showInbox();
 
   const list = useMemo(
@@ -155,8 +156,8 @@ export default function App() {
   const working = list.filter((s) => s.status === 'running' || s.status === 'starting').length;
 
   // 終わったもの（完了・エラー、報告が完了のもの）を隠して一覧を軽くする。停止は続きができるので隠さない。消すわけではないので「使った量」の集計はそのまま
-  const [hideDone, setHideDone] = useState(() => localStorage.getItem('tower.hideDone') === '1');
-  useEffect(() => localStorage.setItem('tower.hideDone', hideDone ? '1' : '0'), [hideDone]);
+  const [hideDone, setHideDone] = useState(() => loadLocal('tower.hideDone') === '1');
+  useEffect(() => saveLocal('tower.hideDone', hideDone ? '1' : '0'), [hideDone]);
   const finishedCount = list.filter(isFinished).length;
 
   // 履歴検索: プロジェクト名・依頼文・報告の言葉で絞り込む（空白区切りは AND）。検索中は隠しているものも対象

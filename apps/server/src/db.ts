@@ -176,7 +176,15 @@ export class Db {
     const rows = this.db
       .prepare('SELECT json FROM timeline WHERE session_id = ? ORDER BY ts DESC LIMIT ?')
       .all(sessionId, limit) as { json: string }[];
-    return rows.map((r) => JSON.parse(r.json) as TimelineItem).reverse();
+    const items = rows.map((r) => JSON.parse(r.json) as TimelineItem).reverse();
+    // 1 つの指示で長く動くと、指示そのものが件数の外に押し出されて画面に出なくなる。最後の指示だけは必ず付ける
+    if (items.length >= limit && !items.some((i) => i.kind === 'user')) {
+      const last = this.db
+        .prepare("SELECT json FROM timeline WHERE session_id = ? AND json_extract(json, '$.kind') = 'user' ORDER BY ts DESC LIMIT 1")
+        .get(sessionId) as { json: string } | undefined;
+      if (last) items.unshift(JSON.parse(last.json) as TimelineItem);
+    }
+    return items;
   }
 
   /** 表示用の件数制限に関係なく、最後の指示時刻を復元する */
