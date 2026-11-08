@@ -82,7 +82,7 @@ export function BridgeMenu() {
             外のセッションに Tower から指示を送ると、Tower が会話を引き継いで続きを動かします。元の画面で同時に動かさないでください。
           </p>
           <p className="text-xs text-zinc-500 leading-relaxed">
-            外のセッションの報告は決まった書式が無いので、Tower が AI で読みやすく整形します（カードに「Tower が整形」と付きます）。
+            外のセッションの返事は元の画面で読んで答えるので、判断待ちには並べません（許可要求は並びます）。
             {keepHours !== null &&
               (keepHours > 0
                 ? ` 最後の動きから ${keepHours} 時間たったものは一覧から自動で消えます（また動けば戻ります）。`

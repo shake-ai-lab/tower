@@ -8,9 +8,7 @@ import type { AgentRunner } from './agents/types.ts';
 import { Hub, interruptForRestart } from './hub.ts';
 import { Db } from './db.ts';
 import { SessionManager } from './manager.ts';
-import { setReformatEnabled } from './reformat.ts';
 
-setReformatEnabled(false);
 const tick = () => new Promise((resolve) => setImmediate(resolve));
 const sessionFixture = (): Session => ({ id: 'questions', agent: 'codex', agentSessionId: 'original-thread', project: { name: 'fixture', path: process.cwd() }, title: 'test', prompt: 'test', model: null, permissionMode: 'bypassPermissions', status: 'running', activity: '', pending: null, report: null, turns: 0, costUsd: 0, toolCalls: 0, changedFiles: [], createdAt: 1, updatedAt: 1, lastError: null });
 

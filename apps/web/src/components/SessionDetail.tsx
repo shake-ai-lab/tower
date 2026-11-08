@@ -1,7 +1,7 @@
-import React, { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import type { Preview, Report, Screenshot, Session, TimelineItem, Verification } from '@tower/shared';
-import { CODEX_PERMISSION_CHOICES, PERMISSION_CHOICES, type PermissionChoice } from '@tower/shared';
+import { CODEX_PERMISSION_CHOICES, PERMISSION_CHOICES, workDir, type PermissionChoice } from '@tower/shared';
 import { api, errMsg } from '../api';
 import { OUTCOME, STATUS, btn, fmtElapsed, fmtTime, fmtTokens, fmtUsd, isAlive, loadLocal, saveLocal, verifyBadge, useDesktop, useResizable, useSettled } from '../lib';
 import { canMarkDone, mergedSinceReport, onlyOldFailures, reportContext, verificationIsStale, type ReportContext } from '../task-state';
@@ -10,6 +10,8 @@ import { openTask } from '../layout';
 import { PendingCard } from './PendingCards';
 import { ChangesPanel } from './ChangesPanel';
 import { AttachButton, AttachList, SentAttachments, useAttachments } from './Attachments';
+import { ReplyBody, useFileLinker, type FileLinker } from './Reply';
+import { shortPath } from '../reply-links';
 import { SessionTags, StatusBadge } from './SessionBadges';
 
 // Monaco は重いので、「直す」を押した時に初めて読み込む
@@ -50,30 +52,6 @@ const TOOL_ICON: Record<string, string> = {
 const iconOf = (t: TimelineItem) =>
   t.kind !== 'tool_use' ? ICON[t.kind] : t.imagePath ? '🖼️' : (t.toolName && TOOL_ICON[t.toolName]) || ICON.tool_use;
 
-const URL_RE = /(https?:[^\s)）」]+|`[^`\n]+`)/g;
-
-/** 文中の URL をリンクに、`バッククォート` をコード表示にする（エージェントは Markdown 風に書いてくるので記号のまま見せない） */
-function Linkify({ text }: { text: string }) {
-  const parts = text.split(URL_RE);
-  return (
-    <>
-      {parts.map((p, i) =>
-        /^https?:/.test(p) ? (
-          <a key={i} href={p} target="_blank" rel="noreferrer" className="text-sky-400 underline break-all">
-            {p}
-          </a>
-        ) : /^`[^`]+`$/.test(p) ? (
-          <code key={i} className="mono text-[0.9em] px-1 py-px rounded bg-zinc-800 text-zinc-200 break-all">
-            {p.slice(1, -1)}
-          </code>
-        ) : (
-          <span key={i}>{p}</span>
-        ),
-      )}
-    </>
-  );
-}
-
 const okText = (v: Verification) => v.summary ?? (v.ok ? '成功' : '失敗');
 
 /** 修正前と修正後を比べた一言。修正前が無ければ null */
@@ -91,7 +69,7 @@ export function compareVerdict(b: Verification | null | undefined, v: Verificati
   return null;
 }
 
-/** 起動直後の自動チェック（報告が来る前に見せる） */
+/** 起動直後の自動チェック（返事が来る前に見せる） */
 function BaselineStrip({ b }: { b: Verification }) {
   return (
     <div className="rounded-sm border border-zinc-700 bg-zinc-800/40 p-2.5 text-xs text-zinc-300">
@@ -157,7 +135,7 @@ function VerificationStrip({ v, baseline, reportOutcome }: { v: Verification; ba
       )}
       {conflict && (
         <div className="mt-1.5 text-xs text-red-200">
-          エージェントは「完了」と報告していますが、テストは失敗しています。報告を鵜呑みにせず、追加指示で直させてください。
+          エージェントは「完了」と報告していますが、テストは失敗しています。鵜呑みにせず、追加指示で直させてください。
         </div>
       )}
       {old && (
@@ -253,17 +231,15 @@ export function WorkspaceStrip({ s }: { s: Session }) {
   return (
     <div className="text-xs bg-fuchsia-400/5 border border-fuchsia-400/30 rounded-md p-2 leading-relaxed space-y-1.5">
       <div className="text-fuchsia-200/90">
-        {merged ? 'この報告までの変更は、元のプロジェクトに取り込み済みです。再度取り込む必要はありません。'
+        {merged ? 'この返事までの変更は、元のプロジェクトに取り込み済みです。再度取り込む必要はありません。'
           : ws.lastMerge?.ok ? '前回の変更は取り込み済みです。その後の作業は、このコピーで進めています。'
-          : ws.autoMerge
-          ? '別の作業場所（コピー）で作業しています。報告が「完了」で裏取りが通れば、Tower が自動で元のプロジェクトに取り込みます（手で押すこともできます）。'
           : '別の作業場所（コピー）で作業しています。変更は「取り込む」を押すまで元のプロジェクトには反映されません。'}
       </div>
       <div className="flex items-center gap-2 flex-wrap">
         <button
           disabled={busy || working || merged}
           onClick={merge}
-          title={working ? '作業中は取り込めません。報告が来てから押してください' : undefined}
+          title={working ? '作業中は取り込めません。返事が来てから押してください' : undefined}
           className={`${btn.base} ${btn.success} !py-1 !text-xs`}
         >
           {busy ? '取り込み中…' : merged ? '取り込み済み' : ws.lastMerge?.ok ? '追加の変更を取り込む' : '元のプロジェクトに取り込む'}
@@ -273,7 +249,7 @@ export function WorkspaceStrip({ s }: { s: Session }) {
       </div>
       {ws.mergeFix ? (
         <div className="whitespace-pre-wrap text-amber-200">
-          ⏳ 元のプロジェクトの変更とぶつかったので、AI に合わせて直してもらっています。直った報告が来たら、Tower がもう一度取り込みます（AI から質問が来たら答えてください）。
+          ⏳ 元のプロジェクトの変更とぶつかったので、AI に合わせて直してもらっています。直した返事が来たら、Tower がもう一度取り込みます（AI から質問が来たら答えてください）。
           <span className="text-zinc-500 ml-2">{fmtTime(ws.mergeFix.at)}</span>
         </div>
       ) : ws.lastMerge && (
@@ -330,7 +306,7 @@ function CompareStrip({ s }: { s: Session }) {
   return (
     <div className="text-xs bg-violet-400/5 border border-violet-400/30 rounded-md p-2 leading-relaxed space-y-1.5">
       <div className="text-violet-200/90">
-        {merged ? 'この案は取り込み済みです。下の表で、他の案と報告時点の結果を見比べられます。' : `同じ依頼の ${group.length} つの案を比べています。採用する案の取り込み状況は、下の作業場所の欄で確認できます。`}
+        {merged ? 'この案は取り込み済みです。下の表で、他の案と返事をした時点の結果を見比べられます。' : `同じ依頼の ${group.length} つの案を比べています。採用する案の取り込み状況は、下の作業場所の欄で確認できます。`}
       </div>
       <div className="overflow-x-auto">
         <table className="w-full whitespace-nowrap">
@@ -338,7 +314,7 @@ function CompareStrip({ s }: { s: Session }) {
             <tr>
               <th className="text-left font-normal pr-2">モデル</th>
               <th className="text-left font-normal pr-2">状態</th>
-              <th className="text-left font-normal pr-2">報告時点の結果</th>
+              <th className="text-left font-normal pr-2">返事の時点の結果</th>
               <th className="text-left font-normal pr-2">裏取り</th>
               <th className="text-right font-normal pr-2">変更</th>
               <th className="text-right font-normal pr-2">時間</th>
@@ -363,7 +339,7 @@ function CompareStrip({ s }: { s: Session }) {
                   </td>
                   <td className="pr-2">
                     {x.report ? (
-                      <span className={`px-1.5 py-0.5 rounded ${OUTCOME[x.report.outcome].cls}`}>{OUTCOME[x.report.outcome].label}</span>
+                      <span className={`px-1.5 py-0.5 rounded ${OUTCOME[x.report.outcome].cls}`}>{x.report.outcome === 'unknown' ? '💬 返事あり' : OUTCOME[x.report.outcome].label}</span>
                     ) : (
                       <span className="text-zinc-600">—</span>
                     )}
@@ -438,106 +414,84 @@ function UsageStrip({ s }: { s: Session }) {
   );
 }
 
-function Row({ label, children, highlight }: { label: string; children: React.ReactNode; highlight?: boolean }) {
-  return (
-    <div className={highlight ? 'rounded-md bg-amber-400/10 border border-amber-400/40 p-2' : ''}>
-      <div className="text-[11px] text-zinc-500 mb-0.5">{label}</div>
-      <div className="text-sm leading-relaxed">{children}</div>
-    </div>
-  );
-}
+/** 返事の本文。原文が空の古い報告だけ、読み取った欄から組み立てる */
+const replyText = (r: Report) => r.raw?.trim() || [r.needsDecision, ...(r.summary ?? []), r.nextStep].filter(Boolean).join('\n\n') || '（本文はありません）';
 
-/** 原文は変えず、報告の後に起きたことと当時の提案を分ける。 */
-export function ReportCard({ r, onFileClick, context = 'current' }: { r: Report; onFileClick?: () => void; context?: ReportContext }) {
-  const [raw, setRaw] = useState(false);
+/**
+ * エージェントの返事を書き換えずにそのまま出す（Markdown として読みやすく）。Tower が足すのは、
+ * 返事の後に起きたこと（取り込んだ・完了にした・作業を再開した）と、この回に変えたファイルの一覧だけ。
+ * 結果の札は、以前の決まった書式の報告（完了・一部完了…が分かるもの）と、失敗で終わった時だけ出す
+ */
+export function ReportCard({ r, onFileClick, context = 'current', linker }: { r: Report; onFileClick?: () => void; context?: ReportContext; linker?: FileLinker }) {
   const o = OUTCOME[r.outcome];
   return (
-    <div className="rounded-md border border-zinc-700 bg-[#171a21] p-2 space-y-2">
+    <section aria-label="エージェントの返事" className="rounded-md border border-zinc-700 bg-[#171a21] p-2.5 space-y-2">
       <div className="flex items-center gap-2">
-        <span className="text-xs text-zinc-500">{context === 'current' ? '報告' : '報告時点の結果'}</span>
-        <span className={`text-xs px-2 py-0.5 rounded ${o.cls}`}>{o.label}</span>
-        {r.reformatted && (
-          <span
-            title="エージェントの出力に決まった書式が無かったので、Tower が AI で読みやすく整形しました。原文は「原文を見る」で確認できます"
-            className="text-[10px] px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-400"
-          >
-            Tower が整形
-          </span>
-        )}
+        <span className="text-xs text-zinc-400">💬 返事</span>
+        {r.outcome !== 'unknown' && <span className={`text-xs px-2 py-0.5 rounded ${o.cls}`}>{o.label}</span>}
         <span className="text-xs text-zinc-500 ml-auto">{fmtTime(r.generatedAt)}</span>
       </div>
       {context !== 'current' && <div className="text-xs text-zinc-300">
-        {context === 'merged' ? 'この報告の後、変更を元のプロジェクトに取り込みました。'
-          : context === 'completed' ? 'この報告の後、利用者がタスクを完了にしました。'
-          : 'この報告の後に作業を再開しています。現在の作業結果ではありません。'}
+        {context === 'merged' ? 'この返事の後、変更を元のプロジェクトに取り込みました。'
+          : context === 'completed' ? 'この返事の後、タスクを完了にしました。'
+          : 'この返事の後に作業を再開しています。いまの作業の結果ではありません。'}
       </div>}
-      <Row label="依頼"><Linkify text={r.request} /></Row>
-      {r.summary.length > 0 && (
-        <Row label="やったこと">
-          <ul className="list-disc pl-5 space-y-0.5">
-            {r.summary.map((l, i) => (
-              <li key={i}><Linkify text={l} /></li>
-            ))}
-          </ul>
-        </Row>
-      )}
+      <ReplyBody text={replyText(r)} linker={linker} />
       {r.changedFiles.length > 0 && (
-        <Row label="変更ファイル">
-          <ul className="mono text-xs space-y-0.5 text-zinc-300">
+        <div className="border-t border-zinc-800 pt-2">
+          <div className="text-[11px] text-zinc-500 mb-0.5">変更したファイル（{r.changedFiles.length}）— 押すと差分を見られます</div>
+          <ul className="mono text-xs space-y-0.5 text-zinc-300 max-h-40 overflow-auto">
             {r.changedFiles.map((f) => (
               <li key={f}>
-                <button onClick={onFileClick} className="hover:text-sky-300 hover:underline text-left" title="差分を見る">
-                  {f}
+                <button onClick={onFileClick} className="hover:text-sky-300 hover:underline text-left break-all" title={`${f}\n差分を見る`}>
+                  {linker ? shortPath(f, linker.root) : f}
                 </button>
               </li>
             ))}
           </ul>
-        </Row>
+        </div>
       )}
-      {r.details && (
-        <Row label="補足">
-          <div className="text-xs leading-relaxed whitespace-pre-wrap break-words text-zinc-300 max-h-64 overflow-auto">
-            <Linkify text={r.details} />
-          </div>
-        </Row>
-      )}
-      {context !== 'current' && (r.needsDecision || r.nextStep) ? (
-        <details className="text-xs text-zinc-400">
-          <summary className="cursor-pointer">報告時点の提案を見る（履歴）</summary>
-          <div className="mt-2 space-y-2">
-            {r.needsDecision && <Row label="当時の判断事項"><Linkify text={r.needsDecision} /></Row>}
-            {r.nextStep && <Row label="当時の次の一手"><Linkify text={r.nextStep} /></Row>}
-          </div>
-        </details>
-      ) : <>
-      {r.needsDecision && (
-        <Row label="判断が必要" highlight>
-          <Linkify text={r.needsDecision} />
-        </Row>
-      )}
-      {r.nextStep && (
-        <Row label="次の一手">
-          <Linkify text={r.nextStep} />
-        </Row>
-      )}
-      </>}
-      <button onClick={() => setRaw((v) => !v)} className="text-xs text-zinc-500 hover:text-zinc-300">
-        {raw ? '原文を隠す' : '原文を見る'}
-      </button>
-      {raw && (
-        <pre className="text-xs whitespace-pre-wrap break-words bg-black/40 rounded p-2 max-h-80 overflow-auto text-zinc-300">
-          {r.raw}
-        </pre>
-      )}
+    </section>
+  );
+}
+
+/** 古い経過の「報告を書きました（上の「報告」に表示）」の行（本文が残っていないもの） */
+const OLD_REPORT_POINTER = /^報告を書きました/;
+
+/**
+ * 経過の 1 行。並びが伸びても、届いた行・変わった行だけを描き直す（memo）。
+ * エージェントの文章は全文を Markdown で出す（上の返事と同じものは 1 行の案内だけ）。
+ * 道具の行の詳細（長いと 1 万字を超える）は開いた時に初めて作る
+ */
+const TimelineRow = React.memo(function TimelineRow({ t, showImages, pointer = false, linker }: { t: TimelineItem; showImages: boolean; pointer?: boolean; linker?: FileLinker }) {
+  if (t.kind === 'assistant_text') return <AssistantRow t={t} pointer={pointer || (!t.detail && OLD_REPORT_POINTER.test(t.text))} linker={linker} />;
+  return <StepRow t={t} showImages={showImages} />;
+});
+
+function AssistantRow({ t, pointer, linker }: { t: TimelineItem; pointer: boolean; linker?: FileLinker }) {
+  const time = <span className="ml-auto shrink-0 text-[11px] text-zinc-600">{fmtTime(t.ts)}</span>;
+  if (pointer) {
+    return (
+      <div className="px-1 py-0.5 flex gap-2 text-sm text-zinc-500">
+        <span className="shrink-0 w-5 text-center">{ICON.assistant_text}</span>
+        <span>返事（上に表示）</span>
+        {time}
+      </div>
+    );
+  }
+  return (
+    <div className="px-1 py-1 flex gap-2 text-sm">
+      <span className="shrink-0 w-5 text-center">{ICON.assistant_text}</span>
+      <div className="min-w-0 flex-1">
+        <ReplyBody text={t.detail ?? t.text} linker={linker} clamp="sm" />
+      </div>
+      {time}
     </div>
   );
 }
 
-/**
- * 経過の 1 行。並びが伸びても、届いた行・変わった行だけを描き直す（memo）。
- * 詳細（長いと 1 万字を超える）は開いた時に初めて作る
- */
-const TimelineRow = React.memo(function TimelineRow({ t, showImages }: { t: TimelineItem; showImages: boolean }) {
+/** 指示・道具・許可・お知らせの行。詳細（道具の出力など）があれば押すと開く */
+function StepRow({ t, showImages }: { t: TimelineItem; showImages: boolean }) {
   const [open, setOpen] = useState(false);
   const cls =
     t.kind === 'user'
@@ -574,7 +528,7 @@ const TimelineRow = React.memo(function TimelineRow({ t, showImages }: { t: Time
       </details>
     </div>
   );
-});
+}
 
 const GONE_TEXT = 'この画像はもう残っていません（一時的な場所に置かれていた、など）';
 
@@ -674,6 +628,18 @@ export function SessionDetail({ id, onShowWorkspace, embedded = false, onClose, 
   const bottom = useRef<HTMLDivElement>(null);
   const scroller = useRef<HTMLDivElement>(null);
   const followOutput = useRef(true);
+  // 返事の中のファイル名を押すと、ここで開く（保存したら変更ファイルを読み直す）
+  const linker = useFileLinker(id, s ? workDir(s) : undefined, () => setEditVersion((v) => v + 1));
+  // 上に出している返事と同じ文章の経過の行（いちばん後ろのもの）。経過では 1 行の案内にして、2 度出さない
+  const replyRaw = s?.report?.raw?.trim();
+  const shownReplyId = useMemo(() => {
+    if (!replyRaw || !timeline) return null;
+    for (let i = timeline.length - 1; i >= 0; i--) {
+      const t = timeline[i];
+      if (t.kind === 'assistant_text' && (t.detail ?? t.text).trim() === replyRaw) return t.id;
+    }
+    return null;
+  }, [timeline, replyRaw]);
 
   useEffect(() => {
     if (timeline) return;
@@ -682,7 +648,7 @@ export function SessionDetail({ id, onShowWorkspace, embedded = false, onClose, 
     api.timeline(id).then((items) => setTimeline(id, items)).catch((e) => setErr(errMsg(e)));
   }, [id, timeline, setTimeline, loadingTimeline]);
 
-  // 報告や判断待ちが来たら一番上（カード）へ。上の経過を読んでいる間は末尾へ戻さない
+  // 返事や判断待ちが来たら一番上（カード）へ。上の経過を読んでいる間は末尾へ戻さない
   useLayoutEffect(() => {
     followOutput.current = true;
     scroller.current?.scrollTo({ top: 0 });
@@ -693,8 +659,8 @@ export function SessionDetail({ id, onShowWorkspace, embedded = false, onClose, 
   }, [timeline, s?.status, s?.liveOutput]);
 
   if (!s) return null;
-  // 経過は最後の指示から後だけを見せ、それより前のやりとりは畳む。報告はいちばん新しいやりとりのものなので、
-  // 最初の指示からの経過を並べると、上の報告と下の経過で話がずれて見えていた
+  // 経過は最後の指示から後だけを見せ、それより前のやりとりは畳む。上の返事はいちばん新しいやりとりのものなので、
+  // 最初の指示からの経過を並べると、上の返事と下の経過で話がずれて見えていた
   const items = timeline ?? [];
   let lastUser = -1;
   for (let i = items.length - 1; i >= 0; i--) if (items[i].kind === 'user') { lastUser = i; break; }
@@ -727,7 +693,7 @@ export function SessionDetail({ id, onShowWorkspace, embedded = false, onClose, 
     if (!confirm('このセッションを停止しますか？')) return;
     await api.stop(id).catch((e) => setErr(errMsg(e)));
   };
-  // 報告が一部完了・失敗でも「もうこれでよい」と決めた時に。判断待ちから外れる。もう完了しているものには出さない
+  // 返事を読んで「もうこれでよい」と決めた時に。判断待ちから外れる。もう完了しているものには出さない
   const canComplete = canMarkDone(s);
   const complete = async () => {
     const head = working ? '作業を止めて、このタスクを「完了」にしますか？' : 'このタスクを「完了」にしますか？';
@@ -757,7 +723,7 @@ export function SessionDetail({ id, onShowWorkspace, embedded = false, onClose, 
           </span>}
           <div className="ml-auto flex gap-1.5">
             {canComplete && (
-              <button onClick={complete} title="報告が一部完了・失敗でも、これで終わりにする。判断待ちから外れます" className={`${btn.base} ${btn.success} !py-1 !text-xs`}>
+              <button onClick={complete} title="これで終わりにします。判断待ちから外れます（続きの指示を送れば、また再開できます）" className={`${btn.base} ${btn.success} !py-1 !text-xs`}>
                 完了にする
               </button>
             )}
@@ -816,12 +782,12 @@ export function SessionDetail({ id, onShowWorkspace, embedded = false, onClose, 
         )}
         {s.pending && <PendingCard session={s} />}
         {s.report && (reportContext(s) === 'previous' ? (
-          // 作業中は前の回の報告をたたみ、今の作業の経過を先に見せる
+          // 作業中は前の回の返事をたたみ、今の作業の経過を先に見せる
           <details className="rounded-md border border-zinc-800 bg-[#12151b] px-3 py-2 text-xs text-zinc-400">
-            <summary className="cursor-pointer hover:text-zinc-200">前回の報告を見る（{OUTCOME[s.report.outcome].label}）</summary>
-            <div className="mt-2"><ReportCard r={s.report} context="previous" onFileClick={() => setShowChanges(true)} /></div>
+            <summary className="cursor-pointer hover:text-zinc-200">前回の返事を見る{s.report.outcome !== 'unknown' && `（${OUTCOME[s.report.outcome].label}）`}</summary>
+            <div className="mt-2"><ReportCard r={s.report} context="previous" linker={linker} onFileClick={() => setShowChanges(true)} /></div>
           </details>
-        ) : <ReportCard r={s.report} context={reportContext(s)} onFileClick={() => setShowChanges(true)} />)}
+        ) : <ReportCard r={s.report} context={reportContext(s)} linker={linker} onFileClick={() => setShowChanges(true)} />)}
         {s.compare && <CompareStrip s={s} />}
         {s.workspace && <WorkspaceStrip s={s} />}
         {s.verification ? (
@@ -862,7 +828,7 @@ export function SessionDetail({ id, onShowWorkspace, embedded = false, onClose, 
                 sessionId={id}
                 refreshKey={changesKey + editVersion}
                 onEdit={working ? undefined : setEditing}
-                editHint="エージェントが作業中は編集できません。報告が来るか、停止してから直してください"
+                editHint="エージェントが作業中は編集できません。返事が来るか、停止してから直してください"
               />
             </div>
           )}
@@ -885,7 +851,7 @@ export function SessionDetail({ id, onShowWorkspace, embedded = false, onClose, 
               {olderOpen && (
                 <div className="mt-1 space-y-0.5">
                   {older.map((t) => (
-                    <TimelineRow key={t.id} t={t} showImages={showImages} />
+                    <TimelineRow key={t.id} t={t} showImages={showImages} pointer={t.id === shownReplyId} linker={linker} />
                   ))}
                 </div>
               )}
@@ -893,7 +859,7 @@ export function SessionDetail({ id, onShowWorkspace, embedded = false, onClose, 
           )}
           <div className="space-y-0.5">
             {latest.map((t) => (
-              <TimelineRow key={t.id} t={t} showImages={showImages} />
+              <TimelineRow key={t.id} t={t} showImages={showImages} pointer={t.id === shownReplyId} linker={linker} />
             ))}
             {!timeline && <div className="text-xs text-zinc-500 px-1">読み込み中…</div>}
           </div>

@@ -11,8 +11,7 @@ import type { BridgeStatus, PendingPermission, PermissionChoice, Session, Timeli
 import type { Hub } from './hub.ts';
 import { assessRisk, describeActivity, describePermission, describeTaskNotification, firstLine, promptTitle, readImage, toolDetail, touchedFile } from './humanize.ts';
 import { detectPreview, targetLabel } from './preview.ts';
-import { scheduleReformat } from './reformat.ts';
-import { fallbackReport, parseReport } from './report.ts';
+import { instructionLine, replyReport } from './report.ts';
 
 export interface HookInput {
   session_id: string;
@@ -300,18 +299,17 @@ export class Bridge {
       case 'Stop': {
         const text = (input.last_assistant_message ?? '').trim();
         const request = s.prompt || s.title;
-        const report = parseReport(text, request) ?? fallbackReport(text || '(出力なし)', request, false);
+        // 返事は書き換えずにそのまま持つ（以前は Haiku で整形し直していた）
+        const report = replyReport(text || '(出力なし)', instructionLine(request), [], false);
         if (text) this.timeline(id, 'assistant_text', firstLine(text).slice(0, 140), text);
         this.hub.update(id, {
           status: 'idle',
-          activity: report.needsDecision ? `判断待ち: ${firstLine(report.needsDecision).slice(0, 60)}` : '指示待ち',
+          activity: '指示待ち',
           report,
           turns: s.turns + 1,
           pending: null,
           pendingCount: 0,
         });
-        // 外のセッションは報告のルールを知らないので、ほぼ毎回ここで整形する
-        scheduleReformat(this.hub, id, report);
         break;
       }
 

@@ -6,9 +6,7 @@ import { Hub } from './hub.ts';
 import { SessionManager } from './manager.ts';
 import { ClaudeRunner } from './agents/claude.ts';
 import { CodexRunner } from './agents/codex.ts';
-import { setReformatEnabled } from './reformat.ts';
 
-setReformatEnabled(false);
 const session = (): Session => ({ id: 'lifecycle', agent: 'claude', agentSessionId: 'thread', project: { name: 'fixture', path: process.cwd() }, title: 'test', prompt: 'test', model: null, permissionMode: 'acceptEdits', status: 'idle', activity: '', pending: null, report: null, turns: 0, costUsd: 0, toolCalls: 0, changedFiles: [], createdAt: 1, updatedAt: 1, lastError: null });
 
 test('manual completion aborts manager checks even without a runner', async () => {

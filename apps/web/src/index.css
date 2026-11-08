@@ -187,3 +187,38 @@ button:not(:disabled), summary { cursor: pointer; }
 .md-preview th { background: #1f2229; font-weight: 600; }
 .md-preview img { max-width: 100%; height: auto; border-radius: 4px; }
 .md-preview hr { border: 0; border-top: 1px solid #3f3f46; margin: 1.6em 0; }
+
+/* エージェントの返事（Markdown をそのまま）。上の返事のカードと経過で使う。狭い欄でも読めるよう余白は小さめ */
+.md-reply { color: #d4d4d8; font-size: 13.5px; line-height: 1.7; overflow-wrap: anywhere; min-width: 0; }
+.md-reply > :first-child { margin-top: 0; }
+.md-reply > :last-child { margin-bottom: 0; }
+.md-reply h1, .md-reply h2, .md-reply h3, .md-reply h4, .md-reply h5, .md-reply h6 { color: #f4f4f5; font-weight: 700; line-height: 1.4; margin: 1.1em 0 .45em; }
+.md-reply h1 { font-size: 1.3em; }
+.md-reply h2 { font-size: 1.16em; padding-bottom: .2em; border-bottom: 1px solid #27272a; }
+.md-reply h3 { font-size: 1.06em; }
+.md-reply h4, .md-reply h5, .md-reply h6 { font-size: 1em; }
+.md-reply p, .md-reply ul, .md-reply ol, .md-reply blockquote, .md-reply table, .md-reply pre { margin: .55em 0; }
+.md-reply ul { list-style: disc; padding-left: 1.4em; }
+.md-reply ol { list-style: decimal; padding-left: 1.5em; }
+.md-reply li + li { margin-top: .15em; }
+.md-reply li > ul, .md-reply li > ol { margin: .15em 0; }
+.md-reply li:has(> input[type=checkbox]) { list-style: none; margin-left: -1.2em; }
+.md-reply input[type=checkbox] { margin-right: .45em; vertical-align: -1px; accent-color: #38bdf8; }
+.md-reply strong { color: #f4f4f5; font-weight: 600; }
+.md-reply a[href] { color: #7dd3fc; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+.md-reply a.file-ref { text-decoration-style: dotted; }
+.md-reply a.file-ref:hover { color: #bae6fd; text-decoration-style: solid; }
+.md-reply code { font-family: ui-monospace, 'Cascadia Code', Consolas, monospace; font-size: .88em; color: #e4e4e7; background: #27272a; border-radius: 4px; padding: .08em .35em; }
+.md-reply a.file-ref code { color: inherit; }
+.md-reply pre { background: #0b0d11; border: 1px solid #27272a; border-radius: 6px; padding: 10px 12px; overflow: auto; max-height: 28rem; }
+.md-reply pre code { background: none; padding: 0; font-size: .85em; white-space: pre; color: #d4d4d8; }
+.md-reply blockquote { border-left: 3px solid #52525b; padding-left: .9em; color: #a1a1aa; }
+.md-reply table { border-collapse: collapse; display: block; overflow-x: auto; max-width: 100%; font-size: .95em; }
+.md-reply th, .md-reply td { border: 1px solid #3f3f46; padding: .3em .6em; vertical-align: top; }
+.md-reply th { background: #1f2229; font-weight: 600; text-align: left; }
+.md-reply img { max-width: 100%; max-height: 20rem; height: auto; border-radius: 4px; }
+.md-reply img.file-ref { cursor: zoom-in; }
+.md-reply hr { border: 0; border-top: 1px solid #3f3f46; margin: 1em 0; }
+/* 長い返事は途中まで見せて、下をぼかす（「全文を表示」で広げる） */
+.reply-clamped { max-height: 24rem; overflow: hidden; -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 3rem), transparent); mask-image: linear-gradient(to bottom, #000 calc(100% - 3rem), transparent); }
+.reply-clamped.reply-clamped-sm { max-height: 12rem; }

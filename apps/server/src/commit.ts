@@ -24,12 +24,30 @@ export function taskIdOf(message: string | undefined): string | null {
 
 const PREFIX: Partial<Record<ReportOutcome, string>> = { partial: '（途中）', question: '（途中）', failed: '（失敗）' };
 
-/** 記録の説明: 1 行目 = 何を頼まれたか、本文 = やったこと、最後 = タスクの印 */
+/** 記録の説明: 1 行目 = 何を頼まれたか、本文 = 返事の書き出し（古い記録は「やったこと」）、最後 = タスクの印 */
 export function commitMessage(s: Pick<Session, 'id' | 'title'>, report: Report | null): string {
   const request = firstLine(report?.request || s.title).trim() || s.title;
   const subject = `${(report && PREFIX[report.outcome]) ?? ''}${request.length > 60 ? `${request.slice(0, 60)}…` : request}`;
-  const body = (report?.summary ?? []).slice(0, 5).map((l) => `- ${l}`).join('\n');
+  const body = report?.summary.length
+    ? report.summary.slice(0, 5).map((l) => `- ${l}`).join('\n')
+    : replyOpening(report?.raw ?? '');
   return [subject, body, `Tower-Task: ${s.id}`].filter(Boolean).join('\n\n');
+}
+
+/** 返事の書き出し（空でない最初の 5 行。長い行は切る）。コードの塊は入れない */
+export function replyOpening(raw: string): string {
+  const out: string[] = [];
+  let fenced = false;
+  for (const line of raw.split(/\r?\n/)) {
+    if (/^\s*(```|~~~)/.test(line)) {
+      fenced = !fenced;
+      continue;
+    }
+    if (fenced || !line.trim()) continue;
+    out.push(line.length > 100 ? `${line.slice(0, 100)}…` : line);
+    if (out.length >= 5) break;
+  }
+  return out.join('\n');
 }
 
 export type CommitOutcome =
@@ -233,7 +251,6 @@ export function commitNote(): string | null {
   if (!enabled) return null;
   return [
     '# 変更の記録（コミット）',
-    '- 報告のたびに、あなたが変えたファイルを Tower が自動で記録（コミット）する。利用者に頼まれた時以外は、自分でコミットしなくてよい',
-    '- 1 回の報告が 1 つの記録になり、報告の「依頼」と「やったこと」がその記録の説明になる。後から見て何をしたか分かるように書く',
+    '- あなたが返事をするたびに、変えたファイルを Tower が自動で記録（コミット）する。利用者に頼まれた時以外は、自分でコミットしなくてよい',
   ].join('\n');
 }

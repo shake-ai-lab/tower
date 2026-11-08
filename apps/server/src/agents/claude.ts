@@ -38,11 +38,14 @@ import {
   touchedFile,
 } from '../humanize.ts';
 import { previewNote } from '../preview.ts';
-import { scheduleReformat } from '../reformat.ts';
 
 /** サブエージェント・ワークフローの裏の作業か（コマンドの裏実行は含めない） */
 const isAgentTask = (type?: string) => /agent|workflow/i.test(type ?? '');
-import { REPORT_INSTRUCTIONS, fallbackReport, parseReport } from '../report.ts';
+
+/** 経過の行を開いた時に見せる、ツールの実際の出力の長さの上限（長いものは先頭だけ） */
+const TOOL_OUTPUT_MAX = 3000;
+const outputHead = (text: string) => (text.length > TOOL_OUTPUT_MAX ? `${text.slice(0, TOOL_OUTPUT_MAX)}\n…（以下 ${text.length - TOOL_OUTPUT_MAX} 文字は省略）` : text);
+import { instructionLine, replyReport } from '../report.ts';
 import { detectVerifyCommand, runVerify } from '../verify.ts';
 import { workspaceNote } from '../worktree.ts';
 import { commitNote, recordAgentCommits } from '../commit.ts';
@@ -127,6 +130,10 @@ export class ClaudeRunner implements AgentRunner {
   /** query() は再開のたびに集計がゼロから始まるので、開始時点の値を土台にして足す */
   private usageBase: Usage = { input: 0, cacheRead: 0, output: 0 };
   private costBase = 0;
+  /** いまの手番のきっかけになった指示（返事に添える） */
+  private lastInstruction = '';
+  /** 前の返事から後に変えたファイル（返事に添える） */
+  private turnFiles = new Set<string>();
 
   constructor(
     private session: Session,
@@ -156,12 +163,13 @@ export class ClaudeRunner implements AgentRunner {
     // hooks 連携（bridge）に「これは Tower 自身のセッション」と伝えて二重取り込みを防ぐ
     env.TOWER_MANAGED = '1';
 
-    const parts = [REPORT_INSTRUCTIONS];
+    // 書き方の注文はしない（出力を変えない）。Tower が用意した作業環境の事実だけ伝える
+    const parts: string[] = [];
     if (s.workspace) parts.push(workspaceNote(s.workspace, s.project.path));
     const commits = commitNote();
     if (commits) parts.push(commits);
     if (s.preview) parts.push(previewNote(s.preview.target));
-    const append = parts.join('\n\n');
+    const append = parts.length ? parts.join('\n\n') : undefined;
     const options: Options = {
       cwd: workDir(s),
       additionalDirectories: [attachDir],
@@ -169,7 +177,7 @@ export class ClaudeRunner implements AgentRunner {
       permissionMode: s.permissionMode ?? 'default',
       allowDangerouslySkipPermissions: true,
       resume: resumeFrom,
-      systemPrompt: { type: 'preset', preset: 'claude_code', append },
+      systemPrompt: append ? { type: 'preset', preset: 'claude_code', append } : { type: 'preset', preset: 'claude_code' },
       canUseTool: (toolName, input, opts) => this.onPermission(toolName, input, opts.suggestions ?? [], opts.signal),
       abortController: this.abort,
       env,
@@ -338,6 +346,7 @@ export class ClaudeRunner implements AgentRunner {
 
   /** 画像は会話にそのまま載せ（エージェントがすぐ見られる）、それ以外は保存場所を書き添えて読ませる */
   private pushUser(text: string, attachments: SavedAttachment[] = []) {
+    this.lastInstruction = instructionLine(text);
     const images = attachments.filter(canInline);
     const body = text + attachmentNote(attachments, (a) => images.includes(a));
     const content = images.length
@@ -516,18 +525,18 @@ export class ClaudeRunner implements AgentRunner {
         for (const block of m.message.content) {
           if (block.type === 'text' && block.text.trim()) {
             this.lastAssistantText = block.text;
-            // 最後の【報告】は上の報告カードに整形して出るので、年表では「書いた」ことだけ分かればよい
-            const head = block.text.trimStart().startsWith('【報告】')
-              ? '報告を書きました（上の「報告」に表示）'
-              : firstLine(block.text).slice(0, 140);
-            this.timeline('assistant_text', head, block.text);
+            // 書き換えずに全文を残す（画面はそのまま見せる）。text は一覧・検索用の 1 行目
+            this.timeline('assistant_text', firstLine(block.text).slice(0, 140), block.text);
             activity = '考えをまとめています';
           } else if (block.type === 'tool_use') {
             const input = (block.input ?? {}) as Record<string, unknown>;
             toolCalls++;
             this.toolUses.set(block.id, { name: block.name, input });
             const f = touchedFile(block.name, input);
-            if (f) changed.add(f);
+            if (f) {
+              changed.add(f);
+              this.turnFiles.add(f);
+            }
             activity = describeActivity(block.name, input);
             this.timeline('tool_use', activity, toolDetail(block.name, input), block.name, readImage(block.name, input));
           }
@@ -553,9 +562,10 @@ export class ClaudeRunner implements AgentRunner {
               this.toolUses.delete(block.tool_use_id);
               // 自分でコミットしたら、そのコミットをタスクの記録に加える（Git のグラフで結びつける）
               if (!isErr && tu?.name === 'Bash') recordAgentCommits(this.hub, this.id, String(tu.input.command ?? ''), resultText(block.content));
-              // エラーは原文（何が起きたか）が要る。成功は「何をしたか」を日本語で
+              // 一覧には「何をしたか」の一言。行を開けば実際の出力（先頭）が見られる
               const summary = isErr ? summarizeToolResult(block.content) : summarizeToolResult(block.content, tu?.name, tu?.input);
-              this.timeline(isErr ? 'error' : 'tool_result', isErr ? `失敗: ${summary}` : summary || '(結果なし)');
+              const output = resultText(block.content).trim();
+              this.timeline(isErr ? 'error' : 'tool_result', isErr ? `失敗: ${summary}` : summary || '(結果なし)', output ? outputHead(output) : undefined);
             }
           }
         }
@@ -579,31 +589,23 @@ export class ClaudeRunner implements AgentRunner {
           this.timeline('system', '裏でサブエージェントが作業を続けています。終わると続きを書きます');
           break;
         }
-        const report =
-          parseReport(text || '', cur.prompt) ?? fallbackReport(text || errors || '(出力なし)', cur.prompt, isError);
-        // 報告に書かれたファイル名は相対パスのことが多いので、既に追跡済み（絶対パス）のものと二重計上しない
-        const changed = new Set(cur.changedFiles);
-        const known = new Set(cur.changedFiles.map((f) => f.split(/[\\/]/).pop()));
-        for (const f of report.changedFiles) if (!known.has(f.split(/[\\/]/).pop())) changed.add(f);
+        // 返事は書き換えずにそのまま持つ。この手番で変えたファイルを添える
+        const report = replyReport(text || errors || '(出力なし)', this.lastInstruction || instructionLine(cur.prompt), [...this.turnFiles], isError);
+        const changedThisTurn = this.turnFiles.size > 0;
+        this.turnFiles = new Set();
         this.hub.update(this.id, {
           status: isError ? 'error' : 'idle',
-          activity: isError
-            ? 'エラーで止まりました'
-            : report.needsDecision
-              ? `判断待ち: ${firstLine(report.needsDecision).slice(0, 60)}`
-              : '指示待ち',
+          activity: isError ? 'エラーで止まりました' : '返事が来ました。あなたの番です',
           report,
           turns: cur.turns + 1,
           costUsd: this.costBase + (m.total_cost_usd ?? 0),
           usage: this.sumUsage(m),
-          changedFiles: [...changed],
           lastError: isError ? errors || text || 'unknown error' : null,
           pending: null,
           pendingCount: 0,
         });
         if (isError && errors) this.timeline('error', errors);
-        if (!isError && changed.size > 0) void this.verify();
-        scheduleReformat(this.hub, this.id, report);
+        if (!isError && (changedThisTurn || cur.changedFiles.length > 0)) void this.verify();
         break;
       }
       default:

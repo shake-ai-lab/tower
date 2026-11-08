@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { projectKey } from './project-key';
-import type { ReportOutcome, RiskLevel, Session, SessionStatus } from '@tower/shared';
+import type { Report, ReportOutcome, RiskLevel, Session, SessionStatus } from '@tower/shared';
 
 /** プロジェクト名から決まる色（同じ名前は常に同じ色）。一覧でどのプロジェクトのタスクか一目で分かるように */
 export function projectHue(name: string): number {
@@ -136,7 +136,7 @@ export const STATUS: Record<SessionStatus, { label: string; dot: string; badge: 
     badge: 'bg-violet-500 text-white font-semibold',
     attention: true,
   },
-  idle: { label: '報告あり', dot: 'bg-emerald-400', badge: 'bg-emerald-900/70 text-emerald-200' },
+  idle: { label: '返事あり', dot: 'bg-emerald-400', badge: 'bg-emerald-900/70 text-emerald-200' },
   done: { label: '終了', dot: 'bg-zinc-500', badge: 'bg-zinc-800 text-zinc-300' },
   error: { label: 'エラー', dot: 'bg-red-500', badge: 'bg-red-900/70 text-red-200' },
   stopped: { label: '停止', dot: 'bg-zinc-500', badge: 'bg-zinc-800 text-zinc-300' },
@@ -147,7 +147,7 @@ export const OUTCOME: Record<ReportOutcome, { label: string; cls: string }> = {
   partial: { label: '⚠️ 一部完了', cls: 'bg-amber-900/70 text-amber-200' },
   failed: { label: '❌ 失敗', cls: 'bg-red-900/70 text-red-200' },
   question: { label: '❓ 質問あり', cls: 'bg-violet-900/70 text-violet-200' },
-  unknown: { label: '📝 報告', cls: 'bg-zinc-800 text-zinc-300' },
+  unknown: { label: '💬 返事', cls: 'bg-zinc-800 text-zinc-300' },
 };
 
 export const RISK: Record<RiskLevel, { label: string; cls: string }> = {
@@ -159,6 +159,53 @@ export const RISK: Record<RiskLevel, { label: string; cls: string }> = {
 // 判断待ちかどうかの判定は task-state.ts（札・完了ボタン・畳み方と同じ所）にある
 export { needsYou } from './task-state';
 import { onlyOldFailures, verificationIsStale } from './task-state';
+
+/**
+ * 返事（Markdown）の最初の意味のある 1 行。見出し・箇条書き・強調・コードの記号は外す。
+ * コードの塊・区切り線・表の区切りは飛ばし、見出しより本文を先に選ぶ（「## 変更内容」より、その下の 1 行の方が中身を表す）
+ */
+export function firstReplyLine(md: string): string {
+  let fence = false;
+  let heading = '';
+  for (const raw of md.split(/\r?\n/)) {
+    const line = raw.trim();
+    if (/^(```|~~~)/.test(line)) {
+      fence = !fence;
+      continue;
+    }
+    if (fence || !line) continue;
+    if (/^([-*_=]\s*){3,}$/.test(line) || /^\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?$/.test(line)) continue;
+    const isHeading = /^#{1,6}\s/.test(line);
+    const text = line
+      .replace(/^#{1,6}\s+/, '')
+      .replace(/^(>\s*)+/, '')
+      .replace(/^([-*+]|\d+[.)])\s+/, '')
+      .replace(/^\[[ xX]\]\s+/, '')
+      .replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1')
+      .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
+      .replace(/<\/?[A-Za-z][^>]*>/g, '')
+      .replace(/(\*\*|__)(.+?)\1/g, '$2')
+      .replace(/(^|[^\w*])\*(?!\s)([^*]+?)\*(?!\w)/g, '$1$2')
+      .replace(/~~(.+?)~~/g, '$1')
+      .replace(/`+([^`]*)`+/g, '$1')
+      .replace(/^\||\|$/g, '')
+      .replace(/\s*\|\s*/g, ' / ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (!text || !/[\p{L}\p{N}]/u.test(text)) continue;
+    if (!isHeading) return text;
+    heading ||= text;
+  }
+  return heading;
+}
+
+/**
+ * 一覧・判断待ち・通知に出す返事の要点 1 行。古い報告（決まった書式）は「判断が必要」→「やったこと」の先頭、
+ * 今の返事（エージェントの文章そのまま）は本文の最初の 1 行。decision = false の時は「判断が必要」を使わない（取り込み済みなど）
+ */
+export function replyExcerpt(r: Pick<Report, 'needsDecision' | 'summary' | 'raw'>, decision = true): string {
+  return (decision ? r.needsDecision : null) || r.summary?.[0] || firstReplyLine(r.raw ?? '');
+}
 
 /** 判断待ちになった時刻（インボックスの並び順と「◯分前」用） */
 export const needsYouSince = (s: Session): number => s.pending?.createdAt ?? s.report?.generatedAt ?? s.updatedAt;

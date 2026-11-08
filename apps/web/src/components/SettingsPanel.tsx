@@ -6,10 +6,9 @@ import { CodexAccount } from './CodexAccount';
 import { CodexEnvironmentPanel } from './CodexEnvironmentPanel';
 
 const CHECKBOX_LABELS = {
-  autoVerify: '報告後にテストを自動実行',
-  reformatReports: '報告をAIで読みやすく整形',
+  autoVerify: '返事が来たらテストを自動実行',
   autoResume: '再起動で止まったタスクを自動で再開',
-  autoCommit: '報告のたびに変更を記録（コミット）',
+  autoCommit: '返事のたびに変更を記録（コミット）',
 } as const;
 
 export function SettingsPanel() {
@@ -50,7 +49,7 @@ export function SettingsPanel() {
       <p className="text-xs text-zinc-400">{CODEX_PERMISSION_CHOICES.find((p) => p.value === draft.codexPermissionMode)?.hint}</p>
       <p className="text-xs text-zinc-400">新しいCodexタスクの初期値です。既存のタスクの権限は変わりません。タスクごとにも変更できます。</p>
       <label className="block">プロジェクトの親フォルダ（1行に1つ）<textarea className={input} rows={4} value={roots} onChange={(e) => setRoots(e.target.value)} /></label>
-      {(['autoVerify', 'reformatReports', 'autoResume', 'autoCommit'] as const).map((key) => <label key={key} className="flex gap-2 items-center">
+      {(['autoVerify', 'autoResume', 'autoCommit'] as const).map((key) => <label key={key} className="flex gap-2 items-center">
         <input type="checkbox" checked={draft[key]} onChange={(e) => setDraft({ ...draft, [key]: e.target.checked })} />
         {CHECKBOX_LABELS[key]}
       </label>)}

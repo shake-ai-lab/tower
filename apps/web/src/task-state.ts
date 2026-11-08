@@ -4,7 +4,7 @@
 import type { Session } from '@tower/shared';
 
 type Dated = Partial<Pick<Session, 'lastInstructionAt' | 'lastManualEditAt'>>;
-type Judged = Pick<Session, 'status' | 'pending' | 'report' | 'verification' | 'completedByUser'> & Partial<Pick<Session, 'baseline' | 'workspace'>> & Dated;
+type Judged = Pick<Session, 'status' | 'pending' | 'report' | 'verification' | 'completedByUser'> & Partial<Pick<Session, 'baseline' | 'workspace' | 'origin'>> & Dated;
 
 /** 更新時刻には検証や取り込みも含まれるため、指示を受けた時刻だけと比較する。 */
 export function reportIsStale(s: Pick<Session, 'report'> & Dated): boolean {
@@ -40,7 +40,7 @@ export type TaskState =
   | 'working'
   | 'permission'
   | 'question'
-  /** 報告の中であなたの判断を求めている */
+  /** あなたの番（エージェントが返事をして、次の指示を待っている。以前の報告では「判断が必要」） */
   | 'decision'
   /** 報告が「完了」（または、あなたが「完了」にした） */
   | 'done'
@@ -48,7 +48,7 @@ export type TaskState =
   | 'failed'
   /** 報告は「完了」だが、Tower の自動チェックが通っていない */
   | 'mismatch'
-  /** 決まった書式ではない報告 */
+  /** 返事はあるが、あなたの番には数えないもの（VS Code・ターミナルのセッション） */
   | 'reported'
   /** 止まって次の指示を待っている（報告なし） */
   | 'waiting'
@@ -70,13 +70,31 @@ export function mergedSinceReport(s: Pick<Session, 'report'> & Partial<Pick<Sess
 }
 
 /**
- * あなたの判断を待っているか。許可・質問（pending）に加えて、報告で「判断が必要」「質問あり」と言って
- * 止まっているもの（idle）も含める。次の指示を送る・停止する・取り込むと外れる
+ * 以前の決まった書式の報告（【報告】の欄を Tower が読み取ったもの）か。今はエージェントの返事をそのまま出すので、
+ * 結果（完了・一部完了…）も「判断が必要」も分からない（outcome は unknown、失敗で終わった時だけ failed）
  */
-export function needsYou(s: Pick<Session, 'status' | 'pending' | 'report'> & Partial<Pick<Session, 'workspace'>> & Dated): boolean {
+export function isStructuredReport(r: NonNullable<Session['report']>): boolean {
+  return (
+    ['done', 'partial', 'question'].includes(r.outcome) ||
+    (r.summary?.length ?? 0) > 0 ||
+    !!r.needsDecision ||
+    !!r.nextStep ||
+    !!r.details
+  );
+}
+
+/**
+ * あなたの番か。許可・質問（pending）に加えて、エージェントが返事をして止まっているもの（idle）。
+ * 返事の中身からは「終わった」か「判断がほしい」かを見分けないので、返事が来たら全部あなたの番にして、
+ * 次の指示を送る・「完了にする」・取り込むまで待つ。
+ * VS Code・ターミナルのセッション（external）の返事はそちらで読んで答えるので数えない（許可要求は数える）。
+ * 以前の決まった書式の報告は、これまでどおり「判断が必要」「質問あり」の時だけ
+ */
+export function needsYou(s: Pick<Session, 'status' | 'pending' | 'report'> & Partial<Pick<Session, 'workspace' | 'origin' | 'completedByUser'>> & Dated): boolean {
   if (s.pending) return true;
-  if (reportContext(s) !== 'current') return false;
-  return s.status === 'idle' && !!s.report && (!!s.report.needsDecision || s.report.outcome === 'question');
+  if (s.status !== 'idle' || !s.report || reportContext(s) !== 'current') return false;
+  if (isStructuredReport(s.report)) return !!s.report.needsDecision || s.report.outcome === 'question';
+  return s.origin !== 'external';
 }
 
 export function taskState(s: Judged): TaskState {
@@ -143,12 +161,12 @@ const BADGE: Record<TaskState, StateBadge> = {
   working: { label: '作業中', cls: 'bg-sky-500 text-white font-semibold', working: true },
   permission: { label: '許可待ち', cls: 'bg-amber-400 text-black font-semibold' },
   question: { label: '質問あり', cls: 'bg-violet-500 text-white font-semibold' },
-  decision: { label: '判断待ち', cls: 'bg-amber-400 text-black font-semibold', title: '報告の中で、あなたの判断を求めています' },
+  decision: { label: '判断待ち', cls: 'bg-amber-400 text-black font-semibold', title: 'あなたの番です。返事を読んで、続きの指示を送るか「完了にする」を押してください' },
   done: { label: '✓ 完了', cls: 'bg-emerald-800/80 text-emerald-100', title: '完了しました。続きの指示を送れば、また動きます' },
   partial: { label: '一部完了', cls: 'bg-amber-900/70 text-amber-200', title: '報告が「一部完了」です。これで終わりにするなら「完了にする」を押してください' },
   failed: { label: '失敗', cls: 'bg-red-900/70 text-red-200', title: '報告が「失敗」です。やり直すなら指示を送り、あきらめるなら「完了にする」を押してください' },
   mismatch: { label: '要確認', cls: 'bg-red-600 text-white font-semibold', title: '報告は「完了」ですが、Tower の自動チェックが通っていません' },
-  reported: { label: '報告あり', cls: 'bg-emerald-900/70 text-emerald-200' },
+  reported: { label: '返事あり', cls: 'bg-emerald-900/70 text-emerald-200', title: '元の画面（VS Code など）で返事を読んで答えてください' },
   waiting: { label: '指示待ち', cls: 'bg-zinc-800 text-zinc-300' },
   error: { label: 'エラー', cls: 'bg-red-900/70 text-red-200' },
   stopped: { label: '停止', cls: 'bg-zinc-800 text-zinc-300' },

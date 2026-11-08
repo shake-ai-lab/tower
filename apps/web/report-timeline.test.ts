@@ -15,17 +15,30 @@ const session = (patch: Partial<Session> = {}): Session => ({
   ...patch,
 } as Session);
 
-test('取り込み後の提案を履歴へ移し、未確認事項と報告結果は書き換えない', () => {
+test('取り込み後の返事は書き換えずに原文をそのまま出し、取り込んだことだけを添える', () => {
   const s = session();
   const html = renderToStaticMarkup(createElement(ReportCard, { r: report, context: reportContext(s) }));
-  assert.match(html, /この報告の後、変更を元のプロジェクトに取り込みました/);
-  assert.match(html, /報告時点の結果/);
+  assert.match(html, /この返事の後、変更を元のプロジェクトに取り込みました/);
+  // 以前の決まった書式の報告は、結果の札を残す
   assert.match(html, /一部完了/);
-  assert.match(html, /残り: 画面確認/);
-  assert.match(html, /<details[^>]*><summary[^>]*>報告時点の提案を見る（履歴）/);
-  assert.doesNotMatch(html, /<details[^>]* open/);
-  assert.doesNotMatch(html, /判断が必要（済み）/);
+  // 本文はエージェントが書いた原文。Tower が読み取った欄（判断が必要・次の一手など）は並べない
+  assert.match(html, /原文を保存/);
+  assert.doesNotMatch(html, /判断が必要|次の一手|やったこと|補足|Tower が整形|原文を見る|残り: 画面確認/);
   assert.equal(report.nextStep, 'Towerが取り込みを再実行します');
+});
+
+test('今の返事: 結果の札は出さず、本文と変えたファイル（作業フォルダからのパス）を出す', () => {
+  const reply: Report = { request: '直して', outcome: 'unknown', summary: [], changedFiles: ['C:\\proj\\src\\a.ts', 'D:\\other\\b.ts'], needsDecision: null, nextStep: null, raw: '## 直しました\n- `src/a.ts` を変更', generatedAt: 100 };
+  const linker = { root: 'C:\\proj', open: () => {}, imageUrl: (p: string) => p };
+  const html = renderToStaticMarkup(createElement(ReportCard, { r: reply, linker }));
+  assert.match(html, /💬 返事/);
+  assert.doesNotMatch(html, /📝|💬 返事あり|一部完了|完了/);
+  assert.match(html, /直しました/);
+  assert.match(html, /変更したファイル（2）/);
+  assert.match(html, />src\/a\.ts<\/button>/);
+  assert.match(html, />D:\\other\\b\.ts<\/button>/);
+  // 失敗で終わった時だけ札を出す
+  assert.match(renderToStaticMarkup(createElement(ReportCard, { r: { ...reply, outcome: 'failed' } })), /失敗/);
 });
 
 test('取り込み済みでは未反映と説明せず、再取り込みボタンを無効にする', () => {

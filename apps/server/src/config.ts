@@ -23,7 +23,6 @@ function defaults(): TowerConfig {
     projectRoots: defaultRoots(),
     autoVerify: true,
     bridgeWaitSeconds: 90,
-    reformatReports: true,
     externalKeepHours: 24,
     feedbackFile: path.join(DATA_DIR, 'feedback.md'),
     autoResume: true,
@@ -34,7 +33,10 @@ function defaults(): TowerConfig {
 /** ファイルにある分だけ（無い項目は既定値で埋めない）。壊れていれば空 */
 function readFile(): Partial<TowerConfig> {
   try {
-    return JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8')) as Partial<TowerConfig>;
+    const saved = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8')) as Partial<TowerConfig> & { reformatReports?: unknown };
+    // 返事の整形し直し（Haiku）はやめた。前の版で保存した設定は読み捨てる
+    delete saved.reformatReports;
+    return saved;
   } catch (e) {
     if (fs.existsSync(CONFIG_PATH)) console.warn(`[config] ${CONFIG_PATH} を読めません。既定値で続行します:`, e);
     return {};
@@ -105,7 +107,6 @@ export function validateSettings(body: Partial<TowerSettings>): Partial<TowerSet
     out.projectRoots = roots;
   }
   if (body.autoVerify !== undefined) out.autoVerify = !!body.autoVerify;
-  if (body.reformatReports !== undefined) out.reformatReports = !!body.reformatReports;
   if (body.autoResume !== undefined) out.autoResume = !!body.autoResume;
   if (body.autoCommit !== undefined) out.autoCommit = !!body.autoCommit;
   if (body.bridgeWaitSeconds !== undefined) out.bridgeWaitSeconds = int(body.bridgeWaitSeconds, '待つ秒数', 10, 600);

@@ -102,3 +102,37 @@ test('ended without a 完了 report is 終了; working and external-working task
   assert.equal(canMarkDone(running), true);
   assert.equal(canMarkDone(task({ status: 'running', origin: 'external' })), false);
 });
+
+// 今の返事: エージェントの文章をそのまま出すので、結果（完了・一部完了…）も「判断が必要」も分からない
+const reply = (patch: Partial<Report> = {}): Report =>
+  ({ request: 'r', outcome: 'unknown', summary: [], changedFiles: [], needsDecision: null, nextStep: null, raw: '直しました。', generatedAt: 1, ...patch });
+
+test('a reply from a Tower task is your turn (判断待ち) until you send, complete or merge', () => {
+  const s = task({ report: reply() });
+  assert.equal(needsYou(s), true);
+  assert.equal(taskState(s), 'decision');
+  assert.equal(stateBadge(s).label, '判断待ち');
+  assert.equal(canMarkDone(s), true);
+  assert.equal(isFinished(s), false);
+  assert.equal(badgeRepeatsReport(s), false);
+  // 失敗で終わった返事も、あなたの番
+  assert.equal(taskState(task({ report: reply({ outcome: 'failed' }) })), 'decision');
+  // 完了にした・取り込んだ・次の指示を送った（作業中）なら外れる
+  assert.equal(needsYou(task({ status: 'done', completedByUser: 5, report: reply() })), false);
+  assert.equal(stateBadge(task({ status: 'done', completedByUser: 5, report: reply() })).label, '✓ 完了');
+  const merged = task({ report: reply(), workspace: { lastMerge: { ok: true, at: 2, message: '' } } as unknown as Session['workspace'] });
+  assert.equal(needsYou(merged), false);
+  assert.equal(taskState(merged), 'merged');
+  assert.equal(needsYou(task({ status: 'running', report: reply(), lastInstructionAt: 5 })), false);
+  assert.equal(needsYou(task({ report: reply(), lastInstructionAt: 5 })), false);
+});
+
+test('replies in VS Code / terminal sessions do not flood the inbox, but their permission requests do', () => {
+  const s = task({ origin: 'external', report: reply() });
+  assert.equal(needsYou(s), false);
+  assert.equal(stateBadge(s).label, '返事あり');
+  assert.equal(isFinished(s), false);
+  assert.equal(canMarkDone(s), true);
+  assert.equal(badgeRepeatsReport(s), true);
+  assert.equal(needsYou(task({ origin: 'external', status: 'waiting_permission', pending: { id: 'p' } as Session['pending'], report: reply() })), true);
+});

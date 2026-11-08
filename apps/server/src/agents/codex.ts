@@ -26,8 +26,7 @@ import { attachmentNote, isInlineImage, publicRefs, type SavedAttachment } from 
 import { CODEX_MISSING, findCodexBin } from '../codex-bin.ts';
 import type { Hub } from '../hub.ts';
 import { describeCommand, firstLine } from '../humanize.ts';
-import { scheduleReformat } from '../reformat.ts';
-import { REPORT_INSTRUCTIONS, fallbackReport, parseReport } from '../report.ts';
+import { instructionLine, replyReport } from '../report.ts';
 import { VERSION } from '../version.ts';
 import { detectVerifyCommand, runVerify } from '../verify.ts';
 import { workspaceNote } from '../worktree.ts';
@@ -127,6 +126,10 @@ export class CodexRunner implements AgentRunner {
   private meter: UsageMeter;
   private browser: TowerBrowser;
   private liveOutput: CodexLiveOutput;
+  /** いまの手番のきっかけになった指示（返事に添える） */
+  private lastInstruction = '';
+  /** 前の返事から後に変えたファイル（返事に添える） */
+  private turnFiles = new Set<string>();
 
   constructor(
     private session: Session,
@@ -313,7 +316,8 @@ export class CodexRunner implements AgentRunner {
   }
 
   private instructions(s: Session): string {
-    const parts = [REPORT_INSTRUCTIONS];
+    // 書き方の注文はしない（出力を変えない）。Tower が用意した作業環境の事実だけ伝える
+    const parts: string[] = [];
     if (process.platform === 'win32') parts.push(
       'WindowsではPowerShellのプロファイルを読み込みません。標準入出力はUTF-8の専用コンソールで実行します。UTF-8のファイルをPowerShellで読む場合はGet-Content -Encoding UTF8を指定してください。読めない出力から内容を推測せず、ファイルの文字コードを明示して再確認してください。依頼されていない文字コード変更や許可方針の変更で回避しないでください。',
     );
@@ -362,6 +366,8 @@ export class CodexRunner implements AgentRunner {
   private flush() {
     if (!this.rpc || !this.threadId || this.turnStarting || this.ended || this.queued.length === 0) return;
     const items = this.queued.splice(0);
+    const last = [...items].reverse().find((m) => !m.asyncQuestionId) ?? items[items.length - 1];
+    if (last) this.lastInstruction = instructionLine(last.text);
     const input = items.flatMap((m) => this.toInput(m.text, m.attachments));
     if (this.turnId) void this.steer(input, items);
     else void this.startTurn(input, items);
@@ -734,6 +740,7 @@ export class CodexRunner implements AgentRunner {
             toolCalls: cur.toolCalls + 1,
             changedFiles: [...new Set([...cur.changedFiles, ...files])],
           });
+          for (const f of files) this.turnFiles.add(f);
         }
         return;
       }
@@ -822,21 +829,18 @@ export class CodexRunner implements AgentRunner {
       return;
     }
 
-    const report = parseReport(this.lastText, cur.prompt) ?? fallbackReport(this.lastText || '(出力なし)', cur.prompt, false);
-    const changed = new Set(cur.changedFiles);
-    const known = new Set(cur.changedFiles.map((f) => path.basename(f)));
-    for (const f of report.changedFiles) if (!known.has(path.basename(f))) changed.add(f);
+    // 返事は書き換えずにそのまま持つ。この手番で変えたファイルを添える
+    const report = replyReport(this.lastText || '(出力なし)', this.lastInstruction || instructionLine(cur.prompt), [...this.turnFiles], false);
+    this.turnFiles = new Set();
     this.hub.update(this.id, {
       status: this.asyncQuestions.length ? 'waiting_question' : 'idle',
-      activity: report.needsDecision ? `判断待ち: ${firstLine(report.needsDecision).slice(0, 60)}` : '指示待ち',
+      activity: '返事が来ました。あなたの番です',
       report,
       turns: cur.turns + 1,
-      changedFiles: [...changed],
       ...this.pendingState(),
       lastError: null,
     });
-    if (changed.size > 0) void this.verify();
-    scheduleReformat(this.hub, this.id, report);
+    if (cur.changedFiles.length > 0) void this.verify();
     this.flush(); // 手番の終わりぎわに来た指示
   }
 

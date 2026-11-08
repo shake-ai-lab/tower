@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { collectChanges } from './diff.ts';
 import { git } from './worktree.ts';
-import { parseReport } from './report.ts';
+import { instructionLine, replyReport } from './report.ts';
 import { assessRisk } from './humanize.ts';
 import { listDir } from './files.ts';
 
@@ -70,13 +70,16 @@ test('changes come from one git diff split per file: renames, deletions, spaces 
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 
-test('report outcome survives trailing punctuation and markdown emphasis', () => {
-  const report = (result: string) => parseReport(`【報告】\n依頼: テスト\n結果: ${result}\nやったこと:\n- 直した\n変更ファイル: なし\n判断が必要: なし\n次の一手: なし`, 'テスト');
-  assert.equal(report('完了')!.outcome, 'done');
-  assert.equal(report('完了。')!.outcome, 'done');
-  assert.equal(report('**完了**')!.outcome, 'done');
-  assert.equal(report('一部完了（テストは未実行）')!.outcome, 'partial');
-  assert.equal(report('質問あり。')!.outcome, 'question');
+test('the reply is kept word for word: no format is read out of it and nothing is rewritten', () => {
+  const text = '## できたこと\n\n`src/app.ts` を直しました。\n\n```ts\nconst a = 1;\n```\n\n【報告】\n結果: 完了';
+  const r = replyReport(text, instructionLine('ボタンを直して\n\n（補足: Tower からのメモ）'), ['C:/p/src/app.ts'], false);
+  assert.equal(r.raw, text);
+  assert.equal(r.request, 'ボタンを直して');
+  assert.equal(r.outcome, 'unknown');
+  assert.deepEqual(r.summary, []);
+  assert.equal(r.needsDecision, null);
+  assert.deepEqual(r.changedFiles, ['C:/p/src/app.ts']);
+  assert.equal(replyReport('止まりました', 'x', [], true).outcome, 'failed');
 });
 
 test('ordinary "format" commands are not flagged as dangerous, formatting a drive is', () => {

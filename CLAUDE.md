@@ -54,7 +54,7 @@ npm run deploy       # 直したものを使う: 画面ビルド → インス�
 - `apps/server/src/worktree.ts` — 別の作業場所（git worktree）の作成・取り込み（merge）・後片付け。cwd は必ず `workDir(session)` で取る。3 日使っていない作業場所はフォルダだけ片付けてブランチは残し（`parkBlocker` が未記録の変更・作業場所にしか無い生成物を見たら残す）、使う時に `manager.ensureWorkspace` が作り直す。作業場所のフォルダに触る API は `hub.get` ではなく `manager.ensureWorkspace` で取る
 - 溜まるものの片付けは `manager.startHousekeeping`: 指示待ちのまま 30 分動きの無いエージェントのプロセスを手放す（`AgentRunner.release`。状態は変えず、次の指示で会話の続きから起動）。エラー・終了したランナーもプロセスごと手放す。報告ごとの自動コミットは 1MB 超のバイナリと 5MB 超のファイルを入れない（`commit.ts`）
 - `apps/server/src/humanize.ts` — ツール呼び出し → 日本語の「今やってること」「許可の見出し」「危険度」。英語の description は使わず、コマンドの中身から日本語を作る（`describeCommand`）
-- `apps/server/src/report.ts` — 【報告】書式（システムプロンプト追記）と、その解析。`apps/server/src/reformat.ts` — 書式が無かった時に Haiku で整形し直す（裏で走らせて差し替え）
+- `apps/server/src/report.ts` — 手番の終わりの返事（`replyReport`）。**Claude の出力は変えない**: 書式・書き方の注文はしない（システムプロンプトに足すのは作業場所・自動コミット・撮影という環境の事実だけ）、返事は書き換えず `Report.raw` にそのまま持つ（以前の【報告】書式と Haiku の整形はやめた。`outcome` などの欄は古い記録の分）。完了か判断が要るかは読み取らず、返事が来た Tower のタスクは「あなたの番」（判断待ち）になる（画面の `task-state.ts`）。Tower が添えるのは横の情報（変えたファイル・画像・スクリーンショット・裏取り・取り込み）だけ
 - `apps/server/src/files.ts` — 画面からの直接編集（Monaco）の読み書きとエクスプローラ（tree）。作業フォルダの外は拒否。保存後の後始末は `manager.manualEdit`（次の指示に補足を付ける）。`search.ts` — ファイル名で開く用の全ファイル一覧と全体検索（.gitignore に従う）、変わった行の印
 - `apps/server/src/attachments.ts` — 指示に添えた画像・ファイル。`~/.tower/attachments/<id>/` に保存（作業フォルダの外なので差分・取り込みに混ざらない）。画像は会話にそのまま載せ、それ以外は保存場所を指示に書き添えて読ませる（`additionalDirectories` で読めるようにしている）。画面側は `components/Attachments.tsx`（貼り付け・ドラッグ・ボタン）
 - `apps/server/src/janitor.ts` — 動きの無い外部セッションの自動掃除
@@ -74,6 +74,6 @@ npm run deploy       # 直したものを使う: 画面ビルド → インス�
 - **翻訳はサーバーでやる。** フロントはエージェントの生イベントを知らない。新しい表示が欲しければ `Session` か `TimelineItem` に項目を足す
 - **集計もサーバーでやる。** 使った量は SQLite の台帳（`GET /api/usage`）から出す。画面でセッションから足し算しない（消したら減る）
 - 許可要求と AskUserQuestion は SDK の `canUseTool` 経由で来る。回答は `resolvers` の Promise を解決して返す
-- 状態遷移: `starting → running ⇄ waiting_permission | waiting_question → idle（報告あり）→ (追加指示で running) / done / error / stopped`
+- 状態遷移: `starting → running ⇄ waiting_permission | waiting_question → idle（返事あり＝あなたの番）→ (追加指示で running) / done / error / stopped`
 - 認証は手元の Claude Code ログイン（Max）。`env` から `CLAUDECODE` を消してから子プロセスを起動する（入れ子判定回避）
 - ロードマップと決定事項は `docs/DESIGN.md`。編集領域の操作は `docs/editor-workspace.md`。開発の進め方（役割分担）は `AGENTS.md` と `docs/agent-loop/learning-log.md`

@@ -181,7 +181,7 @@ async function step(tr: Track, s: Session) {
 
   if (s.status === 'idle' && s.report && !tr.reports.some((r) => r.r.generatedAt === s.report!.generatedAt)) {
     tr.reports.push({ t: now(), r: s.report });
-    console.log(`  [${tr.sc.key}] 報告: ${s.report.outcome} / ${s.report.summary[0] ?? '(要約なし)'}`);
+    console.log(`  [${tr.sc.key}] 返事: ${(s.report.raw.split(/\r?\n/).find((l) => l.trim()) ?? '(空)').slice(0, 80)}`);
     const next = tr.sc.followUps?.[tr.followUpIndex];
     if (next) {
       tr.followUpIndex++;

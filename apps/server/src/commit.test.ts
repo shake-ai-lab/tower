@@ -40,6 +40,11 @@ const report = (patch: Partial<Report> = {}): Report => ({
   needsDecision: null, nextStep: null, raw: '', generatedAt: 1, ...patch,
 });
 
+test('commit message for a plain reply: the instruction, then the opening of the reply without code blocks', () => {
+  const reply = report({ request: 'ボタンを青にして', outcome: 'unknown', summary: [], raw: 'ボタンを青にしました。\n\n```css\n.btn { color: blue }\n```\n\n- 押した時の色も合わせました' });
+  assert.equal(commitMessage(session('/p'), reply), `ボタンを青にして\n\nボタンを青にしました。\n- 押した時の色も合わせました\n\nTower-Task: ${ID}`);
+});
+
 test('commit message: what was asked, what was done, and the task mark on the last line', () => {
   const msg = commitMessage(session('/p'), report());
   assert.equal(msg, `ボタンの色を青にする\n\n- ボタンを青にした\n- 押した時の色も合わせた\n\nTower-Task: ${ID}`);

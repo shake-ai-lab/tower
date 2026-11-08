@@ -12,13 +12,13 @@ import { SessionCard } from './components/SessionCard';
 import { SessionDetail } from './components/SessionDetail';
 import { UsageMenu } from './components/UsageMenu';
 import { MultiSessionView } from './components/MultiSessionView';
-import { btn, loadLocal, needsYou, projectStyle, saveLocal, useDesktop, useTick } from './lib';
-import { isFinished, stateBadge } from './task-state';
+import { btn, loadLocal, needsYou, projectStyle, replyExcerpt, saveLocal, useDesktop, useTick } from './lib';
+import { isFinished, isStructuredReport, stateBadge } from './task-state';
 import { useStore } from './store';
 import { projectKey } from './project-key';
 import { CHAT_SIDE_WIDTH, SEGMENTS, describeLayout, openTask, segmentOf, useLayout, type Segment } from './layout';
 
-// 並び順: 人を待っているもの → 作業中 → 報告あり → その他。同順位は新しい順
+// 並び順: 人を待っているもの → 作業中 → 返事あり → その他。同順位は新しい順
 const ORDER: Record<SessionStatus, number> = {
   waiting_permission: 0,
   waiting_question: 0,
@@ -31,14 +31,15 @@ const ORDER: Record<SessionStatus, number> = {
   done: 4,
 };
 
-/** 判断待ちの「どれ」を知らせたか。許可・質問はその要求、報告の判断はその報告ごと */
+/** 判断待ちの「どれ」を知らせたか。許可・質問はその要求、返事はその返事ごと */
 const needsYouKey = (s: Session) => (s.pending ? s.pending.id : `${s.id}:${s.report?.generatedAt ?? 0}`);
 
 function notify(s: Session) {
   if (!('Notification' in window) || Notification.permission !== 'granted' || !needsYou(s)) return;
   const p = s.pending;
-  const title = `${s.project.name}: ${!p ? '判断が必要です' : p.kind === 'permission' ? '許可待ち' : '質問があります'}`;
-  const body = !p ? (s.report?.needsDecision ?? s.report?.summary[0] ?? '') : p.kind === 'permission' ? p.headline : p.kind === 'form' ? `${p.serverName}から入力の依頼があります` : (p.questions[0]?.question ?? '');
+  const decision = !!s.report && isStructuredReport(s.report) && !!s.report.needsDecision;
+  const title = `${s.project.name}: ${!p ? (decision ? '判断が必要です' : '返事が来ました') : p.kind === 'permission' ? '許可待ち' : '質問があります'}`;
+  const body = !p ? (s.report ? replyExcerpt(s.report) : '') : p.kind === 'permission' ? p.headline : p.kind === 'form' ? `${p.serverName}から入力の依頼があります` : (p.questions[0]?.question ?? '');
   try {
     new Notification(title, { body, tag: needsYouKey(s) });
   } catch {
@@ -146,7 +147,7 @@ export default function App() {
 
   const list = useMemo(
     () => {
-      // 報告で判断を求めて止まっているもの（idle）も、許可・質問と同じく先頭へ。報告が「完了」のものは終わったものと同じ所へ
+      // 返事をしてあなたの番になっているもの（idle）も、許可・質問と同じく先頭へ。以前の報告で「完了」のものは終わったものと同じ所へ
       const rank = (s: Session) => (needsYou(s) ? 0 : s.status === 'idle' && isFinished(s) ? ORDER.done : ORDER[s.status]);
       return Object.values(sessions).sort((a, b) => rank(a) - rank(b) || b.updatedAt - a.updatedAt);
     },
@@ -215,7 +216,7 @@ export default function App() {
   }, [Object.keys(sessions).length]);
 
   // 新しく判断待ちになったものだけ通知する
-  // 報告の判断は保存されて残るので、開き直すたびに古いものを知らせないよう、来たばかりのものだけにする
+  // 返事は保存されて残るので、開き直すたびに古いものを知らせないよう、来たばかりのものだけにする
   const seen = useRef(new Set<string>());
   useEffect(() => {
     for (const s of list) {
@@ -383,7 +384,7 @@ export default function App() {
                         (e.target as HTMLInputElement).blur();
                       }
                     }}
-                    placeholder="履歴を検索（プロジェクト名・依頼・報告の言葉。/ で移動）"
+                    placeholder="履歴を検索（プロジェクト名・依頼・返事の言葉。/ で移動）"
                     className="flex-1 min-w-0 basis-48 max-w-[520px] bg-zinc-900 border border-zinc-800 rounded-md px-3 py-1.5 text-sm placeholder:text-zinc-600 focus:outline-none focus:border-sky-600"
                   />
                   <select

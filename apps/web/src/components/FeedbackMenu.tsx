@@ -12,7 +12,7 @@ const KIND_CLS: Record<FeedbackKind, string> = {
 
 const PLACEHOLDER: Record<FeedbackKind, string> = {
   complaint: '例: 許可のカードの文字が小さくて読みにくい',
-  request: '例: 報告が来たら音でも知らせてほしい',
+  request: '例: 返事が来たら音でも知らせてほしい',
   bug: '例: 「取り込む」を押しても何も起きなかった',
   praise: '例: 修正前と修正後の対比が分かりやすい',
 };

@@ -56,7 +56,7 @@ const WORKING: SessionStatus[] = ['starting', 'running', 'waiting_permission', '
 
 /** 再起動後の自動再開でエージェントに送る指示（利用者が書いたのではないと分かる書き出しにする） */
 export const AUTO_RESUME_MESSAGE =
-  '（Tower からの自動メッセージ）Tower が再起動したため、作業が途中で止まりました。止まったところから続けてください。直前に許可や質問を待っていたなら、もう一度聞いてください。作業がすでに終わっていれば、報告だけ書いてください。';
+  '（Tower からの自動メッセージ）Tower が再起動したため、作業が途中で止まりました。止まったところから続けてください。直前に許可や質問を待っていたなら、もう一度聞いてください。作業がすでに終わっていれば、そう伝えてください。';
 
 /** 自動再開の連続回数の上限。これ以上は利用者の指示を待つ（再起動ループの歯止め） */
 const AUTO_RESUME_LIMIT = 1;
@@ -65,7 +65,7 @@ const AUTO_RESUME_LIMIT = 1;
 const AUTO_RESUME_GAP_MS = 1500;
 
 /** 報告の結果を日本語で（手で完了にした時の年表用） */
-const REPORT_LABEL: Record<ReportOutcome, string> = { done: '完了', partial: '一部完了', failed: '失敗', question: '質問あり', unknown: '報告' };
+const REPORT_LABEL: Record<ReportOutcome, string> = { done: '完了', partial: '一部完了', failed: '失敗', question: '質問あり', unknown: '返事' };
 
 /** 中断直前の状態を日本語で */
 const STATUS_LABEL: Partial<Record<SessionStatus, string>> = {
@@ -302,7 +302,7 @@ export class SessionManager {
       if (!s.verification.ok) {
         this.autoMerged.set(s.id, at);
         if (retry) {
-          const message = '元のプロジェクトの変更と合わせた後の裏取り（自動チェック）が通らなかったので、取り込みませんでした。報告を確認してください。このままでよければ「取り込む」を押すと取り込めます';
+          const message = '元のプロジェクトの変更と合わせた後の裏取り（自動チェック）が通らなかったので、取り込みませんでした。返事を確認してください。このままでよければ「取り込む」を押すと取り込めます';
           this.hub.update(s.id, { workspace: { ...ws, mergeFix: null, lastMerge: { at: Date.now(), ok: false, message } } });
           this.note(s.id, 'system', message);
         } else {
@@ -386,7 +386,7 @@ export class SessionManager {
     this.hub.add(session);
     if (isolated) {
       const shared = isolated.linked.length ? `。依存パッケージ（node_modules）は元のプロジェクトと共有` : '';
-      const auto = body.autoMerge ? '。報告が「完了」で裏取りが通れば自動で取り込みます' : '';
+      const auto = '';
       this.note(
         id,
         'system',
@@ -548,7 +548,7 @@ export class SessionManager {
     }
     if (s.baseline && s.baseline.ok === false && !s.baselineNoted) {
       const names = s.baseline.failed?.length ? `（失敗していたテスト: ${s.baseline.failed.slice(0, 5).join('、')}）` : '';
-      message += `\n\n（補足: このプロジェクトは作業前の時点で自動チェック「${s.baseline.command}」が失敗していました${names}。あなたの変更が原因でない失敗は、報告でそう書いてください。依頼の範囲外なら、直すかどうかを平易な言葉で一言だけ聞いてください）`;
+      message += `\n\n（補足: このプロジェクトは作業前の時点で自動チェック「${s.baseline.command}」が失敗していました${names}。あなたの変更が原因でない失敗は、そう伝えてください。依頼の範囲外なら、直すかどうか聞いてください）`;
       patch.baselineNoted = true;
     }
     // 利用者の指示は「中断」の印を消し、自動再開の連続回数も 0 に戻す（自動再開の時は resumeInterrupted 側で消す）
@@ -600,7 +600,7 @@ export class SessionManager {
     const s = this.ensureWorkspace(id);
     if (!s) throw new Error('セッションが見つかりません');
     if (WORKING.includes(s.status)) {
-      throw new Error('エージェントが作業中はファイルを編集できません。報告が来るか、停止してから編集してください');
+      throw new Error('エージェントが作業中はファイルを編集できません。返事が来るか、停止してから編集してください');
     }
     if (s.workspace && !fs.existsSync(s.workspace.path)) throw new Error('分離した作業場所のフォルダが見つかりません');
     return workDir(s);
@@ -719,7 +719,8 @@ export class SessionManager {
     }
     const next = this.hub.update(id, { status: 'done', activity: '完了にしました', pending: null, pendingCount: 0, interrupted: null, completedByUser: Date.now() });
     if (!next) throw new Error('セッションが削除されました');
-    const outcome = s.report ? `（その時の報告: ${REPORT_LABEL[s.report.outcome]}）` : '';
+    // 今の返事には「結果」が無い（書式を頼まない）。古い記録の時だけ添える
+    const outcome = s.report && s.report.outcome !== 'unknown' ? `（その時の報告: ${REPORT_LABEL[s.report.outcome]}）` : '';
     this.note(id, 'system', `「完了」にしました${outcome}`, s.agentSessionId ? '続きの指示を送れば、また再開できます' : undefined);
     return next;
   }
@@ -749,7 +750,7 @@ export class SessionManager {
     if (!s) throw new Error('セッションが見つかりません');
     if (!s.workspace) throw new Error('このセッションは別の作業場所を使っていません（プロジェクトのフォルダで直接作業しています）');
     if (WORKING.includes(s.status)) {
-      throw new Error('作業中は取り込めません。報告が来るまで待つか、停止してから取り込んでください');
+      throw new Error('作業中は取り込めません。返事が来るまで待つか、停止してから取り込んでください');
     }
     // この報告ではもう取り込みを試した（押した後の更新で自動取り込みがもう一度走らないように）
     if (s.report) this.autoMerged.set(id, s.report.generatedAt);
@@ -758,10 +759,10 @@ export class SessionManager {
     let fixPrompt: string | null = null;
     if (r.reason === 'conflict' || r.reason === 'unresolved') {
       if (via === 'retry') {
-        message += '\nAI に合わせてもらいましたが、まだ合流できていません。報告を確認してから、もう一度「取り込む」を押してください（押すと、また AI に合わせてもらいます）。';
+        message += '\nAI に合わせてもらいましたが、まだ合流できていません。返事を確認してから、もう一度「取り込む」を押してください（押すと、また AI に合わせてもらいます）。';
       } else if (s.agentSessionId) {
         fixPrompt = mergeFixPrompt(originalRef(s.project.path), r.reason === 'unresolved');
-        message += '\nAI に、元のプロジェクトの変更と合わせて直すよう頼みました。直った報告が来たら、Tower がもう一度取り込みます。';
+        message += '\nAI に、元のプロジェクトの変更と合わせて直すよう頼みました。直したという返事が来たら、Tower がもう一度取り込みます。';
       } else {
         message += '\nこのタスクに「元のプロジェクトの変更を取り込んで、競合を直して」と指示してから、もう一度「取り込む」を押してください。';
       }

@@ -103,20 +103,26 @@ export type PendingRequest = PendingPermission | PendingQuestion | PendingForm;
 
 export type ReportOutcome = 'done' | 'partial' | 'failed' | 'question' | 'unknown';
 
-/** エージェントの最終出力を「判断できる形」に翻訳したもの */
+/**
+ * 手番の終わりに来たエージェントの返事。Tower は書き換えない: raw が返事そのもの（Markdown）。
+ * 今の返事は outcome = 'unknown'（エラーで終わった時は 'failed'）・summary = []・needsDecision / nextStep = null。
+ * outcome / summary / needsDecision / nextStep / details は、以前の版で【報告】の書式から読み取っていた古い記録の分
+ */
 export interface Report {
+  /** その手番のきっかけになった指示（1 行目） */
   request: string;
   outcome: ReportOutcome;
   summary: string[];
+  /** この手番で変えたファイル */
   changedFiles: string[];
   needsDecision: string | null;
   nextStep: string | null;
-  /** 決まった欄の外に書かれていた補足（一覧や説明）。「判断が必要」が「上の〜」と指す中身はここに入る */
+  /** 決まった欄の外に書かれていた補足（古い記録だけ） */
   details?: string;
-  /** 整形前の原文 */
+  /** エージェントの返事そのもの */
   raw: string;
   generatedAt: number;
-  /** true = 決まった書式が無かったので Tower が AI（Haiku）で原文から整形した */
+  /** 以前の版で、Tower が AI（Haiku）で原文から整形したもの（今は整形しない。古い記録の表示用） */
   reformatted?: boolean;
 }
 
@@ -608,8 +614,6 @@ export interface TowerSettings {
   autoVerify: boolean;
   /** VS Code 連携で許可を Tower で答える時、何秒待ってから元の画面に任せるか */
   bridgeWaitSeconds: number;
-  /** 報告に決まった書式が無かった時、Haiku で読みやすく整形し直す */
-  reformatReports: boolean;
   /** VS Code / ターミナルのセッションを、最後の動きから何時間で一覧から自動で消すか（0 = 消さない） */
   externalKeepHours: number;
   /** 画面の「気づいたこと」を溜める Markdown */

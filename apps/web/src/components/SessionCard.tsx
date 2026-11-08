@@ -1,6 +1,6 @@
 // フリート（一覧）の 1 枚。ふつうのカードと、1 行に詰めたコンパクト表示の 2 種類
 import type { Session } from '@tower/shared';
-import { OUTCOME, STATUS, fmtElapsed, fmtUsd, needsYou, projectStyle, verifyBadge } from '../lib';
+import { OUTCOME, STATUS, fmtElapsed, fmtUsd, needsYou, projectStyle, replyExcerpt, verifyBadge } from '../lib';
 import { badgeRepeatsReport, reportContext, reportIsStale } from '../task-state';
 import { SessionTags, StatusBadge, agentLabel } from './SessionBadges';
 
@@ -41,9 +41,9 @@ function CompactCard({ s, selected, onClick }: CardProps) {
 function FullCard({ s, selected, onClick }: CardProps) {
   const st = STATUS[s.status];
   const frame = selected ? 'border-sky-500' : st.attention || needsYou(s) ? 'border-amber-400/70 attention' : st.working ? 'working-card' : 'border-zinc-800';
-  // 作業中・許可や質問の待ちの間は、前の回の報告（「質問あり」など）を出さない。今の状態と食い違って見える
+  // 作業中・許可や質問の待ちの間は、前の回の返事を出さない。今の状態と食い違って見える
   const showReport = !!s.report && !reportIsStale(s) && !st.working && !s.pending;
-  // 報告を受けて止まっている時は、報告の 1 行が今の様子を表す（「指示待ち」「判断待ち: …」と同じことを 2 度書かない）
+  // 返事を受けて止まっている時は、返事の 1 行が今の様子を表す（「指示待ち」「判断待ち: …」と同じことを 2 度書かない）
   const showActivity = !(showReport && (s.status === 'idle' || s.status === 'done'));
   return (
     <button
@@ -82,20 +82,23 @@ function FullCard({ s, selected, onClick }: CardProps) {
   );
 }
 
-/** 報告の要点 1 行: 結果の札（上の状態の札と同じなら省く）・自動チェックの札・判断してほしいこと（無ければ要約の先頭） */
+/**
+ * 返事の要点 1 行: 結果の札（以前の決まった書式の報告だけ。上の状態の札と同じなら省く）・自動チェックの札・
+ * 返事の最初の 1 行（以前の報告は、判断してほしいこと → やったことの先頭）
+ */
 function ReportLine({ s, report }: { s: Session; report: NonNullable<Session['report']> }) {
   const outcome = OUTCOME[report.outcome];
   const vb = verifyBadge(s);
   return (
     <div className="text-xs text-zinc-300 flex flex-wrap items-start gap-2 min-w-0">
-      {!badgeRepeatsReport(s) && <span className={`px-1.5 py-0.5 rounded shrink-0 ${outcome.cls}`}>{outcome.label}</span>}
+      {report.outcome !== 'unknown' && !badgeRepeatsReport(s) && <span className={`px-1.5 py-0.5 rounded shrink-0 ${outcome.cls}`}>{outcome.label}</span>}
       {vb && (
         <span title={`自動チェック: ${s.verification?.command}`} className={`px-1.5 py-0.5 rounded shrink-0 ${vb.cls}`}>
           {vb.text}
         </span>
       )}
       {/* 取り込み済みなら「判断が必要」はもう済んでいるので、やったことの 1 行目を出す */}
-      <span className="line-clamp-2 break-words [overflow-wrap:anywhere]">{(reportContext(s) === 'current' ? report.needsDecision : null) ?? report.summary[0] ?? ''}</span>
+      <span className="line-clamp-2 break-words [overflow-wrap:anywhere]">{replyExcerpt(report, reportContext(s) === 'current')}</span>
     </div>
   );
 }

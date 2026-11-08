@@ -1,4 +1,4 @@
-// 右に並べる「チャット」: 選んだタスクのやりとり（報告・経過）と指示欄。中央がファイル・カード・4分割…の何であっても同じものを出す。
+// 右に並べる「チャット」: 選んだタスクのやりとり（返事・経過）と指示欄。中央がファイル・カード・4分割…の何であっても同じものを出す。
 // 出し入れは上の「チャット」ボタン・ここの ✕・Ctrl+Alt+B（layout.ts）
 import { useEffect, useRef, useState } from 'react';
 import type { Session } from '@tower/shared';

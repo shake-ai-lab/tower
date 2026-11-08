@@ -108,7 +108,7 @@ export const api = {
   saveSettings: (body: Partial<TowerSettings>) => req<SettingsStatus>('/api/settings', { method: 'PUT', body: JSON.stringify(body) }),
   saveFile: (id: string, body: SaveFileBody) =>
     req<{ ok: true; path: string }>(`/api/sessions/${id}/file`, { method: 'PUT', body: JSON.stringify(body) }),
-  config: () => req<{ externalKeepHours?: number; reformatReports?: boolean }>('/api/config'),
+  config: () => req<{ externalKeepHours?: number }>('/api/config'),
   bridge: () => req<BridgeStatus>('/api/bridge'),
   setBridge: (body: { enabled: boolean; permissions: boolean }) =>
     req<BridgeStatus>('/api/bridge', { method: 'POST', body: JSON.stringify(body) }),
